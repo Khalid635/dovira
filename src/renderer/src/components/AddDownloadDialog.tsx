@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { AddOptions } from '../../../main/types'
 import { useStore, useT } from '../store'
 import { formatBytes, formatEta } from '../util/format'
+import { IconAlert, IconClose, IconFolder } from './icons'
 
 const HEIGHTS = [2160, 1080, 720, 480, 360]
 const BITRATES = ['320', '192', '128']
@@ -234,8 +235,13 @@ export default function AddDownloadDialog(): React.JSX.Element {
       >
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-semibold">{t('dialog.title')}</h2>
-          <button className="btn btn-ghost btn-sm" onClick={closeDialog} aria-label="Close">
-            ✕
+          <button
+            className="icon-btn"
+            onClick={closeDialog}
+            aria-label="Close"
+            title={t('dialog.cancel')}
+          >
+            <IconClose size={15} />
           </button>
         </div>
 
@@ -257,6 +263,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
 
         {dialogLoading && (
           <div className="mt-4 space-y-2">
+            <div className="h-[90px] w-[160px] animate-pulse rounded-lg bg-[var(--surface-2)]" />
             <div className="h-4 w-3/4 animate-pulse rounded bg-[var(--surface-2)]" />
             <div className="h-4 w-1/2 animate-pulse rounded bg-[var(--surface-2)]" />
             <div className="mt-2 text-[13px] text-[var(--muted)]">{t('dialog.loading')}</div>
@@ -268,7 +275,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
 
         {dialogError && !dialogLoading && (
           <div className="mt-4">
-            <div className="text-[13px] text-[var(--danger)]">{t(errorKey(dialogError))}</div>
+            <div className="flex items-start gap-2 text-[13px] text-[var(--danger)]">
+              <IconAlert size={15} className="mt-0.5 shrink-0" />
+              <span>{t(errorKey(dialogError))}</span>
+            </div>
             <div className="mt-1 text-[11px] text-[var(--muted)]">
               {`code: ${dialogError}`}
               {dialogErrorDetail ? ` — ${dialogErrorDetail}` : ''}
@@ -283,20 +293,30 @@ export default function AddDownloadDialog(): React.JSX.Element {
           <div className="mt-4">
             <div className="flex gap-3">
               {dialogInfo.thumbnail && (
-                <img
-                  src={dialogInfo.thumbnail}
-                  alt=""
-                  className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
-                  onError={(e) => {
-                    ;(e.target as HTMLImageElement).style.display = 'none'
-                  }}
-                />
+                <div className="relative h-[90px] w-[160px] shrink-0">
+                  <img
+                    src={dialogInfo.thumbnail}
+                    alt=""
+                    className="thumb h-full w-full"
+                    onError={(e) => {
+                      ;(e.target as HTMLImageElement).style.display = 'none'
+                    }}
+                  />
+                  {dialogInfo.duration !== null && (
+                    <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white">
+                      {formatEta(dialogInfo.duration)}
+                    </span>
+                  )}
+                </div>
               )}
               <div className="min-w-0">
-                <div className="truncate text-[14px] font-medium" title={dialogInfo.title}>
+                <div
+                  className="line-clamp-2 text-[15px] font-semibold leading-snug"
+                  title={dialogInfo.title}
+                >
                   {dialogInfo.title}
                 </div>
-                <div className="mt-0.5 text-[12px] text-[var(--muted)]">
+                <div className="mt-1 text-[12px] text-[var(--muted)]">
                   {dialogInfo.duration !== null ? `${formatEta(dialogInfo.duration)}  ·  ` : ''}
                   {dialogInfo.uploader ?? ''}
                   {dialogInfo.site ? `  ·  ${dialogInfo.site}` : ''}
@@ -304,15 +324,15 @@ export default function AddDownloadDialog(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2" role="tablist">
+            <div className="seg-tabs mt-4" role="tablist">
               <button
-                className={`btn btn-sm ${tab === 'video' ? 'btn-primary' : ''}`}
+                className={`seg-tab ${tab === 'video' ? 'seg-tab-active' : ''}`}
                 onClick={() => setTab('video')}
               >
                 {t('dialog.video')}
               </button>
               <button
-                className={`btn btn-sm ${tab === 'audio' ? 'btn-primary' : ''}`}
+                className={`seg-tab ${tab === 'audio' ? 'seg-tab-active' : ''}`}
                 onClick={() => setTab('audio')}
               >
                 {t('dialog.audio')}
@@ -327,7 +347,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
                 {rows.map((r) => (
                   <label
                     key={r.height}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-[13px]"
+                    className={`quality-row flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-[13px] ${
+                      height === r.height ? 'quality-row-selected' : ''
+                    }`}
                   >
                     <input
                       type="radio"
@@ -337,6 +359,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
                     />
                     <span className="font-medium">{r.height}p</span>
                     <span className="text-[var(--muted)]">MP4</span>
+                    {r.height === defaultHeight && (
+                      <span className="badge badge-downloading">{t('card.recommended')}</span>
+                    )}
                     <span className="flex-1" />
                     <span className="tabular-nums text-[var(--muted)]">
                       {r.size ? `~${formatBytes(r.size)}` : t('dialog.unknownSize')}
@@ -380,7 +405,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
                 {BITRATES.map((b) => (
                   <label
                     key={b}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-[13px]"
+                    className={`quality-row flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-[13px] ${
+                      bitrate === b ? 'quality-row-selected' : ''
+                    }`}
                   >
                     <input
                       type="radio"
@@ -396,7 +423,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
             )}
 
             <div className="mt-4 flex items-center gap-2 text-[13px]">
-              <span className="shrink-0 text-[var(--muted)]">{t('dialog.saveTo')}:</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[var(--muted)]">
+                <IconFolder size={14} />
+                {t('dialog.saveTo')}:
+              </span>
               <span className="min-w-0 flex-1 truncate" title={savePath}>
                 {savePath}
               </span>
@@ -417,7 +447,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
               {dialogPlainFile.contentType ? `  ·  ${dialogPlainFile.contentType}` : ''}
             </div>
             <div className="flex items-center gap-2 pt-1">
-              <span className="shrink-0 text-[var(--muted)]">{t('dialog.saveTo')}:</span>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[var(--muted)]">
+                <IconFolder size={14} />
+                {t('dialog.saveTo')}:
+              </span>
               <span className="min-w-0 flex-1 truncate" title={savePath}>
                 {savePath}
               </span>

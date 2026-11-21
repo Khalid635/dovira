@@ -36,7 +36,7 @@
   --bg: #f7f8fa;
   --surface: #ffffff;
   --surface-2: #f0f2f5;
-  --border: #e2e5ea;
+  --border: #e5e8ec;
   --text: #111827;
   --muted: #6b7280;
   --accent: #3b6fe0;
@@ -45,6 +45,14 @@
   --warning: #d97706;
   --danger: #dc2626;
   color-scheme: light;
+}
+
+[data-theme='light'] .card {
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.05);
+}
+
+[data-theme='light'] .btn-primary {
+  box-shadow: 0 1px 3px rgb(59 111 224 / 0.35);
 }
 
 html,
@@ -221,7 +229,8 @@ select.input {
 }
 
 .nav-item-active {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
   font-weight: 600;
 }
 
@@ -287,4 +296,260 @@ select.input {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------- UI polish: toolbar, icon buttons, list, dialogs ---------- */
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease-out;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-btn-accent {
+  color: var(--accent);
+}
+
+.icon-btn-accent:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+
+.icon-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+/* Download list grid — the list header and every card row share these
+   columns, so Name / Size / Status / Speed + ETA line up like IDM's table. */
+.dl-grid {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 88px 96px 148px 92px;
+  gap: 12px;
+  align-items: center;
+}
+
+.list-header {
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.card-download {
+  transition:
+    border-color 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.card-download:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.card-download-expanded {
+  border-left: 3px solid var(--accent);
+}
+
+.thumb {
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--surface-2);
+  padding: 1px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--muted);
+}
+
+/* Segmented tabs (Add Download dialog: Video / Audio). */
+.seg-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.seg-tab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.seg-tab:hover {
+  color: var(--text);
+}
+
+.seg-tab-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Quality rows in the Add Download dialog. */
+.quality-row {
+  transition: border-color 120ms ease-out;
+}
+
+.quality-row:hover {
+  border-color: var(--accent);
+}
+
+.quality-row-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Sidebar section labels ("Downloads" / "Media"). */
+.sidebar-section {
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Settings two-pane: section header row + divider-separated fields. */
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-field {
+  padding: 12px 0;
+}
+
+.settings-field + .settings-field {
+  border-top: 1px solid var(--border);
+}
+
+.settings-field:last-child {
+  padding-bottom: 0;
+}
+
+/* Toggle switch (reserved for future settings — existing checkboxes are
+   untouched in this pass). */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: background 120ms ease-out;
+}
+
+.switch .switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: transform 120ms ease-out;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+  background: #fff;
 }

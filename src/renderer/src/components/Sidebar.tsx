@@ -1,10 +1,23 @@
+import type { ComponentType } from 'react'
 import logo from '../assets/logo.png'
 import { useStore, useT, type Filter } from '../store'
 import type { DownloadInfo } from '../../../main/types'
+import {
+  IconAll,
+  IconAudio,
+  IconCheckCircle,
+  IconClock,
+  IconDownload,
+  IconFile,
+  IconSettings,
+  IconVideo,
+  type IconProps
+} from './icons'
 
 interface NavItem {
   key: Filter | 'history' | 'settings'
   labelKey: string
+  icon: ComponentType<IconProps>
   count?: number
   disabled?: boolean
   disabledHintKey?: string
@@ -40,62 +53,103 @@ export default function Sidebar(): React.JSX.Element {
   const setFilter = useStore((s) => s.setFilter)
   const setView = useStore((s) => s.setView)
 
-  const items: NavItem[] = [
-    { key: 'all', labelKey: 'sidebar.all', count: countFor(downloads, 'all') },
+  const downloadItems: NavItem[] = [
+    { key: 'all', labelKey: 'sidebar.all', icon: IconAll, count: countFor(downloads, 'all') },
     {
       key: 'downloading',
       labelKey: 'sidebar.downloading',
+      icon: IconDownload,
       count: countFor(downloads, 'downloading')
     },
-    { key: 'queued', labelKey: 'sidebar.queued', count: countFor(downloads, 'queued') },
-    { key: 'completed', labelKey: 'sidebar.completed', count: countFor(downloads, 'completed') },
-    { key: 'video', labelKey: 'sidebar.video', count: countFor(downloads, 'video') },
-    { key: 'audio', labelKey: 'sidebar.audio', count: countFor(downloads, 'audio') },
-    { key: 'files', labelKey: 'sidebar.files', count: countFor(downloads, 'files') },
+    {
+      key: 'queued',
+      labelKey: 'sidebar.queued',
+      icon: IconClock,
+      count: countFor(downloads, 'queued')
+    },
+    {
+      key: 'completed',
+      labelKey: 'sidebar.completed',
+      icon: IconCheckCircle,
+      count: countFor(downloads, 'completed')
+    }
+  ]
+
+  const mediaItems: NavItem[] = [
+    {
+      key: 'video',
+      labelKey: 'sidebar.video',
+      icon: IconVideo,
+      count: countFor(downloads, 'video')
+    },
+    {
+      key: 'audio',
+      labelKey: 'sidebar.audio',
+      icon: IconAudio,
+      count: countFor(downloads, 'audio')
+    },
+    {
+      key: 'files',
+      labelKey: 'sidebar.files',
+      icon: IconFile,
+      count: countFor(downloads, 'files')
+    },
     {
       key: 'history',
       labelKey: 'sidebar.history',
+      icon: IconClock,
       disabled: true,
       disabledHintKey: 'sidebar.historySoon'
     }
   ]
 
+  const renderItems = (items: NavItem[]): React.JSX.Element[] =>
+    items.map((item) => {
+      const active = view === 'home' && filter === item.key
+      const ItemIcon = item.icon
+      return (
+        <button
+          key={item.key}
+          disabled={item.disabled}
+          title={item.disabled && item.disabledHintKey ? t(item.disabledHintKey) : undefined}
+          onClick={() => {
+            setView('home')
+            setFilter(item.key as Filter)
+          }}
+          className={`nav-item ${active ? 'nav-item-active' : ''} ${item.disabled ? 'opacity-45' : ''}`}
+        >
+          <ItemIcon size={15} />
+          <span className="flex-1 text-left">{t(item.labelKey)}</span>
+          {typeof item.count === 'number' && (
+            <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] tabular-nums text-[var(--muted)]">
+              {item.count}
+            </span>
+          )}
+          {item.disabled && <span className="text-[11px] text-[var(--muted)]">Phase 3</span>}
+        </button>
+      )
+    })
+
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]">
       <div className="flex items-center gap-2 px-4 pb-3 pt-4">
         <img src={logo} alt="DOVIRA" className="h-8 w-8 rounded-lg" />
-        <div>
+        <div className="min-w-0">
           <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
           <div className="text-[11px] leading-tight text-[var(--muted)]">
             v{appInfo?.version ?? '0.1.0'} · Phase 2
           </div>
+          <div className="truncate text-[10px] leading-tight text-[var(--muted)]">
+            {t('app.tagline')}
+          </div>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 px-2 py-2">
-        {items.map((item) => {
-          const active = view === 'home' && filter === item.key
-          return (
-            <button
-              key={item.key}
-              disabled={item.disabled}
-              title={item.disabled && item.disabledHintKey ? t(item.disabledHintKey) : undefined}
-              onClick={() => {
-                setView('home')
-                setFilter(item.key as Filter)
-              }}
-              className={`nav-item ${active ? 'nav-item-active' : ''} ${item.disabled ? 'opacity-45' : ''}`}
-            >
-              <span className="flex-1 text-left">{t(item.labelKey)}</span>
-              {typeof item.count === 'number' && (
-                <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                  {item.count}
-                </span>
-              )}
-              {item.disabled && <span className="text-[11px] text-[var(--muted)]">Phase 3</span>}
-            </button>
-          )
-        })}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
+        <div className="sidebar-section">{t('sidebar.sectionDownloads')}</div>
+        {renderItems(downloadItems)}
+        <div className="sidebar-section">{t('sidebar.sectionMedia')}</div>
+        {renderItems(mediaItems)}
       </nav>
 
       <div className="border-t border-[var(--border)] p-2">
@@ -103,6 +157,7 @@ export default function Sidebar(): React.JSX.Element {
           onClick={() => setView('settings')}
           className={`nav-item ${view === 'settings' ? 'nav-item-active' : ''}`}
         >
+          <IconSettings size={15} />
           <span className="flex-1 text-left">{t('sidebar.settings')}</span>
         </button>
       </div>

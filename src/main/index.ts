@@ -97,7 +97,10 @@ function createWindow(): void {
                   `if (txt.includes('লোড হচ্ছে') || txt.includes('Loading')) return 'loading'; ` +
                   `return 'list'; })()`
               )
-              logMain('info', `renderer mounted: home state after ${delayMs / 1000}s = ${String(state)}`)
+              logMain(
+                'info',
+                `renderer mounted: home state after ${delayMs / 1000}s = ${String(state)}`
+              )
             } catch (err) {
               logMain('error', `renderer home-state probe failed: ${(err as Error).message}`)
             }

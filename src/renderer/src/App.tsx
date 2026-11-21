@@ -4,6 +4,14 @@ import DownloadCard from './components/DownloadCard'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
+import {
+  IconAlert,
+  IconDownload,
+  IconPause,
+  IconPlay,
+  IconPlus,
+  IconTrash
+} from './components/icons'
 import { useStore, useT, type Filter } from './store'
 import type { DownloadInfo } from '../../main/types'
 
@@ -37,6 +45,9 @@ function App(): React.JSX.Element {
   const settings = useStore((s) => s.settings)
   const toast = useStore((s) => s.toast)
   const openDialog = useStore((s) => s.openDialog)
+  const pause = useStore((s) => s.pause)
+  const resume = useStore((s) => s.resume)
+  const remove = useStore((s) => s.remove)
 
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -95,7 +106,21 @@ function App(): React.JSX.Element {
     openDialog(value)
   }
 
+  const pasteLink = (): void => {
+    void (async () => {
+      try {
+        const text = await navigator.clipboard.readText()
+        openDialog(text.trim())
+      } catch {
+        openDialog('')
+      }
+    })()
+  }
+
   const visible = applyFilter(downloads, filter)
+  const pausedVisible = visible.filter((d) => d.status === 'paused')
+  const downloadingVisible = visible.filter((d) => d.status === 'downloading')
+  const completedVisible = visible.filter((d) => d.status === 'completed')
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--text)]">
@@ -126,6 +151,44 @@ function App(): React.JSX.Element {
                   {t('add.button')}
                 </button>
               </div>
+              {/* One-click toolbar (IDM-style): acts on the visible list. */}
+              <div className="mt-2 flex items-center gap-1">
+                <button
+                  className="toolbar-btn"
+                  onClick={() => openDialog('')}
+                  title={t('toolbar.new')}
+                >
+                  <IconPlus size={14} />
+                  {t('toolbar.new')}
+                </button>
+                <button
+                  className="toolbar-btn"
+                  disabled={pausedVisible.length === 0}
+                  onClick={() => void Promise.all(pausedVisible.map((d) => resume(d.id)))}
+                  title={t('toolbar.resumeAll')}
+                >
+                  <IconPlay size={14} />
+                  {t('toolbar.resumeAll')}
+                </button>
+                <button
+                  className="toolbar-btn"
+                  disabled={downloadingVisible.length === 0}
+                  onClick={() => void Promise.all(downloadingVisible.map((d) => pause(d.id)))}
+                  title={t('toolbar.pauseAll')}
+                >
+                  <IconPause size={14} />
+                  {t('toolbar.pauseAll')}
+                </button>
+                <button
+                  className="toolbar-btn"
+                  disabled={completedVisible.length === 0}
+                  onClick={() => void Promise.all(completedVisible.map((d) => remove(d.id, false)))}
+                  title={t('toolbar.removeCompleted')}
+                >
+                  <IconTrash size={14} />
+                  {t('toolbar.removeCompleted')}
+                </button>
+              </div>
               <div className="mt-1.5 text-[12px] text-[var(--muted)]">
                 {error ? <span className="text-[var(--danger)]">{error}</span> : t('add.hint')}
               </div>
@@ -141,8 +204,8 @@ function App(): React.JSX.Element {
                 // bridge or a startup timeout) plus Retry — never a bare "…".
                 <div className="flex h-full items-center justify-center">
                   <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--surface-2)] text-[24px] font-semibold text-[var(--danger)]">
-                      !
+                    <div className="empty-icon text-[var(--danger)]">
+                      <IconAlert size={28} />
                     </div>
                     <div className="mt-4 text-[14px] leading-relaxed text-[var(--danger)]">
                       {initError === 'bridge'
@@ -160,20 +223,41 @@ function App(): React.JSX.Element {
                 // Loaded and empty: a proper empty state, not a black void.
                 <div className="flex h-full items-center justify-center">
                   <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--surface-2)] text-[28px] text-[var(--accent)]">
-                      ⤓
+                    <div className="empty-icon">
+                      <IconDownload size={28} />
                     </div>
                     <div className="mt-4 text-[16px] font-medium">{t('empty.title')}</div>
                     <div className="mx-auto mt-1 max-w-[320px] text-[13px] text-[var(--muted)]">
                       {t('empty.hint')}
                     </div>
+                    <div className="mt-2 text-[12px] text-[var(--muted)]">{t('app.tagline')}</div>
+                    <div className="mt-5 flex items-center justify-center gap-2">
+                      <button className="btn btn-primary" onClick={pasteLink}>
+                        {t('empty.pasteLink')}
+                      </button>
+                      <span className="kbd">Ctrl+V</span>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="mx-auto w-full max-w-[860px] space-y-2">
-                  {visible.map((d) => (
-                    <DownloadCard key={d.id} d={d} />
-                  ))}
+                <div className="mx-auto w-full max-w-[860px]">
+                  {/* Column labels — same grid as the card rows, so the
+                      list reads like a table (IDM's scannability). */}
+                  <div className="dl-grid list-header">
+                    <span />
+                    <span>{t('list.name')}</span>
+                    <span className="text-right">{t('list.size')}</span>
+                    <span>{t('list.status')}</span>
+                    <span className="text-right">{t('list.speedEta')}</span>
+                    <span className="text-right normal-case tracking-normal">
+                      {t('list.count', { n: visible.length })}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {visible.map((d) => (
+                      <DownloadCard key={d.id} d={d} />
+                    ))}
+                  </div>
                 </div>
               )}
             </main>
@@ -185,7 +269,7 @@ function App(): React.JSX.Element {
       <AddDownloadDialog />
 
       {toast && (
-        <div className="fixed bottom-12 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-lg">
+        <div className="fixed bottom-12 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-xl">
           {t(toast.key, toast.params)}
         </div>
       )}
