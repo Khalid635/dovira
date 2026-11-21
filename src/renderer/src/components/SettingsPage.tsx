@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
-import type { Settings } from '../../../main/types'
+import type { SchedulerStatus, Settings } from '../../../main/types'
 import { IconCheck } from './icons'
 
 const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
 
 const SECTIONS = [
   { id: 'settings-general', labelKey: 'settings.navGeneral' },
+  { id: 'settings-network', labelKey: 'settings.navNetwork' },
+  { id: 'settings-browser', labelKey: 'settings.navBrowser' },
+  { id: 'settings-scheduler', labelKey: 'settings.navScheduler' },
   { id: 'settings-video-audio', labelKey: 'settings.navVideoAudio' },
   { id: 'settings-engines', labelKey: 'settings.navEngines' },
   { id: 'settings-about', labelKey: 'settings.navAbout' }
@@ -25,10 +28,28 @@ export default function SettingsPage(): React.JSX.Element {
   const loadEngines = useStore((s) => s.loadEngines)
   const updateEngine = useStore((s) => s.updateEngine)
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
+  // Phase 3: scheduler status (next run / last run) for the Scheduler section.
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
 
   useEffect(() => {
     void loadEngines(false)
   }, [loadEngines])
+
+  useEffect(() => {
+    if (typeof window.dovira === 'undefined') return
+    let cancelled = false
+    void window.dovira
+      .schedulerStatus()
+      .then((s) => {
+        if (!cancelled) setSchedulerStatus(s)
+      })
+      .catch(() => {
+        // Keep the previous status — the section still renders.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [settings?.schedulerEnabled, settings?.schedulerTime, settings?.schedulerAction])
 
   // Settings never arrived: distinguish "still loading" from "failed".
   // The bare "…" Phase 1 showed forever is gone — a failed load always
@@ -65,6 +86,12 @@ export default function SettingsPage(): React.JSX.Element {
   const pickFolder = async (): Promise<void> => {
     const dir = await window.dovira.pickFolder()
     if (dir) set({ downloadDir: dir })
+  }
+
+  // Phase 3: cookies.txt picker.
+  const pickCookiesFile = async (): Promise<void> => {
+    const path = await window.dovira.pickCookiesFile()
+    if (path) set({ cookiesFile: path })
   }
 
   const scrollTo = (id: string): void => {
@@ -157,6 +184,64 @@ export default function SettingsPage(): React.JSX.Element {
             </label>
           </div>
 
+          {/* Phase 3: auto-retry count (0–10), next to the other download settings. */}
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.autoRetry')} (0–10)
+              </span>
+              <input
+                className="input w-32"
+                type="number"
+                min={0}
+                max={10}
+                value={settings.autoRetry}
+                onChange={(e) => set({ autoRetry: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+
+          {/* Phase 3: startup + tray. */}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={settings.launchAtStartup}
+                onChange={(e) => set({ launchAtStartup: e.target.checked })}
+              />
+              {t('settings.launchAtStartup')}
+            </label>
+          </div>
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={settings.minimizeToTray}
+                onChange={(e) => set({ minimizeToTray: e.target.checked })}
+              />
+              {t('settings.minimizeToTray')}
+            </label>
+          </div>
+
+          {/* Phase 3: clipboard watch (AI Link Detection) — OFF by default. */}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.clipboardWatch')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.clipboardWatch}
+                  onChange={(e) => set({ clipboardWatch: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.clipboardWatchHint')}
+            </p>
+          </div>
+
           <div className="settings-field">
             <label className="block">
               <span className="mb-1 block text-[13px] text-[var(--muted)]">
@@ -188,6 +273,149 @@ export default function SettingsPage(): React.JSX.Element {
                 <option value="system">{t('settings.themeSystem')}</option>
               </select>
             </label>
+          </div>
+        </section>
+
+        {/* Phase 3: Network — proxy for downloads. */}
+        <section id="settings-network" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.network')}</h2>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.proxyUrl')}
+              </span>
+              <input
+                className="input w-full"
+                type="text"
+                placeholder="http://127.0.0.1:8080"
+                value={settings.proxyUrl}
+                onChange={(e) => set({ proxyUrl: e.target.value })}
+              />
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.proxyHint')}</p>
+          </div>
+        </section>
+
+        {/* Phase 3: Browser & Cookies — login-required downloads. */}
+        <section id="settings-browser" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.browserCookies')}</h2>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.cookieBrowser')}
+              </span>
+              <select
+                className="input w-48"
+                value={settings.cookieBrowser}
+                onChange={(e) =>
+                  set({ cookieBrowser: e.target.value as Settings['cookieBrowser'] })
+                }
+              >
+                <option value="none">{t('settings.cookieBrowserNone')}</option>
+                <option value="chrome">Chrome</option>
+                <option value="edge">Edge</option>
+                <option value="firefox">Firefox</option>
+                <option value="brave">Brave</option>
+              </select>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.cookiesHint')}</p>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.cookiesFile')}
+              </span>
+              <span className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  value={settings.cookiesFile ?? ''}
+                  placeholder="cookies.txt"
+                  readOnly
+                />
+                <button className="btn" onClick={() => void pickCookiesFile()}>
+                  {t('settings.choose')}
+                </button>
+                {settings.cookiesFile && (
+                  <button className="btn btn-ghost" onClick={() => set({ cookiesFile: null })}>
+                    {t('settings.cookiesFileClear')}
+                  </button>
+                )}
+              </span>
+            </label>
+          </div>
+        </section>
+
+        {/* Phase 3: Scheduler — timed queue start + shutdown/sleep after. */}
+        <section id="settings-scheduler" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.scheduler')}</h2>
+          </div>
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.schedulerEnable')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.schedulerEnabled}
+                  onChange={(e) => set({ schedulerEnabled: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.schedulerTime')}
+              </span>
+              <input
+                className="input w-32"
+                type="time"
+                value={settings.schedulerTime}
+                onChange={(e) => set({ schedulerTime: e.target.value })}
+              />
+            </label>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.schedulerAction')}
+              </span>
+              <select
+                className="input w-48"
+                value={settings.schedulerAction}
+                onChange={(e) =>
+                  set({ schedulerAction: e.target.value as Settings['schedulerAction'] })
+                }
+              >
+                <option value="none">{t('settings.schedulerActionNone')}</option>
+                <option value="shutdown">{t('settings.schedulerActionShutdown')}</option>
+                <option value="sleep">{t('settings.schedulerActionSleep')}</option>
+              </select>
+            </label>
+          </div>
+          <div className="settings-field text-[13px] text-[var(--muted)]">
+            {schedulerStatus?.nextRunAt ? (
+              <div>
+                {t('settings.schedulerNextRun', {
+                  when: new Date(schedulerStatus.nextRunAt).toLocaleString()
+                })}
+              </div>
+            ) : (
+              <div>{t('settings.schedulerNextRunNone')}</div>
+            )}
+            {schedulerStatus?.lastRunAt && (
+              <div>
+                {t('settings.schedulerLastRun', {
+                  when: new Date(schedulerStatus.lastRunAt).toLocaleString()
+                })}
+              </div>
+            )}
+            <p className="mt-1 text-[12px]">{t('settings.schedulerNote')}</p>
           </div>
         </section>
 
@@ -326,7 +554,7 @@ export default function SettingsPage(): React.JSX.Element {
             <h2 className="text-[14px] font-semibold text-[var(--text)]">{t('settings.about')}</h2>
           </div>
           <div className="settings-field space-y-1">
-            <div>{t('settings.version', { version: appInfo?.version ?? '0.1.0' })}</div>
+            <div>{t('settings.version', { version: appInfo?.version ?? '0.2.0' })}</div>
             <div className="text-[12px]">{t('app.tagline')}</div>
             <div>
               <a

@@ -2,9 +2,11 @@ import { useState } from 'react'
 import type { DownloadInfo } from '../../../main/types'
 import { useStore, useT } from '../store'
 import { formatBytes, formatEta, formatSpeed, formatTime } from '../util/format'
+import { speedGraphPolyline } from '../util/graph'
 import {
   IconAudio,
   IconCheck,
+  IconChevronUp,
   IconClose,
   IconDownload,
   IconExternal,
@@ -61,13 +63,36 @@ function errorKey(code: string | null): string {
   }
 }
 
-export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Element {
+interface DownloadCardProps {
+  d: DownloadInfo
+  /** Phase 3: rank in the start order (queued/paused only) — drives "Waiting #n" + Move to top. */
+  queuePosition?: number
+  /** Phase 3: drag-and-drop queue reorder (App wires the handlers). */
+  draggable?: boolean
+  dragging?: boolean
+  onDragStart?: () => void
+  onDragEnd?: () => void
+  onDropOn?: () => void
+}
+
+export default function DownloadCard({
+  d,
+  queuePosition,
+  draggable = false,
+  dragging = false,
+  onDragStart,
+  onDragEnd,
+  onDropOn
+}: DownloadCardProps): React.JSX.Element {
   const t = useT()
   const pause = useStore((s) => s.pause)
   const resume = useStore((s) => s.resume)
   const cancel = useStore((s) => s.cancel)
   const remove = useStore((s) => s.remove)
   const retry = useStore((s) => s.retry)
+  const moveToTop = useStore((s) => s.moveToTop)
+  // Phase 3: speed samples for the expanded card's graph.
+  const samples = useStore((s) => s.speedHistory[d.id] ?? [])
   const [expanded, setExpanded] = useState(false)
 
   const pct = d.totalBytes > 0 ? Math.min(100, Math.round((d.doneBytes / d.totalBytes) * 100)) : 0
@@ -91,7 +116,17 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
     )
 
   return (
-    <div className={`card card-download ${expanded ? 'card-download-expanded' : ''}`}>
+    <div
+      className={`card card-download ${expanded ? 'card-download-expanded' : ''} ${
+        dragging ? 'opacity-50' : ''
+      }`}
+      draggable={draggable}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart?.()
+      }}
+      onDragEnd={onDragEnd}
+    >
       <div
         className="dl-grid cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
@@ -99,6 +134,19 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') setExpanded((v) => !v)
+        }}
+        onDragOver={(e) => {
+          if (draggable) {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+          }
+        }}
+        onDrop={(e) => {
+          if (draggable) {
+            e.preventDefault()
+            e.stopPropagation()
+            onDropOn?.()
+          }
         }}
       >
         {/* Thumbnail (real video art when available) over the kind icon. */}
@@ -134,6 +182,8 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
             <span>
               {formatSpeed(d.speedBps)} · ETA {formatEta(d.etaSeconds)}
             </span>
+          ) : d.status === 'queued' && queuePosition ? (
+            <span>{t('status.waiting', { n: queuePosition })}</span>
           ) : d.status === 'completed' && d.completedAt ? (
             <span className="inline-flex items-center gap-1 text-[var(--success)]">
               <IconCheck size={13} />
@@ -169,6 +219,15 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
               >
                 <IconPlay size={15} />
               </button>
+              {queuePosition !== undefined && queuePosition > 1 && (
+                <button
+                  className="icon-btn"
+                  title={t('card.moveToTop')}
+                  onClick={() => void moveToTop(d.id)}
+                >
+                  <IconChevronUp size={15} />
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title={t('card.cancel')}
@@ -179,9 +238,24 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
             </>
           )}
           {d.status === 'queued' && (
-            <button className="icon-btn" title={t('card.cancel')} onClick={() => void cancel(d.id)}>
-              <IconClose size={15} />
-            </button>
+            <>
+              {queuePosition !== undefined && queuePosition > 1 && (
+                <button
+                  className="icon-btn"
+                  title={t('card.moveToTop')}
+                  onClick={() => void moveToTop(d.id)}
+                >
+                  <IconChevronUp size={15} />
+                </button>
+              )}
+              <button
+                className="icon-btn"
+                title={t('card.cancel')}
+                onClick={() => void cancel(d.id)}
+              >
+                <IconClose size={15} />
+              </button>
+            </>
           )}
           {d.status === 'failed' && (
             <>
@@ -281,6 +355,30 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
       {expanded && (
         <div className="mt-2 border-t border-[var(--border)] pt-2 text-[12px]">
           {d.title && <div className="mb-1 break-all font-medium">{d.title}</div>}
+          {/* Phase 3: speed graph — last 60 samples, only while downloading. */}
+          {d.status === 'downloading' && samples.length > 0 && (
+            <div className="speed-graph mb-2">
+              <div className="mb-1 text-[var(--muted)]">
+                {t('card.speedGraph')} · {formatSpeed(d.speedBps)}
+              </div>
+              <svg
+                width="100%"
+                height="36"
+                viewBox="0 0 100 36"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label={t('card.speedGraph')}
+              >
+                <polyline
+                  points={speedGraphPolyline(samples, 100, 36)}
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            </div>
+          )}
           <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[var(--muted)]">
             <span>{t('card.url')}</span>
             <span className="break-all">{d.url}</span>

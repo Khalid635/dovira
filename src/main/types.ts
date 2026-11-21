@@ -36,9 +36,16 @@ export interface DownloadInfo {
   engine: 'aria2' | 'ytdlp'
   /** Exact yt-dlp format selector used for this download (resume reuses it). */
   formatString: string | null
+  /** yt-dlp format id (needed to re-download with the same format). */
+  formatId: string | null
   /** JSON: { partExists, ytdlExists, lastArgs, subtitles, subLang, embedThumbnail } */
   ytdlpState: string | null
+  /** Phase 3: queue position (lower = starts first). Display order is unchanged. */
+  sortOrder: number
 }
+
+export type CookieBrowser = 'none' | 'chrome' | 'edge' | 'firefox' | 'brave'
+export type SchedulerAction = 'none' | 'shutdown' | 'sleep'
 
 export interface Settings {
   downloadDir: string
@@ -55,6 +62,39 @@ export interface Settings {
   defaultAudioBitrate: '320' | '192' | '128'
   subtitleLang: string
   engineAutoUpdate: boolean
+  /** Phase 3: which browser yt-dlp should read cookies from ('none' = no cookies). */
+  cookieBrowser: CookieBrowser
+  /** Phase 3: path to a cookies.txt file (used only when cookieBrowser is 'none'). */
+  cookiesFile: string | null
+  /** Phase 3: start DOVIRA automatically when Windows starts. */
+  launchAtStartup: boolean
+  /** Phase 3: closing the window hides it to the tray instead of quitting. */
+  minimizeToTray: boolean
+  /** Phase 3: proxy URL for downloads (http://, https://, socks5:// or socks5h://). Empty = no proxy. */
+  proxyUrl: string
+  /** Phase 3: timed queue start. */
+  schedulerEnabled: boolean
+  schedulerTime: string
+  schedulerAction: SchedulerAction
+  /** Phase 3: ISO date (YYYY-MM-DD) of the last day the scheduler fired. Null = never. */
+  lastSchedulerRun: string | null
+  /** Phase 3: clipboard watch (AI Link Detection) — OFF by default. */
+  clipboardWatch: boolean
+}
+
+/** Phase 3: the scheduler's current state, shown in Settings. */
+export interface SchedulerStatus {
+  enabled: boolean
+  /** ISO timestamp of the next scheduled run, null when disabled. */
+  nextRunAt: string | null
+  /** ISO timestamp of the last run, null when never. */
+  lastRunAt: string | null
+}
+
+/** Phase 3: the 60-second shutdown/sleep countdown, shown as a modal. */
+export interface SchedulerCountdown {
+  action: 'shutdown' | 'sleep'
+  secondsLeft: number
 }
 
 export interface ProgressEvent {

@@ -16,6 +16,7 @@ import {
 import { diskFreeBytes } from './util/paths'
 import type { AddOptions, Settings } from './types'
 import { logMain } from './logger'
+import type { SchedulerManager } from './scheduler'
 
 export interface IpcDeps {
   queue: QueueManager
@@ -27,6 +28,10 @@ export interface IpcDeps {
   denoBinary: string | null
   binDir: string
   getMainWindow: () => BrowserWindow | null
+  /** Phase 3: scheduler status + countdown cancel. */
+  scheduler: SchedulerManager
+  /** Phase 3: called after every settings:set — applies launch-at-startup, clipboard watch, etc. */
+  onSettingsChanged: (s: Settings) => void
 }
 
 /**
@@ -109,7 +114,42 @@ export function registerIpc(deps: IpcDeps): void {
     if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
       return settings.get()
     }
-    return settings.update(patch as Partial<Settings>)
+    const next = settings.update(patch as Partial<Settings>)
+    deps.onSettingsChanged(next)
+    return next
+  })
+  // Phase 3: cookies file picker (Netscape cookies.txt).
+  ipcMain.handle('dovira:pickCookiesFile', async () => {
+    const win = deps.getMainWindow()
+    const options: OpenDialogOptions = {
+      properties: ['openFile'],
+      filters: [{ name: 'Cookies file', extensions: ['txt'] }]
+    }
+    const res = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options)
+    return res.canceled ? null : (res.filePaths[0] ?? null)
+  })
+  // Phase 3: History — missing files, re-download, clear (records only).
+  ipcMain.handle('dovira:history:missing', () => queue.historyMissing())
+  ipcMain.handle('dovira:history:redownload', (_e, id: unknown) =>
+    typeof id === 'string' ? queue.redownload(id) : { ok: false, error: 'unknown' }
+  )
+  ipcMain.handle('dovira:history:clear', () => ({ removed: queue.clearHistory() }))
+  // Phase 3: queue reorder.
+  ipcMain.handle('dovira:downloads:moveToTop', (_e, id: unknown) =>
+    typeof id === 'string' ? queue.moveToTop(id) : false
+  )
+  ipcMain.handle('dovira:downloads:reorder', (_e, id: unknown, beforeId: unknown) =>
+    typeof id === 'string'
+      ? queue.reorder(id, beforeId === null ? null : typeof beforeId === 'string' ? beforeId : null)
+      : false
+  )
+  // Phase 3: scheduler.
+  ipcMain.handle('dovira:scheduler:status', () => deps.scheduler.getStatus())
+  ipcMain.handle('dovira:scheduler:cancel', () => {
+    deps.scheduler.cancelCountdown()
+    return true
   })
   // The four --version spawns used to run sequentially, so startup init()
   // waited the SUM of four cold process spawns (several seconds under

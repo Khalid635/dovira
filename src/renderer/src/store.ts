@@ -6,6 +6,7 @@ import type {
   EngineInfo,
   PlainFileInfo,
   ProgressEvent,
+  SchedulerCountdown,
   Settings,
   StatusEvent,
   ToastEvent,
@@ -14,12 +15,14 @@ import type {
 import { t, type Language } from './i18n'
 
 export type Filter = 'all' | 'downloading' | 'queued' | 'completed' | 'video' | 'audio' | 'files'
-export type View = 'home' | 'settings'
+export type View = 'home' | 'history' | 'settings'
 
 export interface Toast {
   key: string
   params?: Record<string, string | number>
   at: number
+  /** Phase 3: optional action button (clipboard-link toast opens the dialog). */
+  action?: { labelKey: string; url: string }
 }
 
 interface Store {
@@ -44,7 +47,22 @@ interface Store {
   setFilter: (f: Filter) => void
   setView: (v: View) => void
   updateSettings: (patch: Partial<Settings>) => Promise<void>
-  showToast: (key: string, params?: Record<string, string | number>) => void
+  showToast: (
+    key: string,
+    params?: Record<string, string | number>,
+    action?: { labelKey: string; url: string }
+  ) => void
+  // Phase 3: speed graph — last 60 speed samples per download, oldest first.
+  speedHistory: Record<string, number[]>
+  // Phase 3: scheduler countdown modal (null = no countdown running).
+  schedulerCountdown: SchedulerCountdown | null
+  cancelSchedulerCountdown: () => Promise<void>
+  // Phase 3: History + queue reorder.
+  historyMissing: () => Promise<string[]>
+  redownload: (id: string) => Promise<{ ok: boolean; error?: string }>
+  clearHistory: () => Promise<number>
+  moveToTop: (id: string) => Promise<void>
+  reorderDownloads: (id: string, beforeId: string | null) => Promise<void>
   // Add Download dialog (Phase 2).
   dialogOpen: boolean
   dialogUrl: string
@@ -89,6 +107,8 @@ export const useStore = create<Store>()((set, get) => ({
   dialogErrorDetail: null,
   engines: [],
   enginesLoading: false,
+  speedHistory: {},
+  schedulerCountdown: null,
 
   init: async () => {
     // Dead bridge (the preload never exposed window.dovira): no IPC call
@@ -160,8 +180,8 @@ export const useStore = create<Store>()((set, get) => ({
     if (listenersAttached) return
     listenersAttached = true
     window.dovira.onProgress((p: ProgressEvent) => {
-      set((s) => ({
-        downloads: s.downloads.map((d) =>
+      set((s) => {
+        const downloads = s.downloads.map((d) =>
           d.id === p.id
             ? {
                 ...d,
@@ -173,7 +193,20 @@ export const useStore = create<Store>()((set, get) => ({
               }
             : d
         )
-      }))
+        // Phase 3: feed the speed graph — keep the last 60 samples.
+        let speedHistory = s.speedHistory
+        if (p.status === 'downloading') {
+          const next = [...(s.speedHistory[p.id] ?? []), p.speedBps]
+          if (next.length > 60) next.splice(0, next.length - 60)
+          speedHistory = { ...s.speedHistory, [p.id]: next }
+        } else if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled') {
+          if (p.id in s.speedHistory) {
+            speedHistory = { ...s.speedHistory }
+            delete speedHistory[p.id]
+          }
+        }
+        return { downloads, speedHistory }
+      })
     })
     window.dovira.onStatus((ev: StatusEvent) => {
       set((s) => ({
@@ -189,11 +222,28 @@ export const useStore = create<Store>()((set, get) => ({
         )
       }))
       if (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'cancelled') {
+        // Phase 3: drop the finished download's speed history.
+        set((s) => {
+          if (!(ev.id in s.speedHistory)) return s
+          const speedHistory = { ...s.speedHistory }
+          delete speedHistory[ev.id]
+          return { speedHistory }
+        })
         void get().refresh()
       }
     })
     window.dovira.onToast((toastEv: ToastEvent) => {
       get().showToast(toastEv.key, toastEv.params)
+    })
+    // Phase 3: scheduler countdown modal + clipboard-link toast.
+    window.dovira.onSchedulerCountdown((c) => {
+      set({ schedulerCountdown: c })
+    })
+    window.dovira.onClipboardLink((url) => {
+      get().showToast('toast.clipboardLink', undefined, {
+        labelKey: 'toast.clipboardAdd',
+        url
+      })
     })
 
     // Status bar numbers (disk free) refresh every 5s.
@@ -255,11 +305,56 @@ export const useStore = create<Store>()((set, get) => ({
     }
   },
 
-  showToast: (key, params) => {
-    set({ toast: { key, params, at: Date.now() } })
+  showToast: (key, params, action) => {
+    // A toast with an action (clipboard link → Add) stays 10s so the
+    // button is actually clickable; plain toasts stay 3s.
+    const ttl = action ? 10_000 : 3000
+    set({ toast: { key, params, at: Date.now(), action } })
     setTimeout(() => {
-      set((s) => (s.toast && Date.now() - s.toast.at >= 2900 ? { toast: null } : s))
-    }, 3000)
+      set((s) => (s.toast && Date.now() - s.toast.at >= ttl - 100 ? { toast: null } : s))
+    }, ttl)
+  },
+
+  cancelSchedulerCountdown: async () => {
+    try {
+      await window.dovira.schedulerCancel()
+    } catch {
+      // The countdown event clears the modal; a failed cancel is harmless.
+    }
+    set({ schedulerCountdown: null })
+  },
+
+  historyMissing: async () => {
+    try {
+      return await window.dovira.historyMissing()
+    } catch {
+      return []
+    }
+  },
+
+  redownload: async (id) => {
+    const res = await window.dovira.redownload(id)
+    if (res.ok) {
+      await get().refresh()
+      get().showToast('toast.added')
+    }
+    return res
+  },
+
+  clearHistory: async () => {
+    const res = await window.dovira.clearHistory()
+    await get().refresh()
+    return res.removed
+  },
+
+  moveToTop: async (id) => {
+    await window.dovira.moveToTop(id)
+    await get().refresh()
+  },
+
+  reorderDownloads: async (id, beforeId) => {
+    await window.dovira.reorderDownloads(id, beforeId)
+    await get().refresh()
   },
 
   openDialog: (url = '') => {

@@ -331,16 +331,40 @@ export async function recoverYtDlpRename(
  * ffmpeg lives in `ffmpegDir`; Deno (the JS runtime YouTube needs since
  * yt-dlp 2025.11.12) is passed explicitly via --js-runtimes.
  */
+export interface YtDlpNetworkOptions {
+  cookieBrowser: string
+  cookiesFile: string | null
+  proxyUrl: string
+}
+
 export class YtDlpManager {
   constructor(
     private binaryPath: string,
     private ffmpegDir: string,
-    private denoPath: string | null
+    private denoPath: string | null,
+    /**
+     * Phase 3: read live from Settings at call time (cookies + proxy).
+     * The getter is called on every baseArgs() so a settings change takes
+     * effect on the next fetchInfo/download without restarting the app.
+     */
+    private getNetwork?: () => YtDlpNetworkOptions
   ) {}
 
   private baseArgs(): string[] {
     const args: string[] = ['--no-warnings', '--no-playlist', '--ffmpeg-location', this.ffmpegDir]
     if (this.denoPath) args.push('--js-runtimes', `deno:${this.denoPath}`)
+    // Phase 3: cookies + proxy, wired into every yt-dlp call (fetchInfo and
+    // downloads share baseArgs). A cookies.txt file is used only when no
+    // browser is selected; the browser flag takes precedence.
+    const net = this.getNetwork?.()
+    if (net) {
+      if (net.cookieBrowser && net.cookieBrowser !== 'none') {
+        args.push('--cookies-from-browser', net.cookieBrowser)
+      } else if (net.cookiesFile) {
+        args.push('--cookies', net.cookiesFile)
+      }
+      if (net.proxyUrl) args.push('--proxy', net.proxyUrl)
+    }
     return args
   }
 

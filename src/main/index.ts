@@ -5,17 +5,45 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { DoviraDb } from './db'
 import { SettingsManager } from './settings'
+import type { Settings } from './types'
 import { Aria2Manager } from './engines/aria2'
 import { YtDlpManager } from './engines/ytdlp'
 import { QueueManager } from './queue'
+import { SchedulerManager } from './scheduler'
+import { TrayManager } from './tray'
+import { ClipboardWatcher } from './clipboard'
 import { registerIpc } from './ipc'
 import { findBinary } from './util/paths'
 import { initLogger, logMain } from './logger'
 
 let mainWindow: BrowserWindow | null = null
 let db: DoviraDb | null = null
+/** Module-level alias so createWindow's close-to-tray guard can read settings. */
+let settingsManager: SettingsManager | null = null
 let queue: QueueManager | null = null
 let aria2: Aria2Manager | null = null
+let scheduler: SchedulerManager | null = null
+let tray: TrayManager | null = null
+let clipboardWatcher: ClipboardWatcher | null = null
+/** True once a real quit is in progress — the close-to-tray guard must not block it. */
+let quitting = false
+
+/**
+ * Phase 3: apply the settings that live outside the renderer — launch at
+ * startup (Windows Run key) and clipboard watch. Called once at startup
+ * and after every settings:set.
+ */
+function applyRuntimeSettings(s: Settings): void {
+  try {
+    app.setLoginItemSettings({ openAtLogin: s.launchAtStartup })
+  } catch (err) {
+    logMain('error', `launch-at-startup apply failed: ${(err as Error).message}`)
+  }
+  if (clipboardWatcher) {
+    if (s.clipboardWatch && !clipboardWatcher.isRunning()) clipboardWatcher.start()
+    else if (!s.clipboardWatch && clipboardWatcher.isRunning()) clipboardWatcher.stop()
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -39,6 +67,18 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  // Phase 3: close-to-tray — when minimizeToTray is on and a tray icon
+  // exists, closing the window hides it instead of quitting. The tray's
+  // Quit menu and app.quit() set `quitting`, so a real quit is never
+  // blocked by this guard. Without a tray (headless), close works as usual.
+  mainWindow.on('close', (e) => {
+    if (!quitting && settingsManager?.get().minimizeToTray && tray?.isCreated()) {
+      e.preventDefault()
+      mainWindow?.hide()
+      logMain('info', 'window hidden to tray (close-to-tray)')
+    }
   })
 
   // Preload errors are otherwise invisible (they only reach the DevTools
@@ -101,6 +141,12 @@ function createWindow(): void {
                 'info',
                 `renderer mounted: home state after ${delayMs / 1000}s = ${String(state)}`
               )
+              // Phase 3: speed graph — only present when a card is expanded
+              // with samples, so "false" is expected on a fresh launch.
+              const graph = await mainWindow?.webContents.executeJavaScript(
+                "!!document.querySelector('.speed-graph')"
+              )
+              logMain('info', `renderer mounted: speed graph present = ${String(graph)}`)
             } catch (err) {
               logMain('error', `renderer home-state probe failed: ${(err as Error).message}`)
             }
@@ -153,6 +199,7 @@ app.whenReady().then(() => {
   }
 
   const settings = new SettingsManager(db)
+  settingsManager = settings
 
   const appPath = app.getAppPath()
   const resourcesPath = process.resourcesPath
@@ -177,8 +224,53 @@ app.whenReady().then(() => {
   const binDir = dirname(aria2Binary as string)
 
   aria2 = new Aria2Manager(aria2Binary as string, settings.get().downloadDir)
-  const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary)
+  // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
+  const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary, () => {
+    const s = settings.get()
+    return { cookieBrowser: s.cookieBrowser, cookiesFile: s.cookiesFile, proxyUrl: s.proxyUrl }
+  })
   queue = new QueueManager(db, settings, aria2, ytdlp)
+
+  // Phase 3: scheduler — countdown events go to every window.
+  scheduler = new SchedulerManager(queue, settings, {
+    onCountdown: (c) => {
+      for (const w of BrowserWindow.getAllWindows()) {
+        w.webContents.send('dovira:scheduler:countdown', c)
+      }
+    },
+    onLog: (line) => logMain('info', line)
+  })
+  scheduler.start()
+
+  // Phase 3: tray — Quit sets `quitting` so close-to-tray never blocks it.
+  tray = new TrayManager(
+    () => mainWindow,
+    queue,
+    (line) => logMain('info', line),
+    () => {
+      quitting = true
+      app.quit()
+    }
+  )
+  tray.create(icon)
+
+  // Phase 3: clipboard watch — only started when the setting is on.
+  clipboardWatcher = new ClipboardWatcher(
+    queue,
+    (url) => {
+      // Logged so a headless run can prove the watcher fired (the toast
+      // itself is renderer-side and invisible from SSH).
+      logMain('info', `clipboard: link detected — ${url}`)
+      for (const w of BrowserWindow.getAllWindows()) {
+        w.webContents.send('dovira:clipboard:link', url)
+      }
+    },
+    (line) => logMain('info', line)
+  )
+  if (settings.get().clipboardWatch) clipboardWatcher.start()
+
+  applyRuntimeSettings(settings.get())
+
   registerIpc({
     queue,
     settings,
@@ -188,7 +280,9 @@ app.whenReady().then(() => {
     ffmpegBinary,
     denoBinary,
     binDir,
-    getMainWindow: () => mainWindow
+    getMainWindow: () => mainWindow,
+    scheduler,
+    onSettingsChanged: (s) => applyRuntimeSettings(s)
   })
 
   logMain('info', 'window created')
@@ -212,6 +306,22 @@ app.on('window-all-closed', () => {
 
 // Synchronous cleanup: stop the engine, flush the DB, then exit.
 app.on('before-quit', () => {
+  quitting = true
+  try {
+    scheduler?.stop()
+  } catch {
+    // Never block quitting on cleanup.
+  }
+  try {
+    clipboardWatcher?.stop()
+  } catch {
+    // Never block quitting on cleanup.
+  }
+  try {
+    tray?.destroy()
+  } catch {
+    // Never block quitting on cleanup.
+  }
   try {
     queue?.shutdown()
   } catch {

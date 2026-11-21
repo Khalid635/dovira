@@ -97,15 +97,15 @@ export default function Sidebar(): React.JSX.Element {
     {
       key: 'history',
       labelKey: 'sidebar.history',
-      icon: IconClock,
-      disabled: true,
-      disabledHintKey: 'sidebar.historySoon'
+      icon: IconClock
     }
   ]
 
   const renderItems = (items: NavItem[]): React.JSX.Element[] =>
     items.map((item) => {
-      const active = view === 'home' && filter === item.key
+      // Phase 3: History is its own view, not a Home filter.
+      const active =
+        item.key === 'history' ? view === 'history' : view === 'home' && filter === item.key
       const ItemIcon = item.icon
       return (
         <button
@@ -113,8 +113,14 @@ export default function Sidebar(): React.JSX.Element {
           disabled={item.disabled}
           title={item.disabled && item.disabledHintKey ? t(item.disabledHintKey) : undefined}
           onClick={() => {
-            setView('home')
-            setFilter(item.key as Filter)
+            if (item.key === 'history') {
+              setView('history')
+            } else if (item.key === 'settings') {
+              setView('settings')
+            } else {
+              setView('home')
+              setFilter(item.key as Filter)
+            }
           }}
           className={`nav-item ${active ? 'nav-item-active' : ''} ${item.disabled ? 'opacity-45' : ''}`}
         >
@@ -125,7 +131,6 @@ export default function Sidebar(): React.JSX.Element {
               {item.count}
             </span>
           )}
-          {item.disabled && <span className="text-[11px] text-[var(--muted)]">Phase 3</span>}
         </button>
       )
     })
@@ -137,7 +142,7 @@ export default function Sidebar(): React.JSX.Element {
         <div className="min-w-0">
           <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
           <div className="text-[11px] leading-tight text-[var(--muted)]">
-            v{appInfo?.version ?? '0.1.0'} · Phase 2
+            v{appInfo?.version ?? '0.2.0'} · Phase 3
           </div>
           <div className="truncate text-[10px] leading-tight text-[var(--muted)]">
             {t('app.tagline')}

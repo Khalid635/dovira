@@ -6,6 +6,8 @@ import type {
   EngineInfo,
   PlainFileInfo,
   ProgressEvent,
+  SchedulerCountdown,
+  SchedulerStatus,
   Settings,
   StatusEvent,
   ToastEvent,
@@ -32,6 +34,17 @@ export interface DoviraAPI {
   setSettings(patch: Partial<Settings>): Promise<Settings>
   getAppInfo(): Promise<AppInfo>
   pickFolder(): Promise<string | null>
+  // Phase 3
+  pickCookiesFile(): Promise<string | null>
+  historyMissing(): Promise<string[]>
+  redownload(id: string): Promise<{ ok: boolean; id?: string; error?: string }>
+  clearHistory(): Promise<{ removed: number }>
+  moveToTop(id: string): Promise<boolean>
+  reorderDownloads(id: string, beforeId: string | null): Promise<boolean>
+  schedulerStatus(): Promise<SchedulerStatus>
+  schedulerCancel(): Promise<boolean>
+  onSchedulerCountdown(cb: (c: SchedulerCountdown | null) => void): () => void
+  onClipboardLink(cb: (url: string) => void): () => void
   onProgress(cb: (p: ProgressEvent) => void): () => void
   onStatus(cb: (s: StatusEvent) => void): () => void
   onToast(cb: (t: ToastEvent) => void): () => void
@@ -67,6 +80,19 @@ const api: DoviraAPI = {
   setSettings: (patch: Partial<Settings>) => ipcRenderer.invoke('dovira:settings:set', patch),
   getAppInfo: () => ipcRenderer.invoke('dovira:app:info'),
   pickFolder: () => ipcRenderer.invoke('dovira:pickFolder'),
+  // Phase 3
+  pickCookiesFile: () => ipcRenderer.invoke('dovira:pickCookiesFile'),
+  historyMissing: () => ipcRenderer.invoke('dovira:history:missing'),
+  redownload: (id: string) => ipcRenderer.invoke('dovira:history:redownload', id),
+  clearHistory: () => ipcRenderer.invoke('dovira:history:clear'),
+  moveToTop: (id: string) => ipcRenderer.invoke('dovira:downloads:moveToTop', id),
+  reorderDownloads: (id: string, beforeId: string | null) =>
+    ipcRenderer.invoke('dovira:downloads:reorder', id, beforeId),
+  schedulerStatus: () => ipcRenderer.invoke('dovira:scheduler:status'),
+  schedulerCancel: () => ipcRenderer.invoke('dovira:scheduler:cancel'),
+  onSchedulerCountdown: (cb) =>
+    subscribe<SchedulerCountdown | null>('dovira:scheduler:countdown', cb),
+  onClipboardLink: (cb) => subscribe<string>('dovira:clipboard:link', cb),
   onProgress: (cb) => subscribe<ProgressEvent>('dovira:download:progress', cb),
   onStatus: (cb) => subscribe<StatusEvent>('dovira:download:status', cb),
   onToast: (cb) => subscribe<ToastEvent>('dovira:toast', cb)

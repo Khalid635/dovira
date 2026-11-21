@@ -24,6 +24,7 @@ interface DownloadRow {
   format_id: string | null
   format_string: string | null
   ytdlp_state: string | null
+  sort_order: number
   created_at: number
   started_at: number | null
   completed_at: number | null
@@ -50,6 +51,7 @@ export interface DownloadInsert {
   formatId?: string | null
   formatString?: string | null
   ytdlpState?: string | null
+  sortOrder?: number
   createdAt: number
   startedAt?: number | null
   completedAt?: number | null
@@ -71,6 +73,7 @@ export interface DownloadPatch {
   formatLabel?: string | null
   formatString?: string | null
   ytdlpState?: string | null
+  sortOrder?: number
 }
 
 /**
@@ -120,6 +123,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ALTER TABLE downloads ADD COLUMN format_string TEXT;
       ALTER TABLE downloads ADD COLUMN ytdlp_state TEXT;
     `
+  },
+  {
+    // Phase 3: queue position — lower sort_order starts first. Backfilled
+    // from created_at so existing history keeps its relative order.
+    version: 3,
+    sql: `
+      ALTER TABLE downloads ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+      UPDATE downloads SET sort_order = created_at;
+      CREATE INDEX IF NOT EXISTS idx_downloads_sort ON downloads(sort_order);
+    `
   }
 ]
 
@@ -145,8 +158,10 @@ function rowToInfo(row: DownloadRow): DownloadInfo {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     engine: (row.engine as DownloadInfo['engine']) || 'aria2',
+    formatId: row.format_id,
     formatString: row.format_string,
-    ytdlpState: row.ytdlp_state
+    ytdlpState: row.ytdlp_state,
+    sortOrder: row.sort_order ?? row.created_at
   }
 }
 
@@ -199,8 +214,8 @@ export class DoviraDb {
           (id, url, title, filename, save_path, kind, format_label, status,
            total_bytes, done_bytes, error_code, error_message, thumbnail_url,
            site, remote_id, engine, engine_ref, format_id, format_string,
-           ytdlp_state, created_at, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           ytdlp_state, sort_order, created_at, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         d.id,
@@ -223,6 +238,7 @@ export class DoviraDb {
         d.formatId ?? null,
         d.formatString ?? null,
         d.ytdlpState ?? null,
+        d.sortOrder ?? d.createdAt,
         d.createdAt,
         d.startedAt ?? null,
         d.completedAt ?? null
@@ -247,7 +263,8 @@ export class DoviraDb {
       ['thumbnailUrl', 'thumbnail_url'],
       ['formatLabel', 'format_label'],
       ['formatString', 'format_string'],
-      ['ytdlpState', 'ytdlp_state']
+      ['ytdlpState', 'ytdlp_state'],
+      ['sortOrder', 'sort_order']
     ]
     for (const [key, col] of map) {
       if (patch[key] !== undefined) {
@@ -275,6 +292,18 @@ export class DoviraDb {
 
   deleteDownload(id: string): void {
     this.db.prepare('DELETE FROM downloads WHERE id = ?').run(id)
+  }
+
+  /**
+   * Phase 3: removes only finished records (completed / failed / cancelled).
+   * Active downloads are never touched — and no file is ever deleted here.
+   * Returns how many records were removed.
+   */
+  clearHistory(): number {
+    const result = this.db
+      .prepare("DELETE FROM downloads WHERE status IN ('completed', 'failed', 'cancelled')")
+      .run() as unknown as { changes: number }
+    return result.changes ?? 0
   }
 
   getSetting(key: string): string | null {

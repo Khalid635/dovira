@@ -159,6 +159,24 @@ export class QueueManager extends EventEmitter {
   }
 
   /**
+   * True when a save path is already claimed by a download in the queue —
+   * even one whose file doesn't exist on disk yet (queued). Windows paths
+   * are case-insensitive, so the comparison is lowercased.
+   */
+  private isSavePathTaken(candidate: string): boolean {
+    const lower = candidate.toLowerCase()
+    for (const d of this.downloads.values()) {
+      if (d.savePath.toLowerCase() === lower) return true
+    }
+    return false
+  }
+
+  /** Disk-free AND queue-free path for a new download (see isSavePathTaken). */
+  private resolveUniqueSavePath(dir: string, filename: string): string {
+    return resolveUniquePath(dir, filename, (c) => this.isSavePathTaken(c))
+  }
+
+  /**
    * Route a pasted link: plain-file extension → aria2 info (HEAD);
    * video site or anything else → yt-dlp info; on yt-dlp failure, a HEAD
    * request decides whether it is a plain file after all (§2).
@@ -270,8 +288,9 @@ export class QueueManager extends EventEmitter {
 
     filename = sanitizeFilename(filename)
     mkdirSync(dir, { recursive: true })
-    const savePath = resolveUniquePath(dir, filename)
+    const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
+    const now = Date.now()
     const info: DownloadInfo = {
       id,
       url,
@@ -289,12 +308,14 @@ export class QueueManager extends EventEmitter {
       errorMessage: null,
       thumbnailUrl: null,
       site: parsed.hostname,
-      createdAt: Date.now(),
+      createdAt: now,
       startedAt: null,
       completedAt: null,
       engine: 'aria2',
+      formatId: null,
       formatString: null,
-      ytdlpState: null
+      ytdlpState: null,
+      sortOrder: now
     }
     this.db.insertDownload({
       id: info.id,
@@ -307,6 +328,7 @@ export class QueueManager extends EventEmitter {
       doneBytes: 0,
       site: info.site,
       createdAt: info.createdAt,
+      sortOrder: info.sortOrder,
       engine: 'aria2'
     })
     this.downloads.set(id, info)
@@ -344,8 +366,9 @@ export class QueueManager extends EventEmitter {
     const filename = sanitizeFilename(opts.filename)
     const dir = dirname(opts.savePath)
     mkdirSync(dir, { recursive: true })
-    const savePath = resolveUniquePath(dir, filename)
+    const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
+    const now = Date.now()
     const state: YtDlpState = {
       subtitles: opts.subtitles,
       subLang: opts.subLang,
@@ -370,12 +393,14 @@ export class QueueManager extends EventEmitter {
       errorMessage: null,
       thumbnailUrl: opts.thumbnailUrl ?? null,
       site: parsed.hostname,
-      createdAt: Date.now(),
+      createdAt: now,
       startedAt: null,
       completedAt: null,
       engine: 'ytdlp',
+      formatId: opts.formatId,
       formatString: opts.formatString,
-      ytdlpState: JSON.stringify(state)
+      ytdlpState: JSON.stringify(state),
+      sortOrder: now
     }
     this.db.insertDownload({
       id: info.id,
@@ -391,6 +416,7 @@ export class QueueManager extends EventEmitter {
       thumbnailUrl: info.thumbnailUrl,
       site: info.site,
       createdAt: info.createdAt,
+      sortOrder: info.sortOrder,
       engine: 'ytdlp',
       formatId: opts.formatId,
       formatString: opts.formatString,
@@ -585,6 +611,163 @@ export class QueueManager extends EventEmitter {
     this.stopPoller()
   }
 
+  // ------------------------------------------------------------------
+  // Phase 3: queue reorder, tray actions, History, scheduler hooks
+  // ------------------------------------------------------------------
+
+  /** The download with this URL, if any — clipboard watch uses it to dedup. */
+  getByUrl(url: string): DownloadInfo | undefined {
+    return [...this.downloads.values()].find((d) => d.url === url)
+  }
+
+  /** No download is queued, fetching info, downloading or processing. */
+  isIdle(): boolean {
+    return ![...this.downloads.values()].some((d) =>
+      ['queued', 'fetching_info', 'downloading', 'processing'].includes(d.status)
+    )
+  }
+
+  /**
+   * Move a download to the front of the queue (lowest sort_order), so the
+   * pump starts it before every other queued download. Display order is
+   * unchanged — the card's "Waiting #n" position shows the new rank.
+   */
+  async moveToTop(id: string): Promise<boolean> {
+    const d = this.downloads.get(id)
+    if (!d) return false
+    const ordered = [...this.downloads.values()].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt
+    )
+    if (ordered[0]?.id === id) return true // Already first.
+    const next = ordered[0].sortOrder - 1
+    d.sortOrder = next
+    this.db.updateDownload(id, { sortOrder: next })
+    this.emitStatus(id)
+    return true
+  }
+
+  /**
+   * Drag-and-drop reorder: place `id` directly before `beforeId` in queue
+   * order (null = move to the end). The whole queue is renumbered in
+   * whole steps of 1000 so the order never drifts into fractions.
+   */
+  async reorder(id: string, beforeId: string | null): Promise<boolean> {
+    const d = this.downloads.get(id)
+    if (!d) return false
+    const rest = [...this.downloads.values()]
+      .filter((x) => x.id !== id)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+    let insertAt = rest.length
+    if (beforeId !== null) {
+      const idx = rest.findIndex((x) => x.id === beforeId)
+      if (idx === -1) return false
+      insertAt = idx
+    }
+    const ordered = [...rest.slice(0, insertAt), d, ...rest.slice(insertAt)]
+    ordered.forEach((x, i) => {
+      x.sortOrder = (i + 1) * 1000
+      this.db.updateDownload(x.id, { sortOrder: x.sortOrder })
+    })
+    this.emitStatus(id)
+    return true
+  }
+
+  /** Pause every downloading/processing download (tray menu). */
+  async pauseAll(): Promise<number> {
+    let n = 0
+    for (const d of [...this.downloads.values()]) {
+      if (d.status === 'downloading' || d.status === 'processing') {
+        if (await this.pause(d.id)) n++
+      }
+    }
+    return n
+  }
+
+  /** Resume every paused/failed/cancelled download (tray menu, scheduler). */
+  async resumeAll(): Promise<number> {
+    let n = 0
+    for (const d of [...this.downloads.values()]) {
+      if (d.status === 'paused' || d.status === 'failed' || d.status === 'cancelled') {
+        if (await this.resume(d.id)) n++
+      }
+    }
+    return n
+  }
+
+  /** Scheduler: resume everything paused and let the pump start the queue. */
+  async startScheduledRun(): Promise<number> {
+    return this.resumeAll()
+  }
+
+  /**
+   * Re-download from History. Paused/failed/cancelled → resume in place.
+   * Completed → a fresh download with the same URL, reusing the same
+   * yt-dlp format where one was stored (plain files go through add()).
+   * Active downloads cannot be re-downloaded.
+   */
+  async redownload(id: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+    const d = this.downloads.get(id)
+    if (!d) return { ok: false, error: 'unknown' }
+    if (d.status === 'paused' || d.status === 'failed' || d.status === 'cancelled') {
+      const ok = await this.resume(id)
+      return ok ? { ok: true, id } : { ok: false, error: 'unknown' }
+    }
+    if (d.status !== 'completed') return { ok: false, error: 'unknown' }
+    if (d.engine === 'ytdlp') {
+      if (!d.formatString) return { ok: false, error: 'unknown' }
+      const state = parseYtDlpState(d.ytdlpState)
+      return this.addWithOptions({
+        url: d.url,
+        kind: d.kind === 'audio' ? 'audio' : 'video',
+        formatId: d.formatId ?? '',
+        formatString: d.formatString,
+        qualityLabel: d.formatLabel ?? '',
+        subtitles: state?.subtitles ?? false,
+        subLang: state?.subLang ?? 'en',
+        embedThumbnail: state?.embedThumbnail ?? false,
+        savePath: d.savePath,
+        filename: d.filename,
+        title: d.title,
+        thumbnailUrl: d.thumbnailUrl
+      })
+    }
+    return this.add(d.url)
+  }
+
+  /**
+   * Clear history: delete only finished records (completed / failed /
+   * cancelled) from the DB and the in-memory map. Active downloads are
+   * never touched and no file is ever deleted here.
+   */
+  clearHistory(): number {
+    const count = this.db.clearHistory()
+    for (const [id, d] of [...this.downloads.entries()]) {
+      if (['completed', 'failed', 'cancelled'].includes(d.status)) {
+        this.downloads.delete(id)
+        this.retryCount.delete(id)
+        this.ytDlpArgs.delete(id)
+      }
+    }
+    return count
+  }
+
+  /**
+   * Ids of finished rows whose file no longer exists on disk — the History
+   * page shows the "File missing" badge for these. Queued/active rows are
+   * excluded (their file simply hasn't been written yet), and so are
+   * cancelled rows: cancel() deliberately deletes the partial file, so a
+   * cancelled row would otherwise ALWAYS show "missing" — noise, not
+   * information. Only completed/failed rows ever had a file worth losing.
+   */
+  historyMissing(): string[] {
+    const out: string[] = []
+    for (const d of this.downloads.values()) {
+      if (!['completed', 'failed'].includes(d.status)) continue
+      if (!existsSync(d.savePath)) out.push(d.id)
+    }
+    return out
+  }
+
   private async pump(): Promise<void> {
     if (this.pumping || this.shutDown) return
     this.pumping = true
@@ -595,9 +778,12 @@ export class QueueManager extends EventEmitter {
           (d) => d.status === 'downloading'
         ).length
         if (activeCount >= s.maxConcurrent) return
+        // Phase 3: the queue starts by sort_order (Move to top / reorder),
+        // not by age. createdAt only breaks ties. Display order is
+        // unchanged — list() still returns newest first.
         const next = [...this.downloads.values()]
           .filter((d) => d.status === 'queued')
-          .sort((a, b) => a.createdAt - b.createdAt)[0]
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)[0]
         if (!next) return
         await this.startDownload(next)
       }
@@ -635,6 +821,8 @@ export class QueueManager extends EventEmitter {
       'auto-file-renaming': 'false',
       'max-overall-download-limit': s.speedLimitKBps > 0 ? String(s.speedLimitKBps * 1024) : '0'
     }
+    // Phase 3: proxy applies to aria2 too (yt-dlp gets it via baseArgs).
+    if (s.proxyUrl) opts['all-proxy'] = s.proxyUrl
     try {
       const gid = await this.aria2.addUri(d.url, opts)
       d.status = 'downloading'

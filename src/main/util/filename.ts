@@ -48,14 +48,26 @@ export function sanitizeFilename(name: string): string {
   return s
 }
 
-/** First free path in `dir` for `filename`; appends " (1)", " (2)", ... on clash. */
-export function resolveUniquePath(dir: string, filename: string): string {
+/**
+ * First free path in `dir` for `filename`; appends " (1)", " (2)", ... on clash.
+ * `isTaken` is an extra clash check beyond the disk — the queue passes its
+ * in-use save paths, because a queued download whose file doesn't exist
+ * yet would otherwise collide with a later one of the same name (found by
+ * the Phase 3 test: two node-zip downloads both resolved to " (1)", and
+ * cancelling one deleted the other's finished file).
+ */
+export function resolveUniquePath(
+  dir: string,
+  filename: string,
+  isTaken?: (candidate: string) => boolean
+): string {
   const clean = sanitizeFilename(filename)
+  const taken = (c: string): boolean => existsSync(c) || (isTaken?.(c) ?? false)
   let candidate = join(dir, clean)
-  if (!existsSync(candidate)) return candidate
+  if (!taken(candidate)) return candidate
   const p = parse(clean)
   let i = 1
-  while (existsSync(candidate)) {
+  while (taken(candidate)) {
     candidate = join(dir, `${p.name} (${i})${p.ext}`)
     i++
   }

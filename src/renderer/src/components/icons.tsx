@@ -182,6 +182,29 @@ export function IconChevronDown(props: IconProps): React.JSX.Element {
   )
 }
 
+// Phase 3: move-to-top (queue reorder).
+export function IconChevronUp(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M4 10l4-4 4 4" />
+    </Svg>
+  )
+}
+
+// Phase 3: drag handle for queue reorder (six dots).
+export function IconGrip(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <circle cx="6" cy="4" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="4" r="1" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="12" r="1" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
 export function IconDisk(props: IconProps): React.JSX.Element {
   return (
     <Svg {...props}>

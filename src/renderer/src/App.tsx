@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import DownloadCard from './components/DownloadCard'
+import HistoryPage from './components/HistoryPage'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
@@ -48,10 +49,26 @@ function App(): React.JSX.Element {
   const pause = useStore((s) => s.pause)
   const resume = useStore((s) => s.resume)
   const remove = useStore((s) => s.remove)
+  const reorderDownloads = useStore((s) => s.reorderDownloads)
+  const schedulerCountdown = useStore((s) => s.schedulerCountdown)
+  const cancelSchedulerCountdown = useStore((s) => s.cancelSchedulerCountdown)
 
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Phase 3: drag-and-drop queue reorder — the card being dragged.
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+
+  // Phase 3: start order rank (queued/paused, by sort_order) — drives the
+  // "Waiting #n" label and the Move-to-top button on each card.
+  const queuePositions = useMemo(() => {
+    const order = [...downloads]
+      .filter((d) => d.status === 'queued' || d.status === 'paused')
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+    const map = new Map<string, number>()
+    order.forEach((d, i) => map.set(d.id, i + 1))
+    return map
+  }, [downloads])
 
   useEffect(() => {
     void init()
@@ -129,6 +146,10 @@ function App(): React.JSX.Element {
         {view === 'settings' ? (
           <div className="flex-1 overflow-y-auto">
             <SettingsPage />
+          </div>
+        ) : view === 'history' ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <HistoryPage />
           </div>
         ) : (
           <>
@@ -253,9 +274,39 @@ function App(): React.JSX.Element {
                       {t('list.count', { n: visible.length })}
                     </span>
                   </div>
-                  <div className="space-y-2">
+                  <div
+                    className="space-y-2"
+                    onDragOver={(e) => {
+                      if (draggedId) {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                      }
+                    }}
+                    onDrop={(e) => {
+                      // Dropped below the last card — move to the end.
+                      if (draggedId) {
+                        e.preventDefault()
+                        void reorderDownloads(draggedId, null)
+                        setDraggedId(null)
+                      }
+                    }}
+                  >
                     {visible.map((d) => (
-                      <DownloadCard key={d.id} d={d} />
+                      <DownloadCard
+                        key={d.id}
+                        d={d}
+                        queuePosition={queuePositions.get(d.id)}
+                        draggable
+                        dragging={draggedId === d.id}
+                        onDragStart={() => setDraggedId(d.id)}
+                        onDragEnd={() => setDraggedId(null)}
+                        onDropOn={() => {
+                          if (draggedId && draggedId !== d.id) {
+                            void reorderDownloads(draggedId, d.id)
+                          }
+                          setDraggedId(null)
+                        }}
+                      />
                     ))}
                   </div>
                 </div>
@@ -269,8 +320,38 @@ function App(): React.JSX.Element {
       <AddDownloadDialog />
 
       {toast && (
-        <div className="fixed bottom-12 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-xl">
-          {t(toast.key, toast.params)}
+        <div className="fixed bottom-12 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-xl">
+          <span>{t(toast.key, toast.params)}</span>
+          {toast.action && (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => openDialog(toast.action?.url ?? '')}
+            >
+              {t(toast.action.labelKey)}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Phase 3: scheduler countdown — 60s to cancel before shutdown/sleep. */}
+      {schedulerCountdown && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="card mx-4 w-full max-w-[420px] p-6 text-center">
+            <div className="text-[16px] font-semibold">
+              {schedulerCountdown.action === 'shutdown'
+                ? t('scheduler.countdownShutdown', { seconds: schedulerCountdown.secondsLeft })
+                : t('scheduler.countdownSleep', { seconds: schedulerCountdown.secondsLeft })}
+            </div>
+            <div className="mt-2 text-[13px] text-[var(--muted)]">
+              {t('scheduler.countdownNote')}
+            </div>
+            <button
+              className="btn btn-primary mt-5"
+              onClick={() => void cancelSchedulerCountdown()}
+            >
+              {t('scheduler.cancel')}
+            </button>
+          </div>
         </div>
       )}
     </div>
