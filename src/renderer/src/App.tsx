@@ -133,19 +133,41 @@ function App(): React.JSX.Element {
 
             <main className="flex-1 overflow-y-auto p-4">
               {!loaded ? (
-                <div className="p-8 text-center text-[var(--muted)]">…</div>
-              ) : visible.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center text-center">
-                  <div className="text-[40px] text-[var(--accent)]">⤓</div>
-                  <div className="mt-2 text-[16px] font-medium">{t('empty.title')}</div>
-                  <div className="mt-1 max-w-[380px] text-[13px] text-[var(--muted)]">
-                    {t('empty.hint')}
-                  </div>
-                  {initError && (
-                    <div className="mt-4 max-w-[380px] text-[13px] text-[var(--danger)]">
-                      {t('settings.loadError')}
+                <div className="flex h-full items-center justify-center">
+                  <div className="text-[13px] text-[var(--muted)]">{t('app.loading')}</div>
+                </div>
+              ) : visible.length === 0 && initError ? (
+                // Startup load failed: a real message (distinct for a dead
+                // bridge or a startup timeout) plus Retry — never a bare "…".
+                <div className="flex h-full items-center justify-center">
+                  <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--surface-2)] text-[24px] font-semibold text-[var(--danger)]">
+                      !
                     </div>
-                  )}
+                    <div className="mt-4 text-[14px] leading-relaxed text-[var(--danger)]">
+                      {initError === 'bridge'
+                        ? t('settings.bridgeError')
+                        : initError === 'initTimeout'
+                          ? t('settings.initTimeoutError')
+                          : t('settings.loadError')}
+                    </div>
+                    <button className="btn btn-primary mt-5" onClick={() => void init()}>
+                      {t('settings.retry')}
+                    </button>
+                  </div>
+                </div>
+              ) : visible.length === 0 ? (
+                // Loaded and empty: a proper empty state, not a black void.
+                <div className="flex h-full items-center justify-center">
+                  <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--surface-2)] text-[28px] text-[var(--accent)]">
+                      ⤓
+                    </div>
+                    <div className="mt-4 text-[16px] font-medium">{t('empty.title')}</div>
+                    <div className="mx-auto mt-1 max-w-[320px] text-[13px] text-[var(--muted)]">
+                      {t('empty.hint')}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-[860px] space-y-2">

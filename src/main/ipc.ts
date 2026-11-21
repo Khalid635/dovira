@@ -15,6 +15,7 @@ import {
 } from './engines/versions'
 import { diskFreeBytes } from './util/paths'
 import type { AddOptions, Settings } from './types'
+import { logMain } from './logger'
 
 export interface IpcDeps {
   queue: QueueManager
@@ -35,6 +36,12 @@ export interface IpcDeps {
  */
 export function registerIpc(deps: IpcDeps): void {
   const { queue, settings } = deps
+
+  // Preload self-report (sent from src/preload/index.ts after the bridge
+  // is exposed). If main never logs this line, the preload never ran.
+  ipcMain.on('dovira:bridge:ready', () => {
+    logMain('info', 'preload ran: bridge exposed to renderer')
+  })
 
   ipcMain.handle('dovira:downloads:list', () => queue.list())
   ipcMain.handle('dovira:downloads:add', (_e, url: unknown, saveDir: unknown) =>
@@ -104,18 +111,30 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return settings.update(patch as Partial<Settings>)
   })
-  ipcMain.handle('dovira:app:info', async () => ({
-    version: app.getVersion(),
-    electronVersion: process.versions.electron ?? '',
-    chromeVersion: process.versions.chrome ?? '',
-    nodeVersion: process.versions.node ?? '',
-    aria2Version: await getAria2Version(deps.aria2Binary),
-    ytDlpVersion: deps.ytDlpBinary ? await getYtDlpVersion(deps.ytDlpBinary) : null,
-    ffmpegVersion: deps.ffmpegBinary ? await getFfmpegVersion(deps.ffmpegBinary) : null,
-    denoVersion: deps.denoBinary ? await getDenoVersion(deps.denoBinary) : null,
-    downloadDir: settings.get().downloadDir,
-    diskFreeBytes: diskFreeBytes(settings.get().downloadDir)
-  }))
+  // The four --version spawns used to run sequentially, so startup init()
+  // waited the SUM of four cold process spawns (several seconds under
+  // Defender) and Home sat on its loading state. They are independent —
+  // run them in parallel. Safe: runVersion never rejects (null on error).
+  ipcMain.handle('dovira:app:info', async () => {
+    const [aria2Version, ytDlpVersion, ffmpegVersion, denoVersion] = await Promise.all([
+      getAria2Version(deps.aria2Binary),
+      deps.ytDlpBinary ? getYtDlpVersion(deps.ytDlpBinary) : Promise.resolve(null),
+      deps.ffmpegBinary ? getFfmpegVersion(deps.ffmpegBinary) : Promise.resolve(null),
+      deps.denoBinary ? getDenoVersion(deps.denoBinary) : Promise.resolve(null)
+    ])
+    return {
+      version: app.getVersion(),
+      electronVersion: process.versions.electron ?? '',
+      chromeVersion: process.versions.chrome ?? '',
+      nodeVersion: process.versions.node ?? '',
+      aria2Version,
+      ytDlpVersion,
+      ffmpegVersion,
+      denoVersion,
+      downloadDir: settings.get().downloadDir,
+      diskFreeBytes: diskFreeBytes(settings.get().downloadDir)
+    }
+  })
   ipcMain.handle('dovira:pickFolder', async () => {
     const win = deps.getMainWindow()
     const options: OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] }

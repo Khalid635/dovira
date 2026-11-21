@@ -52,6 +52,8 @@ interface Store {
   dialogInfo: VideoInfo | null
   dialogPlainFile: PlainFileInfo | null
   dialogError: string | null
+  /** Raw IPC error text — shown in the dialog in dev only, never the user-facing message. */
+  dialogErrorDetail: string | null
   openDialog: (url?: string) => void
   closeDialog: () => void
   fetchInfo: (url: string) => Promise<void>
@@ -62,6 +64,11 @@ interface Store {
   loadEngines: (checkForUpdates: boolean) => Promise<void>
   updateEngine: (name: string) => Promise<{ ok: boolean; error?: string }>
 }
+
+// Event listeners + the 5s refresh interval are attached once per renderer
+// lifetime. init() can run again via the Settings Retry button — attaching
+// twice would double-fire every progress/status update.
+let listenersAttached = false
 
 export const useStore = create<Store>()((set, get) => ({
   downloads: [],
@@ -79,36 +86,79 @@ export const useStore = create<Store>()((set, get) => ({
   dialogInfo: null,
   dialogPlainFile: null,
   dialogError: null,
+  dialogErrorDetail: null,
   engines: [],
   enginesLoading: false,
 
   init: async () => {
-    // Phase 1 loaded all three in one Promise.all with no error handling:
-    // a single rejection left settings null and the whole UI stuck on "…"
-    // with no message. Each call now fails independently and the app still
-    // loads — the Settings page shows the error with a Retry button.
-    const [settingsRes, downloadsRes, appInfoRes] = await Promise.allSettled([
-      window.dovira.getSettings(),
-      window.dovira.listDownloads(),
-      window.dovira.getAppInfo()
-    ])
-    const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null
-    const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : []
-    const appInfo = appInfoRes.status === 'fulfilled' ? appInfoRes.value : null
-    const failed =
-      settingsRes.status === 'rejected' ||
-      downloadsRes.status === 'rejected' ||
-      appInfoRes.status === 'rejected'
-    set({
-      settings,
-      downloads,
-      appInfo,
-      language: settings?.language ?? 'bn',
-      loaded: true,
-      initError: failed ? 'init' : null
-    })
-    if (failed) get().showToast('toast.initFailed')
+    // Dead bridge (the preload never exposed window.dovira): no IPC call
+    // can work. Settle as a failed init with a distinct code instead of
+    // hanging forever — evaluating `window.dovira.getSettings()` throws
+    // before Promise.allSettled even runs when window.dovira itself is
+    // undefined, which is exactly how the 2026-11-22 Settings "…" bug
+    // happened: init() rejected, loaded stayed false, initError stayed
+    // null, and the Settings page showed a bare "…" with no error.
+    if (typeof window.dovira === 'undefined') {
+      set({ loaded: true, initError: 'bridge' })
+      get().showToast('toast.initFailed')
+      return
+    }
 
+    // Hard timeout: init must ALWAYS settle. A hanging IPC call (or a
+    // preload that died mid-flight) used to leave loaded=false forever.
+    const INIT_TIMEOUT_MS = 15_000
+    let timedOut = false
+    const cancelled = { current: false }
+    const load = async (): Promise<void> => {
+      const [settingsRes, downloadsRes, appInfoRes] = await Promise.allSettled([
+        window.dovira.getSettings(),
+        window.dovira.listDownloads(),
+        window.dovira.getAppInfo()
+      ])
+      // A timed-out attempt must not overwrite the timeout error later.
+      if (cancelled.current) return
+      const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null
+      const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : []
+      const appInfo = appInfoRes.status === 'fulfilled' ? appInfoRes.value : null
+      const failed =
+        settingsRes.status === 'rejected' ||
+        downloadsRes.status === 'rejected' ||
+        appInfoRes.status === 'rejected'
+      set({
+        settings,
+        downloads,
+        appInfo,
+        language: settings?.language ?? 'bn',
+        loaded: true,
+        initError: failed ? 'init' : null
+      })
+      if (failed) get().showToast('toast.initFailed')
+    }
+    // The timer is cleared in `finally`: without that, a won race would
+    // still reject the losing timeout promise 15s later (unhandled).
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true
+        reject(new Error('init-timeout'))
+      }, INIT_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([load(), timeout])
+    } catch {
+      // Either the timeout fired or load() itself threw (e.g. the bridge
+      // died between the check above and the first IPC call). Either way
+      // init settles with a distinct code — never a bare "…".
+      cancelled.current = true
+      set({ loaded: true, initError: timedOut ? 'initTimeout' : 'init' })
+      get().showToast('toast.initFailed')
+      return
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+    }
+
+    if (listenersAttached) return
+    listenersAttached = true
     window.dovira.onProgress((p: ProgressEvent) => {
       set((s) => ({
         downloads: s.downloads.map((d) =>
@@ -231,7 +281,19 @@ export const useStore = create<Store>()((set, get) => ({
   fetchInfo: async (url) => {
     const value = url.trim()
     if (!value) return
-    set({ dialogLoading: true, dialogInfo: null, dialogPlainFile: null, dialogError: null })
+    set({
+      dialogLoading: true,
+      dialogInfo: null,
+      dialogPlainFile: null,
+      dialogError: null,
+      dialogErrorDetail: null
+    })
+    // A dead bridge is NOT a download failure — say so, with its own code.
+    if (typeof window.dovira === 'undefined') {
+      set({ dialogError: 'bridge', dialogLoading: false })
+      get().showToast('toast.infoFailed')
+      return
+    }
     try {
       const res = await window.dovira.fetchInfo(value)
       if (res.ok && res.info) {
@@ -242,8 +304,19 @@ export const useStore = create<Store>()((set, get) => ({
         set({ dialogError: res.error ?? 'unknown', dialogLoading: false })
         get().showToast('toast.infoFailed')
       }
-    } catch {
-      set({ dialogError: 'unknown', dialogLoading: false })
+    } catch (err) {
+      // The IPC call itself threw — most commonly a bridge that died
+      // mid-flight. Never let that masquerade as "download failed".
+      const bridgeDead = typeof window.dovira === 'undefined'
+      set({
+        dialogError: bridgeDead ? 'bridge' : 'unknown',
+        dialogErrorDetail: import.meta.env.DEV
+          ? err instanceof Error
+            ? err.message
+            : String(err)
+          : null,
+        dialogLoading: false
+      })
       get().showToast('toast.infoFailed')
     }
   },

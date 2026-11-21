@@ -22,7 +22,6 @@
     "fetch-binaries": "node scripts/fetch-binaries.cjs"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "zustand": "^5.1.0"
   },

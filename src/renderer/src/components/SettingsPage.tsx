@@ -8,6 +8,7 @@ export default function SettingsPage(): React.JSX.Element {
   const t = useT()
   const settings = useStore((s) => s.settings)
   const appInfo = useStore((s) => s.appInfo)
+  const loaded = useStore((s) => s.loaded)
   const initError = useStore((s) => s.initError)
   const init = useStore((s) => s.init)
   const updateSettings = useStore((s) => s.updateSettings)
@@ -20,21 +21,29 @@ export default function SettingsPage(): React.JSX.Element {
     void loadEngines(false)
   }, [loadEngines])
 
-  // Settings never arrived (a startup load failed): say so plainly with a
-  // Retry button instead of the bare "…" Phase 1 showed forever.
+  // Settings never arrived: distinguish "still loading" from "failed".
+  // The bare "…" Phase 1 showed forever is gone — a failed load always
+  // shows a real message (with a distinct one for a dead bridge or a
+  // startup timeout) plus a Retry button.
   if (!settings) {
     return (
       <div className="mx-auto w-full max-w-[640px] space-y-4 p-6">
         <h1 className="text-[20px] font-semibold">{t('settings.title')}</h1>
-        {initError ? (
+        {!loaded ? (
+          <p className="text-[var(--muted)]">{t('app.loading')}</p>
+        ) : (
           <>
-            <p className="text-[13px] text-[var(--danger)]">{t('settings.loadError')}</p>
+            <p className="text-[13px] text-[var(--danger)]">
+              {initError === 'bridge'
+                ? t('settings.bridgeError')
+                : initError === 'initTimeout'
+                  ? t('settings.initTimeoutError')
+                  : t('settings.loadError')}
+            </p>
             <button className="btn btn-primary" onClick={() => void init()}>
               {t('settings.retry')}
             </button>
           </>
-        ) : (
-          <p className="text-[var(--muted)]">…</p>
         )}
       </div>
     )

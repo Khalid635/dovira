@@ -43,6 +43,12 @@ function errorKey(code: string | null): string {
       return 'error.engine-missing'
     case 'network':
       return 'error.network'
+    case 'bridge':
+      return 'error.bridge'
+    case 'timeout':
+      // error.infoTimeout exists since Phase 2 but was never mapped — a
+      // timed-out info fetch used to fall through to error.unknown.
+      return 'error.infoTimeout'
     default:
       return 'error.unknown'
   }
@@ -56,6 +62,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const dialogInfo = useStore((s) => s.dialogInfo)
   const dialogPlainFile = useStore((s) => s.dialogPlainFile)
   const dialogError = useStore((s) => s.dialogError)
+  const dialogErrorDetail = useStore((s) => s.dialogErrorDetail)
   const settings = useStore((s) => s.settings)
   const closeDialog = useStore((s) => s.closeDialog)
   const fetchInfo = useStore((s) => s.fetchInfo)
@@ -262,6 +269,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
         {dialogError && !dialogLoading && (
           <div className="mt-4">
             <div className="text-[13px] text-[var(--danger)]">{t(errorKey(dialogError))}</div>
+            <div className="mt-1 text-[11px] text-[var(--muted)]">
+              {`code: ${dialogError}`}
+              {dialogErrorDetail ? ` — ${dialogErrorDetail}` : ''}
+            </div>
             <button className="btn btn-sm mt-2" onClick={() => void fetchInfo(url || dialogUrl)}>
               {t('dialog.retry')}
             </button>

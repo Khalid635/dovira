@@ -10,6 +10,7 @@ import { YtDlpManager } from './engines/ytdlp'
 import { QueueManager } from './queue'
 import { registerIpc } from './ipc'
 import { findBinary } from './util/paths'
+import { initLogger, logMain } from './logger'
 
 let mainWindow: BrowserWindow | null = null
 let db: DoviraDb | null = null
@@ -40,6 +41,72 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  // Preload errors are otherwise invisible (they only reach the DevTools
+  // console). Log them — a throwing preload is the most likely cause of a
+  // dead bridge, and this names the exact error.
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logMain('error', `preload-error: ${preloadPath}: ${error.message}`)
+  })
+
+  // Renderer-mount ping: the 2026-11-22 Settings bug was a preload that
+  // never exposed window.dovira, and nothing on disk recorded it. Ask the
+  // loaded page directly and log the answer, so a dead bridge is provable
+  // after the fact. executeJavaScript runs in the main world, where
+  // contextBridge-exposed properties are visible.
+  mainWindow.webContents.on('did-finish-load', () => {
+    void (async () => {
+      try {
+        const t = await mainWindow?.webContents.executeJavaScript('typeof window.dovira')
+        logMain('info', `renderer mounted: typeof window.dovira = ${String(t)}`)
+        if (t !== 'object') {
+          logMain(
+            'error',
+            'BRIDGE DEAD: preload did not expose window.dovira — the renderer shows the fatal bridge screen'
+          )
+        }
+      } catch (err) {
+        logMain('error', `renderer bridge ping failed: ${(err as Error).message}`)
+      }
+      try {
+        // What the user actually sees: the fatal screen's text appears only
+        // when the renderer's own gate found the bridge dead. The DOM is
+        // shared across JS worlds, so this read stays valid even if the
+        // typeof check above runs in a different world than the page.
+        const fatalShown = await mainWindow?.webContents.executeJavaScript(
+          "document.body.innerText.includes('অ্যাপের ভেতরের সংযোগ চালু হয়নি')"
+        )
+        logMain('info', `renderer mounted: fatal bridge screen shown = ${String(fatalShown)}`)
+      } catch (err) {
+        logMain('error', `renderer fatal-screen check failed: ${(err as Error).message}`)
+      }
+      // Home-state probes — React's init() IPC round-trip needs a moment,
+      // and the 3s reading alone can't tell "slow init" from "stuck init".
+      // Two readings do: slow ⟺ loading at 3s, settled at 12s. This proves
+      // end-to-end that the bridge not only exists but answers: empty ⟺
+      // init settled and the list is empty; failed ⟺ init settled with an
+      // error; loading ⟺ init still hasn't settled.
+      for (const delayMs of [3000, 12000]) {
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const state = await mainWindow?.webContents.executeJavaScript(
+                `(() => { const txt = document.body.innerText; ` +
+                  `if (txt.includes('অ্যাপের ভেতরের সংযোগ চালু হয়নি') || txt.includes('internal connection did not start')) return 'fatal'; ` +
+                  `if (txt.includes('এখনো কোনো ডাউনলোড নেই') || txt.includes('No downloads yet')) return 'empty'; ` +
+                  `if (txt.includes('আবার চেষ্টা') || txt.includes('Retry')) return 'failed'; ` +
+                  `if (txt.includes('লোড হচ্ছে') || txt.includes('Loading')) return 'loading'; ` +
+                  `return 'list'; })()`
+              )
+              logMain('info', `renderer mounted: home state after ${delayMs / 1000}s = ${String(state)}`)
+            } catch (err) {
+              logMain('error', `renderer home-state probe failed: ${(err as Error).message}`)
+            }
+          })()
+        }, delayMs)
+      }
+    })()
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -67,6 +134,8 @@ app.whenReady().then(() => {
 
   const userData = app.getPath('userData')
   mkdirSync(userData, { recursive: true })
+  initLogger(userData)
+  logMain('info', `DOVIRA main starting — version ${app.getVersion()} — userData=${userData}`)
 
   try {
     db = new DoviraDb(join(userData, 'dovira.db'))
@@ -94,6 +163,7 @@ app.whenReady().then(() => {
   if (!ffmpegBinary) missing.push('ffmpeg.exe')
   if (!denoBinary) missing.push('deno.exe')
   if (missing.length > 0) {
+    logMain('error', `engine files missing: ${missing.join(', ')}`)
     dialog.showErrorBox(
       'DOVIRA — Engine missing',
       `These engine files were not found under resources/bin/win:\n${missing.join('\n')}\nRun "npm run fetch-binaries" to download them.`
@@ -118,6 +188,7 @@ app.whenReady().then(() => {
     getMainWindow: () => mainWindow
   })
 
+  logMain('info', 'window created')
   createWindow()
 
   app.on('activate', function () {

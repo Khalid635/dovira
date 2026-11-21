@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import type {
   AddOptions,
   AppInfo,
@@ -73,19 +72,26 @@ const api: DoviraAPI = {
   onToast: (cb) => subscribe<ToastEvent>('dovira:toast', cb)
 }
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
+// NOTE: this preload must NOT import any npm package — not even
+// @electron-toolkit/preload. The app runs with sandbox:true, and a sandboxed
+// preload's require() cannot load node_modules: the packaged app died on
+// `preload-error: module not found: @electron-toolkit/preload` (2026-11-22),
+// which left window.dovira undefined and every screen stuck on a bare "…".
+// Only require('electron') — a built-in — works here. window.electron is
+// intentionally NOT exposed: nothing in the renderer reads it; the whole
+// API surface is window.dovira.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('dovira', api)
   } catch (error) {
     console.error(error)
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
   window.dovira = api
 }
+
+// Bridge self-report: main logs it, so a preload that never ran (or died
+// before this line) is distinguishable from a ping that reads the wrong
+// JS world. Sent after the expose above, so it fires even if expose threw.
+ipcRenderer.send('dovira:bridge:ready')

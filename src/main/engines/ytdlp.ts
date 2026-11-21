@@ -344,7 +344,7 @@ export class YtDlpManager {
     return args
   }
 
-  /** Fetch title/thumbnail/duration/formats for a URL (30s timeout). */
+  /** Fetch title/thumbnail/duration/formats for a URL (60s timeout). */
   async fetchInfo(url: string): Promise<YtDlpInfo> {
     let parsed: URL
     try {
@@ -356,7 +356,13 @@ export class YtDlpManager {
       throw new YtDlpError('unsupported-url', 'not http(s)')
     }
     const args = [...this.baseArgs(), '--dump-single-json', '--', url.trim()]
-    const out = await this.runCapture(args, 30_000)
+    const out = await this.runCapture(args, 60_000)
+    // A timeout gets its own code — before, runCapture folded it into
+    // stderr "(timed out)" and mapYtDlpError turned it into 'network', so
+    // the dialog could not tell a slow fetch from a broken connection.
+    if (out.timedOut) {
+      throw new YtDlpError('timeout', 'fetchInfo timed out after 60s')
+    }
     let json: Record<string, unknown>
     try {
       json = JSON.parse(out.stdout) as Record<string, unknown>
@@ -462,7 +468,7 @@ export class YtDlpManager {
   private runCapture(
     args: string[],
     timeoutMs: number
-  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
     return new Promise((resolve) => {
       const child = spawn(this.binaryPath, args, { windowsHide: true })
       let stdout = ''
@@ -476,7 +482,7 @@ export class YtDlpManager {
           } catch {
             // Already gone.
           }
-          resolve({ code: null, stdout, stderr: stderr + '\n(timed out)' })
+          resolve({ code: null, stdout, stderr: stderr + '\n(timed out)', timedOut: true })
         }
       }, timeoutMs)
       child.stdout?.on('data', (c: Buffer) => {
@@ -489,13 +495,13 @@ export class YtDlpManager {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        resolve({ code: null, stdout, stderr: stderr + `\n${err.message}` })
+        resolve({ code: null, stdout, stderr: stderr + `\n${err.message}`, timedOut: false })
       })
       child.on('close', (code) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        resolve({ code, stdout, stderr })
+        resolve({ code, stdout, stderr, timedOut: false })
       })
     })
   }
