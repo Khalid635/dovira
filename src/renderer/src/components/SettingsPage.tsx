@@ -1,13 +1,44 @@
+import { useEffect } from 'react'
 import { useStore, useT } from '../store'
 import type { Settings } from '../../../main/types'
+
+const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
 
 export default function SettingsPage(): React.JSX.Element {
   const t = useT()
   const settings = useStore((s) => s.settings)
   const appInfo = useStore((s) => s.appInfo)
+  const initError = useStore((s) => s.initError)
+  const init = useStore((s) => s.init)
   const updateSettings = useStore((s) => s.updateSettings)
+  const engines = useStore((s) => s.engines)
+  const enginesLoading = useStore((s) => s.enginesLoading)
+  const loadEngines = useStore((s) => s.loadEngines)
+  const updateEngine = useStore((s) => s.updateEngine)
 
-  if (!settings) return <div className="p-6 text-[var(--muted)]">…</div>
+  useEffect(() => {
+    void loadEngines(false)
+  }, [loadEngines])
+
+  // Settings never arrived (a startup load failed): say so plainly with a
+  // Retry button instead of the bare "…" Phase 1 showed forever.
+  if (!settings) {
+    return (
+      <div className="mx-auto w-full max-w-[640px] space-y-4 p-6">
+        <h1 className="text-[20px] font-semibold">{t('settings.title')}</h1>
+        {initError ? (
+          <>
+            <p className="text-[13px] text-[var(--danger)]">{t('settings.loadError')}</p>
+            <button className="btn btn-primary" onClick={() => void init()}>
+              {t('settings.retry')}
+            </button>
+          </>
+        ) : (
+          <p className="text-[var(--muted)]">…</p>
+        )}
+      </div>
+    )
+  }
 
   const set = (patch: Partial<Settings>): void => {
     void updateSettings(patch)
@@ -104,13 +135,138 @@ export default function SettingsPage(): React.JSX.Element {
         </label>
       </section>
 
+      <section className="card space-y-4">
+        <h2 className="text-[14px] font-semibold">{t('settings.videoAudio')}</h2>
+
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--muted)]">
+            {t('settings.defaultQuality')}
+          </span>
+          <select
+            className="input w-48"
+            value={settings.defaultVideoQuality}
+            onChange={(e) => set({ defaultVideoQuality: e.target.value })}
+          >
+            {['2160', '1080', '720', '480', '360'].map((q) => (
+              <option key={q} value={q}>
+                {q}p
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--muted)]">
+            {t('settings.container')}
+          </span>
+          <select
+            className="input w-48"
+            value={settings.videoContainer}
+            onChange={(e) => set({ videoContainer: e.target.value as 'mp4' | 'mkv' })}
+          >
+            <option value="mp4">MP4</option>
+            <option value="mkv">MKV</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--muted)]">
+            {t('settings.defaultBitrate')}
+          </span>
+          <select
+            className="input w-48"
+            value={settings.defaultAudioBitrate}
+            onChange={(e) => set({ defaultAudioBitrate: e.target.value as '320' | '192' | '128' })}
+          >
+            <option value="320">320 kbps</option>
+            <option value="192">192 kbps</option>
+            <option value="128">128 kbps</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--muted)]">
+            {t('settings.subtitleLang')}
+          </span>
+          <select
+            className="input w-48"
+            value={settings.subtitleLang}
+            onChange={(e) => set({ subtitleLang: e.target.value })}
+          >
+            {SUB_LANGS.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[14px] font-semibold">{t('settings.engines')}</h2>
+          <button
+            className="btn btn-sm"
+            disabled={enginesLoading}
+            onClick={() => void loadEngines(true)}
+          >
+            {enginesLoading ? t('settings.checking') : t('settings.checkForUpdates')}
+          </button>
+        </div>
+        {engines.length === 0 && (
+          <div className="text-[13px] text-[var(--muted)]">
+            {enginesLoading ? t('settings.checking') : t('settings.engineMissing')}
+          </div>
+        )}
+        {engines.map((e) => (
+          <div key={e.name} className="flex items-center gap-2 text-[13px] text-[var(--muted)]">
+            <span className="w-20 font-medium text-[var(--text)]">{e.name}</span>
+            <span className="tabular-nums">{e.version ?? '—'}</span>
+            <span className="flex-1" />
+            {e.updateAvailable ? (
+              <>
+                <span className="text-[var(--warning)]">{t('settings.updateAvailable')}</span>
+                <button className="btn btn-sm" onClick={() => void updateEngine(e.name)}>
+                  {t('settings.updateNow')}
+                </button>
+              </>
+            ) : (
+              <span>{e.latest ? t('settings.upToDate') : ''}</span>
+            )}
+          </div>
+        ))}
+        <label className="flex cursor-pointer items-center gap-2 pt-1 text-[13px]">
+          <input
+            type="checkbox"
+            checked={settings.engineAutoUpdate}
+            onChange={(e) => set({ engineAutoUpdate: e.target.checked })}
+          />
+          {t('settings.autoUpdateEngines')}
+        </label>
+      </section>
+
       <section className="card space-y-1 text-[13px] text-[var(--muted)]">
         <h2 className="text-[14px] font-semibold text-[var(--text)]">{t('settings.about')}</h2>
-        <div>{t('settings.version', { version: appInfo?.version ?? '1.0.0' })}</div>
+        <div>{t('settings.version', { version: appInfo?.version ?? '0.1.0' })}</div>
         <div>
           {appInfo?.aria2Version
             ? t('settings.aria2Version', { version: appInfo.aria2Version })
             : t('settings.engineMissing')}
+        </div>
+        <div>
+          {appInfo?.ytDlpVersion
+            ? t('settings.ytDlpVersion', { version: appInfo.ytDlpVersion })
+            : `yt-dlp —`}
+        </div>
+        <div>
+          {appInfo?.ffmpegVersion
+            ? t('settings.ffmpegVersion', { version: appInfo.ffmpegVersion })
+            : `ffmpeg —`}
+        </div>
+        <div>
+          {appInfo?.denoVersion
+            ? t('settings.denoVersion', { version: appInfo.denoVersion })
+            : `Deno —`}
         </div>
         <div>Electron {appInfo?.electronVersion ?? ''}</div>
       </section>

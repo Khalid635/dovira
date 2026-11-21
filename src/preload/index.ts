@@ -1,17 +1,27 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AddOptions,
   AppInfo,
   DownloadInfo,
+  EngineInfo,
+  PlainFileInfo,
   ProgressEvent,
   Settings,
   StatusEvent,
-  ToastEvent
+  ToastEvent,
+  VideoInfo
 } from '../main/types'
 
 export interface DoviraAPI {
   listDownloads(): Promise<DownloadInfo[]>
-  addDownload(url: string): Promise<{ ok: boolean; id?: string; error?: string }>
+  addDownload(url: string, saveDir?: string): Promise<{ ok: boolean; id?: string; error?: string }>
+  fetchInfo(
+    url: string
+  ): Promise<{ ok: boolean; info?: VideoInfo; plainFile?: PlainFileInfo; error?: string }>
+  addWithOptions(opts: AddOptions): Promise<{ ok: boolean; id?: string; error?: string }>
+  listEngines(checkForUpdates: boolean): Promise<EngineInfo[]>
+  updateEngine(name: string): Promise<{ ok: boolean; version?: string; error?: string }>
   pauseDownload(id: string): Promise<boolean>
   resumeDownload(id: string): Promise<boolean>
   cancelDownload(id: string): Promise<boolean>
@@ -39,7 +49,13 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 // Custom APIs for renderer
 const api: DoviraAPI = {
   listDownloads: () => ipcRenderer.invoke('dovira:downloads:list'),
-  addDownload: (url: string) => ipcRenderer.invoke('dovira:downloads:add', url),
+  addDownload: (url: string, saveDir?: string) =>
+    ipcRenderer.invoke('dovira:downloads:add', url, saveDir),
+  fetchInfo: (url: string) => ipcRenderer.invoke('dovira:info:fetch', url),
+  addWithOptions: (opts: AddOptions) => ipcRenderer.invoke('dovira:downloads:addWithOptions', opts),
+  listEngines: (checkForUpdates: boolean) =>
+    ipcRenderer.invoke('dovira:engines:list', checkForUpdates),
+  updateEngine: (name: string) => ipcRenderer.invoke('dovira:engines:update', name),
   pauseDownload: (id: string) => ipcRenderer.invoke('dovira:downloads:pause', id),
   resumeDownload: (id: string) => ipcRenderer.invoke('dovira:downloads:resume', id),
   cancelDownload: (id: string) => ipcRenderer.invoke('dovira:downloads:cancel', id),

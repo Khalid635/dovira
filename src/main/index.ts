@@ -1,14 +1,15 @@
 import { app, shell, BrowserWindow, dialog } from 'electron'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { DoviraDb } from './db'
 import { SettingsManager } from './settings'
 import { Aria2Manager } from './engines/aria2'
+import { YtDlpManager } from './engines/ytdlp'
 import { QueueManager } from './queue'
 import { registerIpc } from './ipc'
-import { findAria2Binary } from './util/paths'
+import { findBinary } from './util/paths'
 
 let mainWindow: BrowserWindow | null = null
 let db: DoviraDb | null = null
@@ -81,23 +82,39 @@ app.whenReady().then(() => {
 
   const settings = new SettingsManager(db)
 
-  const aria2Binary = findAria2Binary(app.getAppPath(), process.resourcesPath)
-  if (!aria2Binary) {
+  const appPath = app.getAppPath()
+  const resourcesPath = process.resourcesPath
+  const aria2Binary = findBinary('aria2', appPath, resourcesPath)
+  const ytDlpBinary = findBinary('yt-dlp', appPath, resourcesPath)
+  const ffmpegBinary = findBinary('ffmpeg', appPath, resourcesPath)
+  const denoBinary = findBinary('deno', appPath, resourcesPath)
+  const missing: string[] = []
+  if (!aria2Binary) missing.push('aria2c.exe')
+  if (!ytDlpBinary) missing.push('yt-dlp.exe')
+  if (!ffmpegBinary) missing.push('ffmpeg.exe')
+  if (!denoBinary) missing.push('deno.exe')
+  if (missing.length > 0) {
     dialog.showErrorBox(
       'DOVIRA — Engine missing',
-      'aria2c.exe was not found under resources/bin/win.\nRun "npm run fetch-binaries" to download it.'
+      `These engine files were not found under resources/bin/win:\n${missing.join('\n')}\nRun "npm run fetch-binaries" to download them.`
     )
     app.quit()
     return
   }
+  const binDir = dirname(aria2Binary as string)
 
-  aria2 = new Aria2Manager(aria2Binary, settings.get().downloadDir)
-  queue = new QueueManager(db, settings, aria2)
+  aria2 = new Aria2Manager(aria2Binary as string, settings.get().downloadDir)
+  const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary)
+  queue = new QueueManager(db, settings, aria2, ytdlp)
   registerIpc({
     queue,
     settings,
     db,
-    aria2Binary,
+    aria2Binary: aria2Binary as string,
+    ytDlpBinary,
+    ffmpegBinary,
+    denoBinary,
+    binDir,
     getMainWindow: () => mainWindow
   })
 

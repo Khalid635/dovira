@@ -1,11 +1,15 @@
 import { create } from 'zustand'
 import type {
+  AddOptions,
   AppInfo,
   DownloadInfo,
+  EngineInfo,
+  PlainFileInfo,
   ProgressEvent,
   Settings,
   StatusEvent,
-  ToastEvent
+  ToastEvent,
+  VideoInfo
 } from '../../main/types'
 import { t, type Language } from './i18n'
 
@@ -26,10 +30,12 @@ interface Store {
   appInfo: AppInfo | null
   language: Language
   loaded: boolean
+  /** Set when one of the startup loads failed — the app keeps working. */
+  initError: string | null
   toast: Toast | null
   init: () => Promise<void>
   refresh: () => Promise<void>
-  addDownload: (url: string) => Promise<{ ok: boolean; error?: string }>
+  addDownload: (url: string, saveDir?: string) => Promise<{ ok: boolean; error?: string }>
   pause: (id: string) => Promise<void>
   resume: (id: string) => Promise<void>
   cancel: (id: string) => Promise<void>
@@ -39,6 +45,22 @@ interface Store {
   setView: (v: View) => void
   updateSettings: (patch: Partial<Settings>) => Promise<void>
   showToast: (key: string, params?: Record<string, string | number>) => void
+  // Add Download dialog (Phase 2).
+  dialogOpen: boolean
+  dialogUrl: string
+  dialogLoading: boolean
+  dialogInfo: VideoInfo | null
+  dialogPlainFile: PlainFileInfo | null
+  dialogError: string | null
+  openDialog: (url?: string) => void
+  closeDialog: () => void
+  fetchInfo: (url: string) => Promise<void>
+  addWithOptions: (opts: AddOptions) => Promise<{ ok: boolean; error?: string }>
+  // Engines (Phase 2).
+  engines: EngineInfo[]
+  enginesLoading: boolean
+  loadEngines: (checkForUpdates: boolean) => Promise<void>
+  updateEngine: (name: string) => Promise<{ ok: boolean; error?: string }>
 }
 
 export const useStore = create<Store>()((set, get) => ({
@@ -49,15 +71,43 @@ export const useStore = create<Store>()((set, get) => ({
   appInfo: null,
   language: 'bn',
   loaded: false,
+  initError: null,
   toast: null,
+  dialogOpen: false,
+  dialogUrl: '',
+  dialogLoading: false,
+  dialogInfo: null,
+  dialogPlainFile: null,
+  dialogError: null,
+  engines: [],
+  enginesLoading: false,
 
   init: async () => {
-    const [settings, downloads, appInfo] = await Promise.all([
+    // Phase 1 loaded all three in one Promise.all with no error handling:
+    // a single rejection left settings null and the whole UI stuck on "…"
+    // with no message. Each call now fails independently and the app still
+    // loads — the Settings page shows the error with a Retry button.
+    const [settingsRes, downloadsRes, appInfoRes] = await Promise.allSettled([
       window.dovira.getSettings(),
       window.dovira.listDownloads(),
       window.dovira.getAppInfo()
     ])
-    set({ settings, downloads, appInfo, language: settings.language, loaded: true })
+    const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null
+    const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : []
+    const appInfo = appInfoRes.status === 'fulfilled' ? appInfoRes.value : null
+    const failed =
+      settingsRes.status === 'rejected' ||
+      downloadsRes.status === 'rejected' ||
+      appInfoRes.status === 'rejected'
+    set({
+      settings,
+      downloads,
+      appInfo,
+      language: settings?.language ?? 'bn',
+      loaded: true,
+      initError: failed ? 'init' : null
+    })
+    if (failed) get().showToast('toast.initFailed')
 
     window.dovira.onProgress((p: ProgressEvent) => {
       set((s) => ({
@@ -98,17 +148,26 @@ export const useStore = create<Store>()((set, get) => ({
 
     // Status bar numbers (disk free) refresh every 5s.
     setInterval(() => {
-      void window.dovira.getAppInfo().then((ai) => set({ appInfo: ai }))
+      void window.dovira
+        .getAppInfo()
+        .then((ai) => set({ appInfo: ai }))
+        .catch(() => {
+          // Keep the last known info — a failed refresh must not blank it.
+        })
     }, 5000)
   },
 
   refresh: async () => {
-    const downloads = await window.dovira.listDownloads()
-    set({ downloads })
+    try {
+      const downloads = await window.dovira.listDownloads()
+      set({ downloads })
+    } catch {
+      // Keep the current list on a transient failure.
+    }
   },
 
-  addDownload: async (url) => {
-    const res = await window.dovira.addDownload(url)
+  addDownload: async (url, saveDir) => {
+    const res = await window.dovira.addDownload(url, saveDir)
     if (res.ok) {
       await get().refresh()
       get().showToast('toast.added')
@@ -116,20 +175,20 @@ export const useStore = create<Store>()((set, get) => ({
     return res
   },
 
-  pause: async (id) => {
+  pause: async (id: string) => {
     await window.dovira.pauseDownload(id)
   },
-  resume: async (id) => {
+  resume: async (id: string) => {
     await window.dovira.resumeDownload(id)
   },
-  cancel: async (id) => {
+  cancel: async (id: string) => {
     await window.dovira.cancelDownload(id)
   },
   remove: async (id, deleteFile) => {
     await window.dovira.removeDownload(id, deleteFile)
     await get().refresh()
   },
-  retry: async (id) => {
+  retry: async (id: string) => {
     await window.dovira.retryDownload(id)
   },
 
@@ -137,9 +196,13 @@ export const useStore = create<Store>()((set, get) => ({
   setView: (view) => set({ view }),
 
   updateSettings: async (patch) => {
-    const settings = await window.dovira.setSettings(patch)
-    set({ settings, language: settings.language })
-    get().showToast('toast.saved')
+    try {
+      const settings = await window.dovira.setSettings(patch)
+      set({ settings, language: settings.language })
+      get().showToast('toast.saved')
+    } catch {
+      get().showToast('toast.saveFailed')
+    }
   },
 
   showToast: (key, params) => {
@@ -147,6 +210,73 @@ export const useStore = create<Store>()((set, get) => ({
     setTimeout(() => {
       set((s) => (s.toast && Date.now() - s.toast.at >= 2900 ? { toast: null } : s))
     }, 3000)
+  },
+
+  openDialog: (url = '') => {
+    set({
+      dialogOpen: true,
+      dialogUrl: url,
+      dialogInfo: null,
+      dialogPlainFile: null,
+      dialogError: null,
+      dialogLoading: false
+    })
+    if (url.trim()) void get().fetchInfo(url)
+  },
+
+  closeDialog: () => {
+    set({ dialogOpen: false, dialogLoading: false })
+  },
+
+  fetchInfo: async (url) => {
+    const value = url.trim()
+    if (!value) return
+    set({ dialogLoading: true, dialogInfo: null, dialogPlainFile: null, dialogError: null })
+    try {
+      const res = await window.dovira.fetchInfo(value)
+      if (res.ok && res.info) {
+        set({ dialogInfo: res.info, dialogLoading: false })
+      } else if (res.ok && res.plainFile) {
+        set({ dialogPlainFile: res.plainFile, dialogLoading: false })
+      } else {
+        set({ dialogError: res.error ?? 'unknown', dialogLoading: false })
+        get().showToast('toast.infoFailed')
+      }
+    } catch {
+      set({ dialogError: 'unknown', dialogLoading: false })
+      get().showToast('toast.infoFailed')
+    }
+  },
+
+  addWithOptions: async (opts) => {
+    const res = await window.dovira.addWithOptions(opts)
+    if (res.ok) {
+      set({ dialogOpen: false })
+      await get().refresh()
+      get().showToast('toast.added')
+    }
+    return res
+  },
+
+  loadEngines: async (checkForUpdates) => {
+    set({ enginesLoading: true })
+    try {
+      const engines = await window.dovira.listEngines(checkForUpdates)
+      set({ engines, enginesLoading: false })
+    } catch {
+      set({ enginesLoading: false })
+    }
+  },
+
+  updateEngine: async (name) => {
+    const res = await window.dovira.updateEngine(name)
+    if (res.ok) {
+      get().showToast('toast.engineUpdated')
+      await get().loadEngines(false)
+    } else {
+      get().showToast('toast.updateFailed')
+    }
+    return res
   }
 }))
 

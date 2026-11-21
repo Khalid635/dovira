@@ -1,19 +1,36 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import type { DoviraDb } from './db'
 import type { SettingsManager } from './settings'
 import type { Aria2Manager } from './engines/aria2'
+import {
+  YtDlpManager,
+  YtDlpError,
+  ytdlpPartFiles,
+  type YtDlpDownload,
+  type YtDlpDownloadOpts
+} from './engines/ytdlp'
 import { categorize } from './smart/categorize'
 import { sanitizeFilename, resolveUniquePath, filenameFromUrl } from './util/filename'
 import { mapEngineError } from './util/errors'
 import { diskFreeBytes } from './util/paths'
-import type { DownloadInfo, DownloadKind, ProgressEvent, StatusEvent, ToastEvent } from './types'
+import type {
+  AddOptions,
+  DownloadInfo,
+  DownloadKind,
+  PlainFileInfo,
+  ProgressEvent,
+  StatusEvent,
+  ToastEvent,
+  VideoInfo
+} from './types'
 
 interface ActiveEntry {
-  gid: string
-  lastPersistedAt: number
+  gid?: string
+  ytdlpJob?: YtDlpDownload
+  lastPersistedAt?: number
 }
 
 const MIN_FREE_BYTES = 50 * 1024 * 1024
@@ -22,6 +39,54 @@ const MAX_ARIA2_RESTARTS = 3
  * without burning all retries in the first seconds. */
 const RETRY_DELAYS_MS = [2000, 5000, 15000]
 
+/**
+ * yt-dlp download strategy, set by the docs/benchmark.md result.
+ * false = yt-dlp's own downloader (-N 4); true = aria2 as external downloader.
+ * Flip this after running the benchmark (Phase 2, week 3).
+ */
+const YTDLP_USE_ARIA2 = false
+
+/** Plain-file extensions: these go to aria2 without a yt-dlp info attempt. */
+const FILE_EXTS = new Set([
+  'zip',
+  'exe',
+  'msi',
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'mp3',
+  'mp4',
+  'mkv',
+  'webm',
+  'mov',
+  'avi',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'wav',
+  'flac',
+  'ogg',
+  'opus',
+  'm4a',
+  '7z',
+  'rar',
+  'tar',
+  'gz',
+  'iso',
+  'dmg',
+  'apk',
+  'epub',
+  'txt',
+  'csv',
+  'json'
+])
+
 function kindFromCategory(filename: string): DownloadKind {
   const category = categorize({ filename })
   if (category === 'Video') return 'video'
@@ -29,11 +94,32 @@ function kindFromCategory(filename: string): DownloadKind {
   return 'file'
 }
 
+interface YtDlpState {
+  partExists?: boolean
+  ytdlExists?: boolean
+  lastArgs?: string[]
+  subtitles?: boolean
+  subLang?: string
+  embedThumbnail?: boolean
+  audioBitrate?: string
+  container?: string
+}
+
+function parseYtDlpState(raw: string | null): YtDlpState | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as YtDlpState
+  } catch {
+    return null
+  }
+}
+
 /**
  * Owns download state: the queue, concurrency, pause/resume/cancel/retry,
- * progress polling (~500ms), persistence cadence (status change + ~5s),
- * disk-space checks and aria2 crash recovery. Plain Node — no Electron
- * imports, so it can be tested outside the app.
+ * progress polling (~500ms, aria2 only — yt-dlp pushes progress events),
+ * persistence cadence (status change + ~5s), disk-space checks and aria2
+ * crash recovery. Plain Node — no Electron imports, so it can be tested
+ * outside the app.
  */
 export class QueueManager extends EventEmitter {
   private downloads = new Map<string, DownloadInfo>()
@@ -43,11 +129,13 @@ export class QueueManager extends EventEmitter {
   private pumping = false
   private aria2Restarts = 0
   private shutDown = false
+  private ytDlpArgs = new Map<string, string[]>()
 
   constructor(
     private db: DoviraDb,
     private settings: SettingsManager,
-    private aria2: Aria2Manager
+    private aria2: Aria2Manager,
+    private ytdlp: YtDlpManager | null = null
   ) {
     super()
     // A fresh aria2 process has no session: anything mid-flight last time
@@ -70,7 +158,74 @@ export class QueueManager extends EventEmitter {
     return this.downloads.get(id)
   }
 
-  async add(url: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  /**
+   * Route a pasted link: plain-file extension → aria2 info (HEAD);
+   * video site or anything else → yt-dlp info; on yt-dlp failure, a HEAD
+   * request decides whether it is a plain file after all (§2).
+   */
+  async fetchInfo(
+    url: string
+  ): Promise<{ ok: boolean; info?: VideoInfo; plainFile?: PlainFileInfo; error?: string }> {
+    let parsed: URL
+    try {
+      parsed = new URL(url.trim())
+    } catch {
+      return { ok: false, error: 'invalid-url' }
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: 'unsupported-url' }
+    }
+    const ext = parsed.pathname.split('.').pop()?.toLowerCase() ?? ''
+    if (FILE_EXTS.has(ext)) {
+      const pf = await this.headPlainFile(url.trim())
+      if (pf) return { ok: true, plainFile: pf }
+      // HEAD failed (some servers refuse it) — still a plain file by
+      // extension; the dialog shows it with unknown size.
+      return {
+        ok: true,
+        plainFile: { filename: filenameFromUrl(url.trim()), size: null, contentType: null }
+      }
+    }
+    if (this.ytdlp) {
+      try {
+        const info = await this.ytdlp.fetchInfo(url.trim())
+        return { ok: true, info }
+      } catch (err) {
+        const code = err instanceof YtDlpError ? err.code : 'unknown'
+        if (code === 'unsupported' || code === 'unknown' || code === 'not-found') {
+          const pf = await this.headPlainFile(url.trim())
+          if (pf) return { ok: true, plainFile: pf }
+        }
+        return { ok: false, error: code }
+      }
+    }
+    const pf = await this.headPlainFile(url.trim())
+    if (pf) return { ok: true, plainFile: pf }
+    return { ok: false, error: 'engine-missing' }
+  }
+
+  private async headPlainFile(url: string): Promise<PlainFileInfo | null> {
+    try {
+      const head = await fetch(url, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(10_000)
+      })
+      const contentType = head.headers.get('content-type') ?? ''
+      if (contentType.startsWith('text/html')) return null
+      const filename = filenameFromUrl(url, head.headers.get('content-disposition'))
+      const len = Number(head.headers.get('content-length') ?? 0)
+      return {
+        filename,
+        size: Number.isFinite(len) && len > 0 ? len : null,
+        contentType: contentType || null
+      }
+    } catch {
+      return null
+    }
+  }
+
+  async add(url: string, saveDir?: string): Promise<{ ok: boolean; id?: string; error?: string }> {
     let parsed: URL
     try {
       parsed = new URL(url.trim())
@@ -81,7 +236,8 @@ export class QueueManager extends EventEmitter {
       return { ok: false, error: 'unsupported-url' }
     }
     const s = this.settings.get()
-    const free = diskFreeBytes(s.downloadDir)
+    const dir = saveDir ?? s.downloadDir
+    const free = diskFreeBytes(dir)
     if (free !== null && free < MIN_FREE_BYTES) return { ok: false, error: 'no-space' }
 
     // Same URL already live? Resume that one instead of duplicating it.
@@ -113,15 +269,17 @@ export class QueueManager extends EventEmitter {
     }
 
     filename = sanitizeFilename(filename)
-    mkdirSync(s.downloadDir, { recursive: true })
-    const savePath = resolveUniquePath(s.downloadDir, filename)
+    mkdirSync(dir, { recursive: true })
+    const savePath = resolveUniquePath(dir, filename)
     const id = randomUUID()
     const info: DownloadInfo = {
       id,
       url,
+      title: null,
       filename: basename(savePath),
       savePath,
       kind: kindFromCategory(filename),
+      formatLabel: null,
       status: 'queued',
       totalBytes,
       doneBytes: 0,
@@ -129,10 +287,14 @@ export class QueueManager extends EventEmitter {
       etaSeconds: null,
       errorCode: null,
       errorMessage: null,
+      thumbnailUrl: null,
       site: parsed.hostname,
       createdAt: Date.now(),
       startedAt: null,
-      completedAt: null
+      completedAt: null,
+      engine: 'aria2',
+      formatString: null,
+      ytdlpState: null
     }
     this.db.insertDownload({
       id: info.id,
@@ -144,7 +306,95 @@ export class QueueManager extends EventEmitter {
       totalBytes,
       doneBytes: 0,
       site: info.site,
-      createdAt: info.createdAt
+      createdAt: info.createdAt,
+      engine: 'aria2'
+    })
+    this.downloads.set(id, info)
+    this.emitStatus(id)
+    void this.pump()
+    return { ok: true, id }
+  }
+
+  /** Video/audio download with the dialog's chosen format (yt-dlp engine). */
+  async addWithOptions(opts: AddOptions): Promise<{ ok: boolean; id?: string; error?: string }> {
+    let parsed: URL
+    try {
+      parsed = new URL(opts.url.trim())
+    } catch {
+      return { ok: false, error: 'invalid-url' }
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: 'unsupported-url' }
+    }
+    if (!opts.formatString || !opts.savePath || !opts.filename) {
+      return { ok: false, error: 'invalid-url' }
+    }
+    if (!this.ytdlp) return { ok: false, error: 'engine-missing' }
+    const s = this.settings.get()
+    const free = diskFreeBytes(s.downloadDir)
+    if (free !== null && free < MIN_FREE_BYTES) return { ok: false, error: 'no-space' }
+
+    for (const d of this.downloads.values()) {
+      if (d.url === opts.url && ['queued', 'downloading', 'paused', 'failed'].includes(d.status)) {
+        if (d.status === 'paused' || d.status === 'failed') void this.resume(d.id)
+        return { ok: true, id: d.id }
+      }
+    }
+
+    const filename = sanitizeFilename(opts.filename)
+    const dir = dirname(opts.savePath)
+    mkdirSync(dir, { recursive: true })
+    const savePath = resolveUniquePath(dir, filename)
+    const id = randomUUID()
+    const state: YtDlpState = {
+      subtitles: opts.subtitles,
+      subLang: opts.subLang,
+      embedThumbnail: opts.embedThumbnail,
+      audioBitrate: opts.kind === 'audio' ? opts.qualityLabel.replace(/[^0-9]/g, '') : undefined,
+      container: opts.kind === 'video' ? 'mp4' : undefined
+    }
+    const info: DownloadInfo = {
+      id,
+      url: opts.url,
+      title: opts.title ?? null,
+      filename: basename(savePath),
+      savePath,
+      kind: opts.kind,
+      formatLabel: opts.qualityLabel,
+      status: 'queued',
+      totalBytes: 0,
+      doneBytes: 0,
+      speedBps: 0,
+      etaSeconds: null,
+      errorCode: null,
+      errorMessage: null,
+      thumbnailUrl: opts.thumbnailUrl ?? null,
+      site: parsed.hostname,
+      createdAt: Date.now(),
+      startedAt: null,
+      completedAt: null,
+      engine: 'ytdlp',
+      formatString: opts.formatString,
+      ytdlpState: JSON.stringify(state)
+    }
+    this.db.insertDownload({
+      id: info.id,
+      url: info.url,
+      title: info.title,
+      filename: info.filename,
+      savePath: info.savePath,
+      kind: info.kind,
+      formatLabel: info.formatLabel,
+      status: 'queued',
+      totalBytes: 0,
+      doneBytes: 0,
+      thumbnailUrl: info.thumbnailUrl,
+      site: info.site,
+      createdAt: info.createdAt,
+      engine: 'ytdlp',
+      formatId: opts.formatId,
+      formatString: opts.formatString,
+      ytdlpState: info.ytdlpState
     })
     this.downloads.set(id, info)
     this.emitStatus(id)
@@ -154,9 +404,39 @@ export class QueueManager extends EventEmitter {
 
   async pause(id: string): Promise<boolean> {
     const d = this.downloads.get(id)
-    if (!d || d.status !== 'downloading') return false
+    if (!d) return false
+    if (d.engine === 'ytdlp') {
+      if (d.status !== 'downloading' && d.status !== 'processing') return false
+      const entry = this.active.get(id)
+      if (entry?.ytdlpJob) {
+        entry.ytdlpJob.kill()
+        this.active.delete(id)
+      }
+      const parts = ytdlpPartFiles(d.savePath)
+      const prev = parseYtDlpState(d.ytdlpState) ?? {}
+      const state: YtDlpState = {
+        ...prev,
+        partExists: parts.length > 0,
+        ytdlExists: existsSync(`${d.savePath}.ytdl`),
+        lastArgs: this.ytDlpArgs.get(id) ?? prev.lastArgs
+      }
+      d.status = 'paused'
+      d.speedBps = 0
+      d.etaSeconds = null
+      d.ytdlpState = JSON.stringify(state)
+      this.db.updateDownload(id, {
+        status: 'paused',
+        doneBytes: d.doneBytes,
+        totalBytes: d.totalBytes,
+        ytdlpState: d.ytdlpState
+      })
+      this.emitStatus(id)
+      void this.pump()
+      return true
+    }
+    if (d.status !== 'downloading') return false
     const entry = this.active.get(id)
-    if (entry) {
+    if (entry?.gid) {
       try {
         await this.aria2.pause(entry.gid)
       } catch {
@@ -182,8 +462,26 @@ export class QueueManager extends EventEmitter {
     if (!d || (d.status !== 'paused' && d.status !== 'failed' && d.status !== 'cancelled')) {
       return false
     }
-    // If the partial file is gone, the done-bytes count is meaningless.
-    if (!existsSync(d.savePath)) d.doneBytes = 0
+    if (d.engine === 'ytdlp') {
+      // Output already fully on disk (e.g. the app died right after the
+      // merge finished)? Mark it complete instead of re-downloading.
+      if (d.totalBytes > 0 && existsSync(d.savePath)) {
+        try {
+          if (statSync(d.savePath).size >= d.totalBytes) {
+            d.doneBytes = d.totalBytes
+            await this.complete(id)
+            return true
+          }
+        } catch {
+          // Stat failed — fall through to a normal resume.
+        }
+      }
+      // NOTE: do NOT zero doneBytes here — startYtDlp needs it to detect a
+      // missing .part file (resume-state-mismatch) instead of silently
+      // restarting from zero.
+    } else if (!existsSync(d.savePath)) {
+      d.doneBytes = 0
+    }
     this.retryCount.set(id, 0)
     d.status = 'queued'
     d.errorCode = null
@@ -200,6 +498,25 @@ export class QueueManager extends EventEmitter {
   }
 
   async retry(id: string): Promise<boolean> {
+    const d = this.downloads.get(id)
+    if (d?.engine === 'ytdlp' && d.errorCode === 'resume-state-mismatch') {
+      // The user pressed Retry after the mismatch message: that is the
+      // explicit confirmation to restart from the beginning.
+      this.deleteYtDlpPartials(d.savePath)
+      try {
+        if (existsSync(d.savePath)) unlinkSync(d.savePath)
+      } catch {
+        // Best effort.
+      }
+      d.doneBytes = 0
+      d.ytdlpState = null
+      this.db.updateDownload(id, {
+        doneBytes: 0,
+        ytdlpState: null,
+        errorCode: null,
+        errorMessage: null
+      })
+    }
     return this.resume(id)
   }
 
@@ -207,7 +524,13 @@ export class QueueManager extends EventEmitter {
     const d = this.downloads.get(id)
     if (!d) return false
     const entry = this.active.get(id)
-    if (entry) {
+    if (d.engine === 'ytdlp') {
+      if (entry?.ytdlpJob) {
+        entry.ytdlpJob.kill()
+        this.active.delete(id)
+      }
+      this.ytDlpArgs.delete(id)
+    } else if (entry?.gid) {
       try {
         await this.aria2.remove(entry.gid)
       } catch {
@@ -215,7 +538,7 @@ export class QueueManager extends EventEmitter {
       }
       this.active.delete(id)
     }
-    this.deletePartialFiles(d.savePath)
+    this.deletePartialFiles(d)
     d.status = 'cancelled'
     d.speedBps = 0
     d.etaSeconds = null
@@ -229,7 +552,13 @@ export class QueueManager extends EventEmitter {
     const d = this.downloads.get(id)
     if (!d) return false
     const entry = this.active.get(id)
-    if (entry) {
+    if (d.engine === 'ytdlp') {
+      if (entry?.ytdlpJob) {
+        entry.ytdlpJob.kill()
+        this.active.delete(id)
+      }
+      this.ytDlpArgs.delete(id)
+    } else if (entry?.gid) {
       try {
         await this.aria2.remove(entry.gid)
       } catch {
@@ -238,7 +567,7 @@ export class QueueManager extends EventEmitter {
       this.active.delete(id)
     }
     if (deleteFile) {
-      this.deletePartialFiles(d.savePath)
+      this.deletePartialFiles(d)
       try {
         if (existsSync(d.savePath)) unlinkSync(d.savePath)
       } catch {
@@ -278,6 +607,10 @@ export class QueueManager extends EventEmitter {
   }
 
   private async startDownload(d: DownloadInfo): Promise<void> {
+    if (d.engine === 'ytdlp') {
+      await this.startYtDlp(d)
+      return
+    }
     const s = this.settings.get()
     try {
       if (!this.aria2.isReady()) await this.aria2.start()
@@ -322,6 +655,133 @@ export class QueueManager extends EventEmitter {
     }
   }
 
+  private buildYtDlpOpts(d: DownloadInfo): YtDlpDownloadOpts {
+    const state = parseYtDlpState(d.ytdlpState)
+    return {
+      url: d.url,
+      savePath: d.savePath,
+      formatString: d.formatString ?? '',
+      kind: d.kind === 'audio' ? 'audio' : 'video',
+      audioBitrate: state?.audioBitrate,
+      subtitles: state?.subtitles ?? false,
+      subLang: state?.subLang ?? 'en',
+      embedThumbnail: state?.embedThumbnail ?? false,
+      container: state?.container ?? 'mp4',
+      useAria2: YTDLP_USE_ARIA2
+    }
+  }
+
+  private async startYtDlp(d: DownloadInfo): Promise<void> {
+    if (!this.ytdlp) {
+      this.fail(d, 'engine-missing', 'yt-dlp not configured')
+      return
+    }
+    const s = this.settings.get()
+    // Resume-state check (§8): bytes were downloaded before but no .part
+    // file survives — the state is gone. Never silently restart from zero.
+    if (d.doneBytes > 0 && !existsSync(d.savePath)) {
+      const parts = ytdlpPartFiles(d.savePath)
+      if (parts.length === 0) {
+        this.fail(d, 'resume-state-mismatch', 'part file missing, doneBytes > 0')
+        return
+      }
+    }
+    if (d.totalBytes > 0) {
+      const free = diskFreeBytes(s.downloadDir)
+      if (free !== null && free < d.totalBytes) {
+        this.fail(d, 'no-space', '')
+        return
+      }
+    }
+    const opts = this.buildYtDlpOpts(d)
+    const state = parseYtDlpState(d.ytdlpState)
+    const args =
+      state?.lastArgs && state.lastArgs.length > 0 ? state.lastArgs : this.ytdlp.buildArgs(opts)
+    d.status = 'downloading'
+    d.startedAt = d.startedAt ?? Date.now()
+    d.errorCode = null
+    d.errorMessage = null
+    this.ytDlpArgs.set(d.id, args)
+    this.db.updateDownload(d.id, {
+      status: 'downloading',
+      startedAt: d.startedAt,
+      errorCode: null,
+      errorMessage: null,
+      ytdlpState: JSON.stringify({
+        ...(state ?? {}),
+        lastArgs: args,
+        partExists: ytdlpPartFiles(d.savePath).length > 0
+      })
+    })
+    this.emitStatus(d.id)
+    // How many formats yt-dlp reported fully downloaded ('finished' fires
+    // once per format file). The rename-race recovery below only runs when
+    // at least one format verifiably finished.
+    let finishedCount = 0
+    const { job, done } = this.ytdlp.runDownload(args, {
+      onProgress: (p) => {
+        if (p.totalBytes > 0) d.totalBytes = p.totalBytes
+        if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
+        d.speedBps = p.speedBps
+        d.etaSeconds = p.etaSeconds
+        if (p.status === 'finished') {
+          finishedCount++
+          if (d.status === 'downloading') {
+            // All fragments are in — now merging/converting.
+            d.status = 'processing'
+            d.speedBps = 0
+            d.etaSeconds = null
+            this.db.updateDownload(d.id, {
+              status: 'processing',
+              totalBytes: d.totalBytes,
+              doneBytes: d.doneBytes
+            })
+            this.emitStatus(d.id)
+          }
+          return
+        }
+        this.emitProgress(d)
+      },
+      onLog: () => {
+        // Log tail lives on the job (used for "Copy details" on failure).
+      }
+    })
+    this.active.set(d.id, { ytdlpJob: job })
+    const { code, stderr } = await done
+    // Pause/cancel already removed this job from `active` — ignore the exit.
+    if (this.active.get(d.id)?.ytdlpJob !== job) return
+    this.active.delete(d.id)
+    this.ytDlpArgs.delete(d.id)
+    if (code === 0) {
+      if (!existsSync(d.savePath)) {
+        this.fail(d, 'unknown', stderr.slice(0, 300) || 'yt-dlp exited 0 but no output file')
+        return
+      }
+      await this.complete(d.id)
+      return
+    }
+    // Non-zero exit (or killed by something else). First: the Windows
+    // rename race — yt-dlp finished downloading but its final rename hit a
+    // transient file lock (WinError 32). If at least one format verifiably
+    // finished, redo the rename + merge ourselves instead of failing a
+    // download whose bytes are all on disk.
+    if (stderr.includes('Unable to rename file') && finishedCount >= 1) {
+      const state = parseYtDlpState(d.ytdlpState)
+      const recovered = await this.ytdlp.recoverRenameRace(
+        d.savePath,
+        d.kind === 'audio' ? 'audio' : 'video',
+        state?.audioBitrate ?? '320'
+      )
+      if (recovered) {
+        await this.complete(d.id)
+        return
+      }
+    }
+    // Otherwise: map + retry with backoff.
+    const mapped = mapEngineError(stderr)
+    await this.handleError(d.id, stderr, mapped.code)
+  }
+
   private ensurePoller(): void {
     if (this.pollTimer) return
     this.pollTimer = setInterval(() => void this.pollTick(), 500)
@@ -335,7 +795,8 @@ export class QueueManager extends EventEmitter {
   }
 
   private async pollTick(): Promise<void> {
-    if (this.active.size === 0) {
+    const hasAria2 = [...this.active.values()].some((e) => e.gid)
+    if (!hasAria2) {
       this.stopPoller()
       return
     }
@@ -345,6 +806,7 @@ export class QueueManager extends EventEmitter {
         this.active.delete(id)
         continue
       }
+      if (!entry.gid) continue // yt-dlp pushes progress; it is never polled.
       try {
         const st = await this.aria2.tellStatus(entry.gid)
         const total = Number(st.totalLength || 0)
@@ -373,7 +835,7 @@ export class QueueManager extends EventEmitter {
 
         this.emitProgress(d)
         const now = Date.now()
-        if (now - entry.lastPersistedAt > 5000) {
+        if (now - (entry.lastPersistedAt ?? 0) > 5000) {
           this.db.updateDownload(id, { totalBytes: total, doneBytes: done })
           entry.lastPersistedAt = now
         }
@@ -400,7 +862,7 @@ export class QueueManager extends EventEmitter {
         // Other RPC errors (aria2 mid-restart) — next tick retries.
       }
     }
-    if (this.active.size === 0) this.stopPoller()
+    if (![...this.active.values()].some((e) => e.gid)) this.stopPoller()
   }
 
   private async complete(id: string): Promise<void> {
@@ -408,7 +870,7 @@ export class QueueManager extends EventEmitter {
     if (!d) return
     const entry = this.active.get(id)
     this.active.delete(id)
-    if (entry) {
+    if (entry?.gid) {
       try {
         await this.aria2.removeDownloadResult(entry.gid)
       } catch {
@@ -416,7 +878,18 @@ export class QueueManager extends EventEmitter {
       }
     }
     d.status = 'completed'
-    d.doneBytes = d.totalBytes
+    if (d.engine === 'ytdlp') {
+      // yt-dlp may never have reported a total — take it from the file.
+      try {
+        const size = statSync(d.savePath).size
+        d.doneBytes = size
+        if (d.totalBytes <= 0) d.totalBytes = size
+      } catch {
+        // Keep the progress values.
+      }
+    } else {
+      d.doneBytes = d.totalBytes
+    }
     d.speedBps = 0
     d.etaSeconds = null
     d.completedAt = Date.now()
@@ -430,11 +903,16 @@ export class QueueManager extends EventEmitter {
     void this.pump()
   }
 
-  private async handleError(id: string, raw: string): Promise<void> {
+  private async handleError(id: string, raw: string, codeOverride?: string): Promise<void> {
     const d = this.downloads.get(id)
     if (!d) return
     this.active.delete(id)
-    const mapped = mapEngineError(raw)
+    const mapped = codeOverride ? { code: codeOverride, raw } : mapEngineError(raw)
+    // A resume-state mismatch is a user decision, never an auto-retry.
+    if (mapped.code === 'resume-state-mismatch') {
+      this.fail(d, mapped.code, raw)
+      return
+    }
     const retries = this.retryCount.get(id) ?? 0
     const maxRetry = this.settings.get().autoRetry
     if (retries < maxRetry) {
@@ -470,7 +948,9 @@ export class QueueManager extends EventEmitter {
 
   private async handleAria2Death(): Promise<void> {
     if (this.shutDown) return
-    const wasDownloading = [...this.downloads.values()].filter((d) => d.status === 'downloading')
+    const wasDownloading = [...this.downloads.values()].filter(
+      (d) => d.status === 'downloading' && d.engine === 'aria2'
+    )
     this.active.clear()
     this.stopPoller()
     for (const d of wasDownloading) {
@@ -498,12 +978,23 @@ export class QueueManager extends EventEmitter {
     }
   }
 
-  private deletePartialFiles(savePath: string): void {
-    for (const p of [savePath, `${savePath}.aria2`]) {
+  private deletePartialFiles(d: DownloadInfo): void {
+    const paths = [d.savePath, `${d.savePath}.aria2`, ...ytdlpPartFiles(d.savePath)]
+    for (const p of paths) {
       try {
         if (existsSync(p)) unlinkSync(p)
       } catch {
         // Best effort — a locked file stays until the next attempt.
+      }
+    }
+  }
+
+  private deleteYtDlpPartials(savePath: string): void {
+    for (const p of ytdlpPartFiles(savePath)) {
+      try {
+        if (existsSync(p)) unlinkSync(p)
+      } catch {
+        // Best effort.
       }
     }
   }

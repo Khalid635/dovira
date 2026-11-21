@@ -3,36 +3,9 @@ import Sidebar from './components/Sidebar'
 import DownloadCard from './components/DownloadCard'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
+import AddDownloadDialog from './components/AddDownloadDialog'
 import { useStore, useT, type Filter } from './store'
 import type { DownloadInfo } from '../../main/types'
-
-const VIDEO_HOSTS = new Set([
-  'youtube.com',
-  'www.youtube.com',
-  'youtu.be',
-  'facebook.com',
-  'www.facebook.com',
-  'fb.watch',
-  'instagram.com',
-  'www.instagram.com',
-  'tiktok.com',
-  'www.tiktok.com',
-  'vimeo.com',
-  'www.vimeo.com',
-  'dailymotion.com',
-  'www.dailymotion.com',
-  'twitch.tv',
-  'www.twitch.tv'
-])
-
-function isVideoSite(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase()
-    return VIDEO_HOSTS.has(host)
-  } catch {
-    return false
-  }
-}
 
 function applyFilter(downloads: DownloadInfo[], filter: Filter): DownloadInfo[] {
   switch (filter) {
@@ -53,32 +26,19 @@ function applyFilter(downloads: DownloadInfo[], filter: Filter): DownloadInfo[] 
   }
 }
 
-function errorKey(code: string | undefined): string {
-  switch (code) {
-    case 'no-space':
-      return 'error.no-space'
-    case 'invalid-url':
-      return 'error.invalid-url'
-    case 'unsupported-url':
-      return 'error.unsupported-url'
-    default:
-      return 'error.unknown'
-  }
-}
-
 function App(): React.JSX.Element {
   const t = useT()
   const init = useStore((s) => s.init)
   const loaded = useStore((s) => s.loaded)
+  const initError = useStore((s) => s.initError)
   const downloads = useStore((s) => s.downloads)
   const filter = useStore((s) => s.filter)
   const view = useStore((s) => s.view)
   const settings = useStore((s) => s.settings)
   const toast = useStore((s) => s.toast)
-  const addDownload = useStore((s) => s.addDownload)
+  const openDialog = useStore((s) => s.openDialog)
 
   const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -98,35 +58,41 @@ function App(): React.JSX.Element {
     document.documentElement.dataset.theme = resolved
   }, [settings?.theme])
 
-  // Ctrl+V anywhere focuses the link box (Phase 1 version of §7.2).
+  // Ctrl+V anywhere opens the Add dialog with the clipboard link (§7.2);
+  // Ctrl+N opens an empty dialog. Typing in an input keeps normal paste.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        if (document.activeElement !== inputRef.current && view === 'home') {
-          inputRef.current?.focus()
-        }
+      const target = e.target as HTMLElement | null
+      const typing =
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && !typing) {
+        e.preventDefault()
+        void (async () => {
+          try {
+            const text = await navigator.clipboard.readText()
+            openDialog(text.trim())
+          } catch {
+            openDialog('')
+          }
+        })()
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        openDialog('')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [view])
+  }, [openDialog])
 
-  const submit = async (): Promise<void> => {
+  const submit = (): void => {
     const value = url.trim()
-    if (!value || busy) return
-    if (isVideoSite(value)) {
-      setError(t('add.videoSite'))
-      return
-    }
-    setBusy(true)
+    if (!value) return
+    setUrl('')
     setError(null)
-    const res = await addDownload(value)
-    setBusy(false)
-    if (res.ok) {
-      setUrl('')
-    } else {
-      setError(t(errorKey(res.error)))
-    }
+    openDialog(value)
   }
 
   const visible = applyFilter(downloads, filter)
@@ -156,8 +122,8 @@ function App(): React.JSX.Element {
                     if (e.key === 'Enter') void submit()
                   }}
                 />
-                <button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>
-                  {busy ? t('add.adding') : t('add.button')}
+                <button className="btn btn-primary" onClick={() => submit()}>
+                  {t('add.button')}
                 </button>
               </div>
               <div className="mt-1.5 text-[12px] text-[var(--muted)]">
@@ -175,6 +141,11 @@ function App(): React.JSX.Element {
                   <div className="mt-1 max-w-[380px] text-[13px] text-[var(--muted)]">
                     {t('empty.hint')}
                   </div>
+                  {initError && (
+                    <div className="mt-4 max-w-[380px] text-[13px] text-[var(--danger)]">
+                      {t('settings.loadError')}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-[860px] space-y-2">
@@ -188,6 +159,8 @@ function App(): React.JSX.Element {
         )}
         <StatusBar />
       </div>
+
+      <AddDownloadDialog />
 
       {toast && (
         <div className="fixed bottom-12 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-lg">

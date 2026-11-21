@@ -4,15 +4,27 @@ import { existsSync } from 'node:fs'
 import type { DoviraDb } from './db'
 import type { SettingsManager } from './settings'
 import type { QueueManager } from './queue'
-import { getAria2Version } from './engines/versions'
+import {
+  getAria2Version,
+  getDenoVersion,
+  getFfmpegVersion,
+  getYtDlpVersion,
+  listEngines,
+  updateYtDlp,
+  type EngineSpec
+} from './engines/versions'
 import { diskFreeBytes } from './util/paths'
-import type { Settings } from './types'
+import type { AddOptions, Settings } from './types'
 
 export interface IpcDeps {
   queue: QueueManager
   settings: SettingsManager
   db: DoviraDb
   aria2Binary: string
+  ytDlpBinary: string | null
+  ffmpegBinary: string | null
+  denoBinary: string | null
+  binDir: string
   getMainWindow: () => BrowserWindow | null
 }
 
@@ -25,8 +37,10 @@ export function registerIpc(deps: IpcDeps): void {
   const { queue, settings } = deps
 
   ipcMain.handle('dovira:downloads:list', () => queue.list())
-  ipcMain.handle('dovira:downloads:add', (_e, url: unknown) =>
-    typeof url === 'string' ? queue.add(url) : { ok: false, error: 'invalid-url' }
+  ipcMain.handle('dovira:downloads:add', (_e, url: unknown, saveDir: unknown) =>
+    typeof url === 'string'
+      ? queue.add(url, typeof saveDir === 'string' ? saveDir : undefined)
+      : { ok: false, error: 'invalid-url' }
   )
   ipcMain.handle('dovira:downloads:pause', (_e, id: unknown) =>
     typeof id === 'string' ? queue.pause(id) : false
@@ -61,6 +75,28 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return false
   })
+  ipcMain.handle('dovira:info:fetch', (_e, url: unknown) =>
+    typeof url === 'string' ? queue.fetchInfo(url) : { ok: false, error: 'invalid-url' }
+  )
+  ipcMain.handle('dovira:downloads:addWithOptions', (_e, opts: unknown) => {
+    if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
+      return { ok: false, error: 'invalid-url' }
+    }
+    return queue.addWithOptions(opts as AddOptions)
+  })
+  const engineSpecs = (): EngineSpec[] => [
+    { name: 'aria2', path: deps.aria2Binary, getVersion: getAria2Version },
+    { name: 'yt-dlp', path: deps.ytDlpBinary, getVersion: getYtDlpVersion },
+    { name: 'ffmpeg', path: deps.ffmpegBinary, getVersion: getFfmpegVersion },
+    { name: 'deno', path: deps.denoBinary, getVersion: getDenoVersion }
+  ]
+  ipcMain.handle('dovira:engines:list', async (_e, checkForUpdates: unknown) =>
+    listEngines(engineSpecs(), checkForUpdates === true)
+  )
+  ipcMain.handle('dovira:engines:update', async (_e, name: unknown) => {
+    if (name !== 'yt-dlp') return { ok: false, error: 'not-supported' }
+    return updateYtDlp(deps.binDir)
+  })
   ipcMain.handle('dovira:settings:get', () => settings.get())
   ipcMain.handle('dovira:settings:set', (_e, patch: unknown) => {
     if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
@@ -74,6 +110,9 @@ export function registerIpc(deps: IpcDeps): void {
     chromeVersion: process.versions.chrome ?? '',
     nodeVersion: process.versions.node ?? '',
     aria2Version: await getAria2Version(deps.aria2Binary),
+    ytDlpVersion: deps.ytDlpBinary ? await getYtDlpVersion(deps.ytDlpBinary) : null,
+    ffmpegVersion: deps.ffmpegBinary ? await getFfmpegVersion(deps.ffmpegBinary) : null,
+    denoVersion: deps.denoBinary ? await getDenoVersion(deps.denoBinary) : null,
     downloadDir: settings.get().downloadDir,
     diskFreeBytes: diskFreeBytes(settings.get().downloadDir)
   }))

@@ -31,6 +31,18 @@ function errorKey(code: string | null): string {
       return 'error.invalid-url'
     case 'unsupported-url':
       return 'error.unsupported-url'
+    case 'unavailable':
+      return 'error.unavailable'
+    case 'login-required':
+      return 'error.loginRequired'
+    case 'unsupported':
+      return 'error.unsupported'
+    case 'drm':
+      return 'error.drm'
+    case 'resume-state-mismatch':
+      return 'error.resumeMismatch'
+    case 'rename-locked':
+      return 'error.renameLocked'
     default:
       return 'error.unknown'
   }
@@ -115,9 +127,11 @@ export default function DownloadCard({ d }: { d: DownloadInfo }): React.JSX.Elem
           )}
           {expanded && (
             <div className="mt-2 space-y-0.5 border-t border-[var(--border)] pt-2 text-[12px] text-[var(--muted)]">
+              {d.title && <div className="break-all">{d.title}</div>}
               <div className="break-all">URL: {d.url}</div>
               <div className="break-all">Save to: {d.savePath}</div>
               <div>
+                {d.formatLabel ? `${d.formatLabel} · ` : ''}
                 {d.totalBytes > 0 ? formatBytes(d.totalBytes) : t('status.unknownSize')}
                 {d.createdAt ? ` · ${formatTime(d.createdAt)}` : ''}
               </div>

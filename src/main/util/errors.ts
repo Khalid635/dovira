@@ -22,6 +22,42 @@ export function mapEngineError(raw: string): FriendlyError {
   if (s.includes('aria2c.exe') && s.includes('not found')) {
     return { code: 'engine-missing', raw }
   }
+  // yt-dlp finished downloading but Windows locked the file while it was
+  // being renamed into place (Defender/indexer). The queue retries the
+  // rename itself; this code is only reached when that also fails.
+  if (s.includes('unable to rename file')) {
+    return { code: 'rename-locked', raw }
+  }
+  // yt-dlp video errors (§7.8).
+  if (
+    s.includes('video unavailable') ||
+    s.includes('this video is unavailable') ||
+    s.includes('private video') ||
+    s.includes('this video is private') ||
+    s.includes('has been removed') ||
+    s.includes('has been deleted')
+  ) {
+    return { code: 'unavailable', raw }
+  }
+  if (
+    s.includes('sign in') ||
+    s.includes('log in') ||
+    s.includes('login required') ||
+    s.includes('confirm your age') ||
+    s.includes('age-restricted') ||
+    s.includes('age restricted')
+  ) {
+    return { code: 'login-required', raw }
+  }
+  if (s.includes('drm') || s.includes('encrypted')) return { code: 'drm', raw }
+  if (
+    s.includes('unsupported url') ||
+    s.includes('no video formats found') ||
+    s.includes('requested format is not available') ||
+    s.includes('format is not available')
+  ) {
+    return { code: 'unsupported', raw }
+  }
   if (
     s.includes('econnreset') ||
     s.includes('etimedout') ||

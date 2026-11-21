@@ -21,6 +21,9 @@ interface DownloadRow {
   remote_id: string | null
   engine: string
   engine_ref: string | null
+  format_id: string | null
+  format_string: string | null
+  ytdlp_state: string | null
   created_at: number
   started_at: number | null
   completed_at: number | null
@@ -44,6 +47,9 @@ export interface DownloadInsert {
   remoteId?: string | null
   engine?: string
   engineRef?: string | null
+  formatId?: string | null
+  formatString?: string | null
+  ytdlpState?: string | null
   createdAt: number
   startedAt?: number | null
   completedAt?: number | null
@@ -60,6 +66,11 @@ export interface DownloadPatch {
   engineRef?: string | null
   filename?: string
   savePath?: string
+  title?: string | null
+  thumbnailUrl?: string | null
+  formatLabel?: string | null
+  formatString?: string | null
+  ytdlpState?: string | null
 }
 
 /**
@@ -99,6 +110,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
       CREATE INDEX IF NOT EXISTS idx_downloads_created ON downloads(created_at);
     `
+  },
+  {
+    // Phase 2: yt-dlp resume state — the exact format selector + the
+    // .part/.ytdl state, so resume always reuses the SAME format (§8).
+    version: 2,
+    sql: `
+      ALTER TABLE downloads ADD COLUMN format_id TEXT;
+      ALTER TABLE downloads ADD COLUMN format_string TEXT;
+      ALTER TABLE downloads ADD COLUMN ytdlp_state TEXT;
+    `
   }
 ]
 
@@ -106,9 +127,11 @@ function rowToInfo(row: DownloadRow): DownloadInfo {
   return {
     id: row.id,
     url: row.url,
+    title: row.title,
     filename: row.filename,
     savePath: row.save_path,
     kind: (row.kind as DownloadKind) || 'file',
+    formatLabel: row.format_label,
     status: row.status as DownloadStatus,
     totalBytes: row.total_bytes,
     doneBytes: row.done_bytes,
@@ -116,10 +139,14 @@ function rowToInfo(row: DownloadRow): DownloadInfo {
     etaSeconds: null,
     errorCode: row.error_code,
     errorMessage: row.error_message,
+    thumbnailUrl: row.thumbnail_url,
     site: row.site,
     createdAt: row.created_at,
     startedAt: row.started_at,
-    completedAt: row.completed_at
+    completedAt: row.completed_at,
+    engine: (row.engine as DownloadInfo['engine']) || 'aria2',
+    formatString: row.format_string,
+    ytdlpState: row.ytdlp_state
   }
 }
 
@@ -171,8 +198,9 @@ export class DoviraDb {
         `INSERT INTO downloads
           (id, url, title, filename, save_path, kind, format_label, status,
            total_bytes, done_bytes, error_code, error_message, thumbnail_url,
-           site, remote_id, engine, engine_ref, created_at, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           site, remote_id, engine, engine_ref, format_id, format_string,
+           ytdlp_state, created_at, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         d.id,
@@ -192,6 +220,9 @@ export class DoviraDb {
         d.remoteId ?? null,
         d.engine ?? 'aria2',
         d.engineRef ?? null,
+        d.formatId ?? null,
+        d.formatString ?? null,
+        d.ytdlpState ?? null,
         d.createdAt,
         d.startedAt ?? null,
         d.completedAt ?? null
@@ -211,7 +242,12 @@ export class DoviraDb {
       ['completedAt', 'completed_at'],
       ['engineRef', 'engine_ref'],
       ['filename', 'filename'],
-      ['savePath', 'save_path']
+      ['savePath', 'save_path'],
+      ['title', 'title'],
+      ['thumbnailUrl', 'thumbnail_url'],
+      ['formatLabel', 'format_label'],
+      ['formatString', 'format_string'],
+      ['ytdlpState', 'ytdlp_state']
     ]
     for (const [key, col] of map) {
       if (patch[key] !== undefined) {

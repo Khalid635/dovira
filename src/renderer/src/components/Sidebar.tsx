@@ -36,6 +36,7 @@ export default function Sidebar(): React.JSX.Element {
   const downloads = useStore((s) => s.downloads)
   const filter = useStore((s) => s.filter)
   const view = useStore((s) => s.view)
+  const appInfo = useStore((s) => s.appInfo)
   const setFilter = useStore((s) => s.setFilter)
   const setView = useStore((s) => s.setView)
 
@@ -65,7 +66,9 @@ export default function Sidebar(): React.JSX.Element {
         <img src={logo} alt="DOVIRA" className="h-8 w-8 rounded-lg" />
         <div>
           <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
-          <div className="text-[11px] leading-tight text-[var(--muted)]">v1.0.0 · Phase 1</div>
+          <div className="text-[11px] leading-tight text-[var(--muted)]">
+            v{appInfo?.version ?? '0.1.0'} · Phase 2
+          </div>
         </div>
       </div>
 
