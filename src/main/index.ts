@@ -1,26 +1,42 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, dialog } from 'electron'
+import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { DoviraDb } from './db'
+import { SettingsManager } from './settings'
+import { Aria2Manager } from './engines/aria2'
+import { QueueManager } from './queue'
+import { registerIpc } from './ipc'
+import { findAria2Binary } from './util/paths'
+
+let mainWindow: BrowserWindow | null = null
+let db: DoviraDb | null = null
+let queue: QueueManager | null = null
+let aria2: Aria2Manager | null = null
 
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+  mainWindow = new BrowserWindow({
+    width: 1080,
+    height: 720,
+    minWidth: 960,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
+    title: 'DOVIRA',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // Plan §11: sandbox on. If the preload ever breaks under it, this is
+      // the first thing to re-check (Phase 1 hardening item).
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -37,9 +53,6 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.khalid635.dovira')
@@ -51,8 +64,42 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  const userData = app.getPath('userData')
+  mkdirSync(userData, { recursive: true })
+
+  try {
+    db = new DoviraDb(join(userData, 'dovira.db'))
+  } catch (err) {
+    // Migration failure: never wipe user data. Tell the user, then quit.
+    dialog.showErrorBox(
+      'DOVIRA — Database error',
+      `Could not open or migrate the download database.\n\n${(err as Error).message}`
+    )
+    app.quit()
+    return
+  }
+
+  const settings = new SettingsManager(db)
+
+  const aria2Binary = findAria2Binary(app.getAppPath(), process.resourcesPath)
+  if (!aria2Binary) {
+    dialog.showErrorBox(
+      'DOVIRA — Engine missing',
+      'aria2c.exe was not found under resources/bin/win.\nRun "npm run fetch-binaries" to download it.'
+    )
+    app.quit()
+    return
+  }
+
+  aria2 = new Aria2Manager(aria2Binary, settings.get().downloadDir)
+  queue = new QueueManager(db, settings, aria2)
+  registerIpc({
+    queue,
+    settings,
+    db,
+    aria2Binary,
+    getMainWindow: () => mainWindow
+  })
 
   createWindow()
 
@@ -72,5 +119,21 @@ app.on('window-all-closed', () => {
   }
 })
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+// Synchronous cleanup: stop the engine, flush the DB, then exit.
+app.on('before-quit', () => {
+  try {
+    queue?.shutdown()
+  } catch {
+    // Never block quitting on cleanup.
+  }
+  try {
+    void aria2?.stop()
+  } catch {
+    // Ignore.
+  }
+  try {
+    db?.close()
+  } catch {
+    // Ignore.
+  }
+})
