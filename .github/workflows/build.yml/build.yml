@@ -1,0 +1,159 @@
+# DOVIRA CI + release (Phase 6).
+#
+# - Every push / PR to main: lint + typecheck + build (ci job).
+# - Every tag push `v*`: build the installers for Windows, macOS and
+#   Linux (build job, one runner per OS), then create ONE pre-release
+#   with all installers + latest*.yml + checksums.txt (publish job).
+#   The release is created by `gh release create` here — never by hand
+#   and never from the laptop API.
+# - macOS/Linux aria2 is built from source (scripts/build-aria2.sh).
+#   That step is best-effort (continue-on-error): without aria2 the app
+#   still runs — plain files fall back to yt-dlp. The publish job
+#   records per-OS whether aria2 was bundled, in the release notes.
+# - The macOS dmg is UNSIGNED (no Apple Developer account). Gatekeeper
+#   instructions are in the README.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: lint + typecheck + build
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  build:
+    name: build ${{ matrix.platform }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            builder: --win
+          - os: macos-latest
+            platform: mac
+            builder: --mac
+          - os: ubuntu-latest
+            platform: linux
+            builder: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Fetch engine binaries
+        run: npm run fetch-binaries -- --platform ${{ matrix.platform }}
+      - name: Build aria2 from source (macOS/Linux only)
+        id: aria2
+        if: ${{ matrix.platform != 'win' }}
+        continue-on-error: true
+        run: bash scripts/build-aria2.sh ${{ matrix.platform }}
+      - name: Record aria2 status
+        shell: bash
+        run: echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
+      - run: npm run build
+      - name: Build installer
+        run: npx electron-builder ${{ matrix.builder }} --publish never
+      - name: Check macOS code signature (ad-hoc expected, unsigned is a fail)
+        if: ${{ matrix.platform == 'mac' }}
+        shell: bash
+        run: codesign -dv "dist/mac/dovira.app" 2>&1 | head -5 || echo "NOT SIGNED"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dovira-${{ matrix.platform }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest.yml
+            dist/latest-mac.yml
+            dist/latest-linux.yml
+            dist/aria2-status-${{ matrix.platform }}.txt
+          if-no-files-found: error
+
+  publish:
+    name: create pre-release
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Build checksums.txt + release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls dist/dovira-win dist/dovira-mac dist/dovira-linux
+          : > checksums.txt
+          (cd dist/dovira-win && sha256sum *.exe >> ../../checksums.txt)
+          (cd dist/dovira-mac && sha256sum *.dmg >> ../../checksums.txt)
+          (cd dist/dovira-linux && sha256sum *.AppImage *.deb >> ../../checksums.txt)
+          cat checksums.txt
+          ARIA2_WIN="bundled"
+          ARIA2_MAC="$(grep -o 'aria2=[a-z]*' dist/dovira-mac/aria2-status-mac.txt | cut -d= -f2)"
+          ARIA2_LINUX="$(grep -o 'aria2=[a-z]*' dist/dovira-linux/aria2-status-linux.txt | cut -d= -f2)"
+          cat > release-notes.md <<EOF
+          ## DOVIRA ${{ github.ref_name }}
+          Phase 6: macOS + Linux installers and app auto-update.
+          - Windows: NSIS installer (aria2 bundled).
+          - macOS: unsigned .dmg (aria2 $ARIA2_MAC — if "failure", plain files download through yt-dlp and torrents need aria2; see README). Gatekeeper: right-click the app and choose Open on first launch.
+          - Linux: AppImage + .deb (aria2 $ARIA2_LINUX — same fallback note as macOS).
+          - Auto-update: the app checks GitHub Releases and verifies every downloaded update's SHA-256 against checksums.txt before installing.
+          - SHA-256 checksums for every installer are in checksums.txt below.
+          EOF
+          cat release-notes.md
+      - name: Create or update the pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --title "DOVIRA $TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" \
+            dist/dovira-win/*.exe \
+            dist/dovira-win/latest.yml \
+            dist/dovira-mac/*.dmg \
+            dist/dovira-mac/latest-mac.yml \
+            dist/dovira-linux/*.AppImage \
+            dist/dovira-linux/*.deb \
+            dist/dovira-linux/latest-linux.yml \
+            checksums.txt \
+            --clobber
+      - name: Verify release assets
+        shell: bash
+        run: |
+          gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name'
+          gh release view "${{ github.ref_name }}" --json isPrerelease --jq '.isPrerelease'
