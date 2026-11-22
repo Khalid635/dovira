@@ -159,15 +159,33 @@ the CI runners.
 
 ## 7. GitHub Actions (tag v0.5.0)
 
-- Push CI run (main): TBD — link + status.
-- Tag release run: TBD — link + status.
-- Release assets (https://github.com/Khalid635/dovira/releases/tag/v0.5.0):
-  TBD — expected: `dovira-0.5.0-setup.exe`, `dovira-0.5.0.dmg`,
+- **BLOCKED — the push token lacks `workflow` scope.** The first
+  push (commit b7011a2, which included `.github/workflows/build.yml`)
+  was rejected by GitHub: "refusing to allow a Personal Access Token
+  to create or update workflow `.github/workflows/build.yml` without
+  `workflow` scope". The PAT (`muse-mcp-vscode`, classic, repo +
+  read:user) cannot create workflow files. Nothing was pushed by
+  that attempt; the remote URL was reset to plain https.
+- What was done instead: the 26 non-workflow files were recommitted
+  and pushed as **43a654dce999a38f0ea04465c24eddecd12c04c6** (main,
+  4e0b930..43a654d). The local tag v0.5.0 was deleted — it pointed at
+  the workflow-inclusive commit. The workflow file remains in the
+  laptop repo at `.github/workflows/build.yml` (untracked) — it is
+  NOT on the remote.
+- To finish: add `.github/workflows/build.yml` via the GitHub web UI
+  (Khalid's browser session — the web UI is not subject to the PAT
+  scope rule), then re-create the annotated tag v0.5.0 on the
+  resulting HEAD and push the tag. The tag push triggers the
+  workflow: CI + 3-OS matrix build + release creation.
+- Until then: NO Actions runs exist for v0.5.0 and NO v0.5.0 release
+  exists. The EXPECTED release assets once the workflow runs
+  (https://github.com/Khalid635/dovira/releases/tag/v0.5.0):
+  `dovira-0.5.0-setup.exe`, `dovira-0.5.0.dmg`,
   `dovira-0.5.0.AppImage`, `dovira_0.5.0_amd64.deb`, `latest.yml`,
   `latest-mac.yml`, `latest-linux.yml`, `checksums.txt`; pre-release
   flag true.
 - aria2 bundled per OS (from the release notes): Windows bundled;
-  macOS TBD; Linux TBD.
+  macOS/Linux TBD (CI builds aria2 from source in the workflow).
 
 ## 8. What was NOT tested here — Khalid's / real-machine checks
 
