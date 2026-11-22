@@ -30,7 +30,10 @@ export const DEFAULT_SETTINGS: Settings = {
   playlistSkipDownloaded: false,
   embedMetadataDefault: false,
   // Phase 5
-  extensionToken: ''
+  extensionToken: '',
+  // Phase 6
+  appUpdateCheck: true,
+  appUpdateAutoDownload: false
 }
 
 const COOKIE_BROWSERS = ['none', 'chrome', 'edge', 'firefox', 'brave'] as const
@@ -103,6 +106,9 @@ function normalizeSettings(next: Settings): Settings {
   next.embedMetadataDefault = next.embedMetadataDefault === true
   // Phase 5
   if (typeof next.extensionToken !== 'string') next.extensionToken = ''
+  // Phase 6
+  next.appUpdateCheck = next.appUpdateCheck === true
+  next.appUpdateAutoDownload = next.appUpdateAutoDownload === true
   return next
 }
 

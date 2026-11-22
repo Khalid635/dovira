@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AddOptions,
   AppInfo,
+  AppUpdateState,
   DownloadInfo,
   EngineInfo,
   PlainFileInfo,
@@ -94,6 +95,11 @@ interface Store {
   enginesLoading: boolean
   loadEngines: (checkForUpdates: boolean) => Promise<void>
   updateEngine: (name: string) => Promise<{ ok: boolean; error?: string }>
+  // App auto-update (Phase 6).
+  appUpdate: AppUpdateState
+  checkAppUpdate: () => Promise<void>
+  downloadAppUpdate: () => Promise<void>
+  installAppUpdate: () => Promise<void>
 }
 
 // Event listeners + the 5s refresh interval are attached once per renderer
@@ -122,6 +128,7 @@ export const useStore = create<Store>()((set, get) => ({
   dialogErrorDetail: null,
   engines: [],
   enginesLoading: false,
+  appUpdate: { state: 'idle', version: null, progress: null, error: null },
   speedHistory: {},
   schedulerCountdown: null,
 
@@ -145,16 +152,21 @@ export const useStore = create<Store>()((set, get) => ({
     let timedOut = false
     const cancelled = { current: false }
     const load = async (): Promise<void> => {
-      const [settingsRes, downloadsRes, appInfoRes] = await Promise.allSettled([
+      const [settingsRes, downloadsRes, appInfoRes, appUpdateRes] = await Promise.allSettled([
         window.dovira.getSettings(),
         window.dovira.listDownloads(),
-        window.dovira.getAppInfo()
+        window.dovira.getAppInfo(),
+        window.dovira.getAppUpdateState()
       ])
       // A timed-out attempt must not overwrite the timeout error later.
       if (cancelled.current) return
       const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null
       const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : []
       const appInfo = appInfoRes.status === 'fulfilled' ? appInfoRes.value : null
+      const appUpdate: AppUpdateState =
+        appUpdateRes.status === 'fulfilled'
+          ? appUpdateRes.value
+          : { state: 'idle', version: null, progress: null, error: null }
       const failed =
         settingsRes.status === 'rejected' ||
         downloadsRes.status === 'rejected' ||
@@ -163,6 +175,7 @@ export const useStore = create<Store>()((set, get) => ({
         settings,
         downloads,
         appInfo,
+        appUpdate,
         language: settings?.language ?? 'bn',
         loaded: true,
         initError: failed ? 'init' : null
@@ -259,6 +272,10 @@ export const useStore = create<Store>()((set, get) => ({
         labelKey: 'toast.clipboardAdd',
         url
       })
+    })
+    // Phase 6: app auto-update state (check / download / verify / ready).
+    window.dovira.onAppUpdateState((s: AppUpdateState) => {
+      set({ appUpdate: s })
     })
 
     // Status bar numbers (disk free) refresh every 5s.
@@ -518,6 +535,34 @@ export const useStore = create<Store>()((set, get) => ({
       get().showToast('toast.updateFailed')
     }
     return res
+  },
+
+  checkAppUpdate: async () => {
+    try {
+      const s = await window.dovira.checkAppUpdate()
+      set({ appUpdate: s })
+    } catch {
+      // The state event carries errors; a failed IPC call leaves the
+      // last known state — never blank the section.
+    }
+  },
+
+  downloadAppUpdate: async () => {
+    try {
+      const s = await window.dovira.downloadAppUpdate()
+      set({ appUpdate: s })
+    } catch {
+      // See checkAppUpdate.
+    }
+  },
+
+  installAppUpdate: async () => {
+    try {
+      await window.dovira.installAppUpdate()
+    } catch {
+      // quitAndInstall restarts the app; a failure here leaves the
+      // 'install-ready' state so the user can retry.
+    }
   }
 }))
 

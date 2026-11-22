@@ -25,26 +25,34 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+# Phase 6: macOS ships as an UNSIGNED dmg (notarization needs a paid
+# Apple Developer account, ~$99/yr, not agreed). Gatekeeper will block a
+# first launch — the README has the right-click > Open instructions.
+# The entitlements file exists in build/ (kept); the old extendInfo
+# (camera/mic/Documents/Downloads) is dropped — the app uses none of
+# those APIs, so claiming them would be a lie to the user.
 mac:
+  target: dmg
   entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: Khalid Bin Masud
   category: Utility
+  # Phase 6: WM_CLASS / .desktop association for Linux desktops
+  syncDesktopName: true
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+# Phase 6: auto-update reads latest.yml from these GitHub Releases
+# (electron-updater). Releases are pre-releases; the CI workflow creates
+# them on tag push — never create one by hand.
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: Khalid635
+  repo: dovira
+  releaseType: prerelease

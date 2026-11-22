@@ -202,7 +202,12 @@ export class QueueManager extends EventEmitter {
   constructor(
     private db: DoviraDb,
     private settings: SettingsManager,
-    private aria2: Aria2Manager,
+    /**
+     * Phase 6: aria2 is null on macOS/Linux when no source-built aria2c
+     * is bundled — plain files then go through the yt-dlp fallback
+     * (startYtDlpPlain) instead of failing. Windows always has aria2.
+     */
+    private aria2: Aria2Manager | null,
     private ytdlp: YtDlpManager | null = null
   ) {
     super()
@@ -215,7 +220,19 @@ export class QueueManager extends EventEmitter {
       }
       this.downloads.set(d.id, d)
     }
-    this.aria2.onUnexpectedExit = () => void this.handleAria2Death()
+    if (this.aria2) {
+      this.aria2.onUnexpectedExit = () => void this.handleAria2Death()
+    }
+  }
+
+  /**
+   * Phase 6: a plain-file row running through the yt-dlp fallback because
+   * aria2 is not available on this platform. Torrents are never fallback
+   * rows — yt-dlp cannot download them, so they fail with
+   * 'engine-missing' at startDownload instead.
+   */
+  private isFallbackRow(d: DownloadInfo): boolean {
+    return this.aria2 === null && d.engine === 'aria2' && !isTorrentUrl(d.url)
   }
 
   list(): DownloadInfo[] {
@@ -648,7 +665,10 @@ export class QueueManager extends EventEmitter {
   async pause(id: string): Promise<boolean> {
     const d = this.downloads.get(id)
     if (!d) return false
-    if (d.engine === 'ytdlp') {
+    // Phase 6: a fallback row (engine 'aria2', actually running via
+    // yt-dlp) pauses like a yt-dlp row — kill the yt-dlp job, keep the
+    // .part file for resume.
+    if (d.engine === 'ytdlp' || this.isFallbackRow(d)) {
       if (d.status !== 'downloading' && d.status !== 'processing') return false
       const entry = this.active.get(id)
       if (entry?.ytdlpJob) {
@@ -680,10 +700,13 @@ export class QueueManager extends EventEmitter {
     if (d.status !== 'downloading') return false
     const entry = this.active.get(id)
     if (entry?.gid) {
-      try {
-        await this.aria2.pause(entry.gid)
-      } catch {
-        // gid may be stale (aria2 restarted) — local state still wins.
+      const aria2 = this.aria2
+      if (aria2) {
+        try {
+          await aria2.pause(entry.gid)
+        } catch {
+          // gid may be stale (aria2 restarted) — local state still wins.
+        }
       }
       this.active.delete(id)
     }
@@ -705,7 +728,7 @@ export class QueueManager extends EventEmitter {
     if (!d || (d.status !== 'paused' && d.status !== 'failed' && d.status !== 'cancelled')) {
       return false
     }
-    if (d.engine === 'ytdlp') {
+    if (d.engine === 'ytdlp' || this.isFallbackRow(d)) {
       // Output already fully on disk (e.g. the app died right after the
       // merge finished)? Mark it complete instead of re-downloading.
       if (d.totalBytes > 0 && existsSync(d.savePath)) {
@@ -719,9 +742,9 @@ export class QueueManager extends EventEmitter {
           // Stat failed — fall through to a normal resume.
         }
       }
-      // NOTE: do NOT zero doneBytes here — startYtDlp needs it to detect a
-      // missing .part file (resume-state-mismatch) instead of silently
-      // restarting from zero.
+      // NOTE: do NOT zero doneBytes here — startYtDlp / startYtDlpPlain
+      // need it to detect a missing .part file (resume-state-mismatch)
+      // instead of silently restarting from zero.
     } else if (!existsSync(d.savePath)) {
       d.doneBytes = 0
     }
@@ -742,7 +765,11 @@ export class QueueManager extends EventEmitter {
 
   async retry(id: string): Promise<boolean> {
     const d = this.downloads.get(id)
-    if (d?.engine === 'ytdlp' && d.errorCode === 'resume-state-mismatch') {
+    if (
+      d &&
+      d.errorCode === 'resume-state-mismatch' &&
+      (d.engine === 'ytdlp' || this.isFallbackRow(d))
+    ) {
       // The user pressed Retry after the mismatch message: that is the
       // explicit confirmation to restart from the beginning.
       this.deleteYtDlpPartials(d.savePath)
@@ -767,17 +794,22 @@ export class QueueManager extends EventEmitter {
     const d = this.downloads.get(id)
     if (!d) return false
     const entry = this.active.get(id)
-    if (d.engine === 'ytdlp') {
+    // Phase 6: a fallback row has a yt-dlp job, not a gid — kill it like
+    // a yt-dlp row, or the download keeps running after cancel.
+    if (d.engine === 'ytdlp' || entry?.ytdlpJob) {
       if (entry?.ytdlpJob) {
         entry.ytdlpJob.kill()
         this.active.delete(id)
       }
       this.ytDlpArgs.delete(id)
     } else if (entry?.gid) {
-      try {
-        await this.aria2.remove(entry.gid)
-      } catch {
-        // Already gone — continue with local cleanup.
+      const aria2 = this.aria2
+      if (aria2) {
+        try {
+          await aria2.remove(entry.gid)
+        } catch {
+          // Already gone — continue with local cleanup.
+        }
       }
       this.active.delete(id)
     }
@@ -816,17 +848,21 @@ export class QueueManager extends EventEmitter {
     const d = this.downloads.get(id)
     if (!d) return false
     const entry = this.active.get(id)
-    if (d.engine === 'ytdlp') {
+    // Phase 6: see cancel() — a fallback row's yt-dlp job must be killed.
+    if (d.engine === 'ytdlp' || entry?.ytdlpJob) {
       if (entry?.ytdlpJob) {
         entry.ytdlpJob.kill()
         this.active.delete(id)
       }
       this.ytDlpArgs.delete(id)
     } else if (entry?.gid) {
-      try {
-        await this.aria2.remove(entry.gid)
-      } catch {
-        // Already gone — continue with local cleanup.
+      const aria2 = this.aria2
+      if (aria2) {
+        try {
+          await aria2.remove(entry.gid)
+        } catch {
+          // Already gone — continue with local cleanup.
+        }
       }
       this.active.delete(id)
     }
@@ -1048,9 +1084,20 @@ export class QueueManager extends EventEmitter {
       await this.startYtDlp(d)
       return
     }
+    // Phase 6: no aria2 on this platform — plain files go through yt-dlp.
+    // Torrents cannot (yt-dlp has no torrent engine) — fail honestly.
+    if (this.aria2 === null) {
+      if (isTorrentUrl(d.url)) {
+        this.fail(d, 'engine-missing', 'aria2 is not available on this platform')
+        return
+      }
+      await this.startYtDlpPlain(d)
+      return
+    }
+    const aria2 = this.aria2
     const s = this.settings.get()
     try {
-      if (!this.aria2.isReady()) await this.aria2.start()
+      if (!aria2.isReady()) await aria2.start()
     } catch (err) {
       this.fail(d, 'engine-missing', (err as Error).message)
       return
@@ -1081,7 +1128,7 @@ export class QueueManager extends EventEmitter {
     const ext = this.extHeaders.get(d.id)
     if (ext && ext.length > 0) opts['header'] = ext
     try {
-      const gid = await this.aria2.addUri(d.url, opts)
+      const gid = await aria2.addUri(d.url, opts)
       d.status = 'downloading'
       d.startedAt = d.startedAt ?? Date.now()
       d.errorCode = null
@@ -1357,6 +1404,96 @@ export class QueueManager extends EventEmitter {
     await this.handleError(d.id, stderr, mapped.code)
   }
 
+  /**
+   * Phase 6: plain-file download through yt-dlp — the aria2-missing
+   * fallback on macOS/Linux. Same shape as startYtDlp (resume-state
+   * check, progress events, map + retry), but no format selection, no
+   * merge step and no rename-race recovery (a plain file has nothing to
+   * merge). The row keeps engine 'aria2' in the DB, so a later restart
+   * routes it here again.
+   */
+  private async startYtDlpPlain(d: DownloadInfo): Promise<void> {
+    if (!this.ytdlp) {
+      this.fail(d, 'engine-missing', 'yt-dlp not configured')
+      return
+    }
+    const s = this.settings.get()
+    // Resume-state check (§8): bytes were downloaded before but no .part
+    // file survives — the state is gone. Never silently restart from zero.
+    if (d.doneBytes > 0 && !existsSync(d.savePath)) {
+      const parts = ytdlpPartFiles(d.savePath)
+      if (parts.length === 0) {
+        this.fail(d, 'resume-state-mismatch', 'part file missing, doneBytes > 0')
+        return
+      }
+    }
+    if (d.totalBytes > 0) {
+      const free = diskFreeBytes(s.downloadDir)
+      if (free !== null && free < d.totalBytes) {
+        this.fail(d, 'no-space', '')
+        return
+      }
+    }
+    const ytdlp = this.ytdlp
+    const args = this.ytDlpArgs.get(d.id) ?? ytdlp.buildPlainArgs(d.url, d.savePath)
+    d.status = 'downloading'
+    d.startedAt = d.startedAt ?? Date.now()
+    d.errorCode = null
+    d.errorMessage = null
+    this.ytDlpArgs.set(d.id, args)
+    this.db.updateDownload(d.id, {
+      status: 'downloading',
+      startedAt: d.startedAt,
+      errorCode: null,
+      errorMessage: null
+    })
+    this.emitStatus(d.id)
+    const { job, done } = ytdlp.runDownload(args, {
+      onProgress: (p) => {
+        if (p.totalBytes > 0) d.totalBytes = p.totalBytes
+        if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
+        d.speedBps = p.speedBps
+        d.etaSeconds = p.etaSeconds
+        if (p.status === 'finished') {
+          if (d.status === 'downloading') {
+            // All bytes are in — yt-dlp is doing the final rename.
+            d.status = 'processing'
+            d.speedBps = 0
+            d.etaSeconds = null
+            this.db.updateDownload(d.id, {
+              status: 'processing',
+              totalBytes: d.totalBytes,
+              doneBytes: d.doneBytes
+            })
+            this.emitStatus(d.id)
+          }
+          return
+        }
+        this.emitProgress(d)
+      },
+      onLog: () => {
+        // Log tail lives on the job (used for "Copy details" on failure).
+      }
+    })
+    this.active.set(d.id, { ytdlpJob: job })
+    const { code, stderr } = await done
+    // Pause/cancel already removed this job from `active` — ignore the exit.
+    if (this.active.get(d.id)?.ytdlpJob !== job) return
+    this.active.delete(d.id)
+    this.ytDlpArgs.delete(d.id)
+    if (code === 0) {
+      if (!existsSync(d.savePath)) {
+        this.fail(d, 'unknown', stderr.slice(0, 300) || 'yt-dlp exited 0 but no output file')
+        return
+      }
+      await this.complete(d.id)
+      return
+    }
+    // Otherwise: map + retry with backoff.
+    const mapped = mapEngineError(stderr)
+    await this.handleError(d.id, stderr, mapped.code)
+  }
+
   private ensurePoller(): void {
     if (this.pollTimer) return
     this.pollTimer = setInterval(() => void this.pollTick(), 500)
@@ -1375,6 +1512,13 @@ export class QueueManager extends EventEmitter {
       this.stopPoller()
       return
     }
+    // Phase 6: a gid can only exist when aria2 exists, but the field is
+    // nullable now — narrow it once for the whole tick.
+    const aria2 = this.aria2
+    if (!aria2) {
+      this.stopPoller()
+      return
+    }
     for (const [id, entry] of [...this.active.entries()]) {
       const d = this.downloads.get(id)
       if (!d) {
@@ -1383,7 +1527,7 @@ export class QueueManager extends EventEmitter {
       }
       if (!entry.gid) continue // yt-dlp pushes progress; it is never polled.
       try {
-        const st = await this.aria2.tellStatus(entry.gid)
+        const st = await aria2.tellStatus(entry.gid)
         const total = Number(st.totalLength || 0)
         const done = Number(st.completedLength || 0)
         const speed = Number(st.downloadSpeed || 0)
@@ -1433,7 +1577,7 @@ export class QueueManager extends EventEmitter {
           // a "completed" torrent whose file is just the metadata blob.
           const nextGid = st.followedBy[0]
           try {
-            await this.aria2.removeDownloadResult(entry.gid)
+            await aria2.removeDownloadResult(entry.gid)
           } catch {
             // Session cleanup is best-effort.
           }
@@ -1472,14 +1616,19 @@ export class QueueManager extends EventEmitter {
     const entry = this.active.get(id)
     this.active.delete(id)
     if (entry?.gid) {
-      try {
-        await this.aria2.removeDownloadResult(entry.gid)
-      } catch {
-        // Session cleanup is best-effort.
+      const aria2 = this.aria2
+      if (aria2) {
+        try {
+          await aria2.removeDownloadResult(entry.gid)
+        } catch {
+          // Session cleanup is best-effort.
+        }
       }
     }
     d.status = 'completed'
-    if (d.engine === 'ytdlp') {
+    // Phase 6: a fallback row's totals come from the file, like a yt-dlp
+    // row's — yt-dlp may never have reported a total for a plain file.
+    if (d.engine === 'ytdlp' || this.isFallbackRow(d)) {
       // yt-dlp may never have reported a total — take it from the file.
       try {
         const size = statSync(d.savePath).size
@@ -1573,8 +1722,12 @@ export class QueueManager extends EventEmitter {
       return
     }
     await new Promise((r) => setTimeout(r, 2000))
+    // Phase 6: without aria2 there is nothing to restart — and this
+    // handler is only wired when aria2 exists, so this is a guard only.
+    const aria2 = this.aria2
+    if (!aria2) return
     try {
-      await this.aria2.start()
+      await aria2.start()
       this.aria2Restarts = 0
       await this.pump()
     } catch {

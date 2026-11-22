@@ -15,16 +15,18 @@ import {
   type EngineSpec
 } from './engines/versions'
 import { diskFreeBytes } from './util/paths'
-import type { AddOptions, ExtensionApiStatus, Settings } from './types'
+import type { AddOptions, AppUpdateState, ExtensionApiStatus, Settings } from './types'
 import { logMain } from './logger'
 import type { SchedulerManager } from './scheduler'
 import type { LocalApiServer } from './localApi'
+import type { AppUpdater } from './updater'
 
 export interface IpcDeps {
   queue: QueueManager
   settings: SettingsManager
   db: DoviraDb
-  aria2Binary: string
+  /** Phase 6: null on macOS/Linux when no source-built aria2c is bundled. */
+  aria2Binary: string | null
   ytDlpBinary: string | null
   ffmpegBinary: string | null
   denoBinary: string | null
@@ -34,6 +36,8 @@ export interface IpcDeps {
   scheduler: SchedulerManager
   /** Phase 5: Local API (token + status for Settings > Browser & Cookies). */
   localApi: LocalApiServer
+  /** Phase 6: app auto-update (check / download / install). */
+  updater: AppUpdater
   /** Phase 3: called after every settings:set — applies launch-at-startup, clipboard watch, etc. */
   onSettingsChanged: (s: Settings) => void
 }
@@ -204,6 +208,12 @@ export function registerIpc(deps: IpcDeps): void {
     deps.scheduler.cancelCountdown()
     return true
   })
+  // Phase 6: app auto-update — the renderer drives check / download /
+  // install; state changes arrive as 'dovira:update:state' events.
+  ipcMain.handle('dovira:update:state', (): AppUpdateState => deps.updater.getState())
+  ipcMain.handle('dovira:update:check', (): Promise<AppUpdateState> => deps.updater.check())
+  ipcMain.handle('dovira:update:download', (): Promise<AppUpdateState> => deps.updater.download())
+  ipcMain.handle('dovira:update:install', (): boolean => deps.updater.install())
   // Phase 5: browser extension pairing — status (running/port/token)
   // and token regeneration. The token is shown in Settings so the user
   // can copy it into the extension's options page.
@@ -215,7 +225,7 @@ export function registerIpc(deps: IpcDeps): void {
   // run them in parallel. Safe: runVersion never rejects (null on error).
   ipcMain.handle('dovira:app:info', async () => {
     const [aria2Version, ytDlpVersion, ffmpegVersion, denoVersion] = await Promise.all([
-      getAria2Version(deps.aria2Binary),
+      deps.aria2Binary ? getAria2Version(deps.aria2Binary) : Promise.resolve(null),
       deps.ytDlpBinary ? getYtDlpVersion(deps.ytDlpBinary) : Promise.resolve(null),
       deps.ffmpegBinary ? getFfmpegVersion(deps.ffmpegBinary) : Promise.resolve(null),
       deps.denoBinary ? getDenoVersion(deps.denoBinary) : Promise.resolve(null)

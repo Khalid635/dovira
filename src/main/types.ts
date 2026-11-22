@@ -86,6 +86,37 @@ export interface Settings {
   embedMetadataDefault: boolean
   /** Phase 5: the Local API token the browser extension pairs with. Empty = not generated yet. */
   extensionToken: string
+  /** Phase 6: check for app updates automatically after startup. */
+  appUpdateCheck: boolean
+  /** Phase 6: download an available app update without asking first. */
+  appUpdateAutoDownload: boolean
+}
+
+/** Phase 6: app auto-update state, shown in Settings > App updates. */
+export type AppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'verifying'
+  | 'install-ready'
+  | 'checksum-failed'
+  | 'error'
+
+export interface AppUpdateState {
+  state: AppUpdateStatus
+  /** Version of the update being handled (null when none). */
+  version: string | null
+  /** Download progress 0–100 (null when not downloading). */
+  progress: number | null
+  /**
+   * Error detail: a short code for the checksum states
+   * ('checksum-mismatch' | 'checksums-missing' |
+   * 'checksums-unavailable') or the updater's message for 'error'.
+   */
+  error: string | null
 }
 
 /** Phase 3: the scheduler's current state, shown in Settings. */

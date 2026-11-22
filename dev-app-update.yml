@@ -1,0 +1,8 @@
+# Phase 6: dev builds check the real GitHub Releases for updates, so
+# the updater can be tested without a packaged build. Never shipped —
+# electron-builder excludes this file from the app (see
+# electron-builder.yml `files`). The packaged app reads its publish
+# config from electron-builder.yml instead.
+provider: github
+owner: Khalid635
+repo: dovira

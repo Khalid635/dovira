@@ -669,6 +669,25 @@ export class YtDlpManager {
   }
 
   /**
+   * Phase 6: plain-file download (the aria2-missing fallback on macOS /
+   * Linux). No format selection — yt-dlp downloads the URL straight to
+   * savePath with the same progress template, and resumes a .part file
+   * on a rerun (yt-dlp continues partial downloads by default).
+   */
+  buildPlainArgs(url: string, savePath: string): string[] {
+    return [
+      ...this.baseArgs(),
+      '--newline',
+      '--progress-template',
+      PROGRESS_TEMPLATE,
+      '-o',
+      savePath,
+      '--',
+      url
+    ]
+  }
+
+  /**
    * Run a download with an exact arg list (built by buildArgs, or a stored
    * lastArgs for resume — the SAME command, never a rebuilt one).
    * Resolves with the exit code; progress and log lines arrive through the

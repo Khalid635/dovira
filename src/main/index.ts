@@ -14,7 +14,8 @@ import { TrayManager } from './tray'
 import { ClipboardWatcher } from './clipboard'
 import { registerIpc } from './ipc'
 import { LocalApiServer } from './localApi'
-import { findBinary } from './util/paths'
+import { findBinary, ensureExecutable, ENGINE_FILES, platformDirName } from './util/paths'
+import { AppUpdater } from './updater'
 import { initLogger, logMain } from './logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -28,6 +29,8 @@ let tray: TrayManager | null = null
 let clipboardWatcher: ClipboardWatcher | null = null
 /** Phase 5: Local API for the browser extension (127.0.0.1 + token). */
 let localApi: LocalApiServer | null = null
+/** Phase 6: app auto-update (electron-updater + GitHub Releases). */
+let updater: AppUpdater | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
 
@@ -210,23 +213,37 @@ app.whenReady().then(() => {
   const ytDlpBinary = findBinary('yt-dlp', appPath, resourcesPath)
   const ffmpegBinary = findBinary('ffmpeg', appPath, resourcesPath)
   const denoBinary = findBinary('deno', appPath, resourcesPath)
+  // Phase 6: macOS/Linux binaries need the executable bit (a zip/tar
+  // extraction does not always preserve it).
+  for (const b of [aria2Binary, ytDlpBinary, ffmpegBinary, denoBinary]) {
+    if (b) ensureExecutable(b)
+  }
   const missing: string[] = []
-  if (!aria2Binary) missing.push('aria2c.exe')
-  if (!ytDlpBinary) missing.push('yt-dlp.exe')
-  if (!ffmpegBinary) missing.push('ffmpeg.exe')
-  if (!denoBinary) missing.push('deno.exe')
+  // Phase 6: aria2 is REQUIRED on Windows only. On macOS/Linux it is
+  // built from source (scripts/build-aria2.sh) and may be absent — the
+  // queue falls back to yt-dlp for plain files, so the app still runs.
+  if (!aria2Binary && process.platform === 'win32') missing.push(ENGINE_FILES['aria2'])
+  if (!aria2Binary && process.platform !== 'win32') {
+    logMain(
+      'warn',
+      'aria2c not bundled on this platform — plain files will download through yt-dlp; torrents need aria2 (see README)'
+    )
+  }
+  if (!ytDlpBinary) missing.push(ENGINE_FILES['yt-dlp'])
+  if (!ffmpegBinary) missing.push(ENGINE_FILES['ffmpeg'])
+  if (!denoBinary) missing.push(ENGINE_FILES['deno'])
   if (missing.length > 0) {
     logMain('error', `engine files missing: ${missing.join(', ')}`)
     dialog.showErrorBox(
       'DOVIRA — Engine missing',
-      `These engine files were not found under resources/bin/win:\n${missing.join('\n')}\nRun "npm run fetch-binaries" to download them.`
+      `These engine files were not found under resources/bin/${platformDirName()}:\n${missing.join('\n')}\nRun "npm run fetch-binaries" to download them.`
     )
     app.quit()
     return
   }
-  const binDir = dirname(aria2Binary as string)
+  const binDir = dirname((aria2Binary ?? ytDlpBinary) as string)
 
-  aria2 = new Aria2Manager(aria2Binary as string, settings.get().downloadDir)
+  aria2 = aria2Binary ? new Aria2Manager(aria2Binary, settings.get().downloadDir) : null
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
   const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary, () => {
     const s = settings.get()
@@ -287,11 +304,22 @@ app.whenReady().then(() => {
 
   applyRuntimeSettings(settings.get())
 
+  // Phase 6: app auto-update — state events go to every window.
+  const appUpdater = new AppUpdater(
+    () => settings.get(),
+    (s) => {
+      for (const w of BrowserWindow.getAllWindows()) {
+        w.webContents.send('dovira:update:state', s)
+      }
+    }
+  )
+  updater = appUpdater
+
   registerIpc({
     queue,
     settings,
     db,
-    aria2Binary: aria2Binary as string,
+    aria2Binary,
     ytDlpBinary,
     ffmpegBinary,
     denoBinary,
@@ -299,11 +327,14 @@ app.whenReady().then(() => {
     getMainWindow: () => mainWindow,
     scheduler,
     localApi,
+    updater,
     onSettingsChanged: (s) => applyRuntimeSettings(s)
   })
 
   logMain('info', 'window created')
   createWindow()
+  // Phase 6: one delayed startup check (only when the setting is on).
+  appUpdater.startStartupCheck(10_000)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

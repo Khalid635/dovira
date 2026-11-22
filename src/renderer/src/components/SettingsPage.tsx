@@ -12,6 +12,7 @@ const SECTIONS = [
   { id: 'settings-scheduler', labelKey: 'settings.navScheduler' },
   { id: 'settings-video-audio', labelKey: 'settings.navVideoAudio' },
   { id: 'settings-engines', labelKey: 'settings.navEngines' },
+  { id: 'settings-app-update', labelKey: 'settings.navAppUpdate' },
   { id: 'settings-about', labelKey: 'settings.navAbout' }
 ]
 
@@ -27,6 +28,11 @@ export default function SettingsPage(): React.JSX.Element {
   const enginesLoading = useStore((s) => s.enginesLoading)
   const loadEngines = useStore((s) => s.loadEngines)
   const updateEngine = useStore((s) => s.updateEngine)
+  // Phase 6: app auto-update.
+  const appUpdate = useStore((s) => s.appUpdate)
+  const checkAppUpdate = useStore((s) => s.checkAppUpdate)
+  const downloadAppUpdate = useStore((s) => s.downloadAppUpdate)
+  const installAppUpdate = useStore((s) => s.installAppUpdate)
   const clearDownloadArchive = useStore((s) => s.clearDownloadArchive)
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   // Phase 3: scheduler status (next run / last run) for the Scheduler section.
@@ -120,6 +126,36 @@ export default function SettingsPage(): React.JSX.Element {
   const set = (patch: Partial<Settings>): void => {
     void updateSettings(patch)
   }
+
+  // Phase 6: app-update status line (the checksum states name the exact
+  // reason — a failed verification never looks like "no update").
+  const updateBusy = ['checking', 'downloading', 'verifying'].includes(appUpdate.state)
+  const updateStatusText = (() => {
+    switch (appUpdate.state) {
+      case 'checking':
+        return t('settings.appUpdateChecking')
+      case 'available':
+        return t('settings.appUpdateAvailable', { version: appUpdate.version ?? '' })
+      case 'not-available':
+        return t('settings.appUpdateNotAvailable')
+      case 'downloading':
+        return t('settings.appUpdateDownloading', { n: appUpdate.progress ?? 0 })
+      case 'verifying':
+        return t('settings.appUpdateVerifying')
+      case 'install-ready':
+        return t('settings.appUpdateReady', { version: appUpdate.version ?? '' })
+      case 'checksum-failed':
+        return appUpdate.error === 'checksum-mismatch'
+          ? t('settings.appUpdateChecksumMismatch')
+          : appUpdate.error === 'checksums-missing'
+            ? t('settings.appUpdateChecksumsMissing')
+            : t('settings.appUpdateChecksumsUnavailable')
+      case 'error':
+        return t('settings.appUpdateError', { error: appUpdate.error ?? '' })
+      default:
+        return t('settings.appUpdateIdle')
+    }
+  })()
 
   const pickFolder = async (): Promise<void> => {
     const dir = await window.dovira.pickFolder()
@@ -663,12 +699,65 @@ export default function SettingsPage(): React.JSX.Element {
           </div>
         </section>
 
+        {/* Phase 6: app auto-update (electron-updater + GitHub Releases).
+            The download is checksum-verified before install — a failed
+            verification cancels the update and says so here. */}
+        <section id="settings-app-update" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.appUpdate')}</h2>
+            <button
+              className="btn btn-sm"
+              disabled={updateBusy}
+              onClick={() => void checkAppUpdate()}
+            >
+              {t('settings.checkForUpdates')}
+            </button>
+          </div>
+          <div className="settings-field text-[13px] text-[var(--muted)]">
+            {updateStatusText}
+          </div>
+          {appUpdate.state === 'available' && (
+            <div className="settings-field">
+              <button className="btn btn-sm" onClick={() => void downloadAppUpdate()}>
+                {t('settings.downloadUpdate')}
+              </button>
+            </div>
+          )}
+          {appUpdate.state === 'install-ready' && (
+            <div className="settings-field">
+              <button className="btn btn-sm" onClick={() => void installAppUpdate()}>
+                {t('settings.restartAndInstall')}
+              </button>
+            </div>
+          )}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={settings.appUpdateCheck}
+                onChange={(e) => set({ appUpdateCheck: e.target.checked })}
+              />
+              {t('settings.appUpdateCheck')}
+            </label>
+          </div>
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={settings.appUpdateAutoDownload}
+                onChange={(e) => set({ appUpdateAutoDownload: e.target.checked })}
+              />
+              {t('settings.appUpdateAutoDownload')}
+            </label>
+          </div>
+        </section>
+
         <section id="settings-about" className="card scroll-mt-6 text-[13px] text-[var(--muted)]">
           <div className="settings-head">
             <h2 className="text-[14px] font-semibold text-[var(--text)]">{t('settings.about')}</h2>
           </div>
           <div className="settings-field space-y-1">
-            <div>{t('settings.version', { version: appInfo?.version ?? '0.2.0' })}</div>
+            <div>{t('settings.version', { version: appInfo?.version ?? '0.5.0' })}</div>
             <div className="text-[12px]">{t('app.tagline')}</div>
             <div>
               <a

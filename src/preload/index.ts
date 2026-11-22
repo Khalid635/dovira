@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AddOptions,
   AppInfo,
+  AppUpdateState,
   DownloadInfo,
   EngineInfo,
   ExtensionApiStatus,
@@ -60,6 +61,12 @@ export interface DoviraAPI {
   // Phase 5: browser extension pairing (Local API status + token).
   extensionStatus(): Promise<ExtensionApiStatus>
   regenerateExtensionToken(): Promise<string>
+  // Phase 6: app auto-update (electron-updater + GitHub Releases).
+  getAppUpdateState(): Promise<AppUpdateState>
+  checkAppUpdate(): Promise<AppUpdateState>
+  downloadAppUpdate(): Promise<AppUpdateState>
+  installAppUpdate(): Promise<boolean>
+  onAppUpdateState(cb: (s: AppUpdateState) => void): () => void
   onSchedulerCountdown(cb: (c: SchedulerCountdown | null) => void): () => void
   onClipboardLink(cb: (url: string) => void): () => void
   onProgress(cb: (p: ProgressEvent) => void): () => void
@@ -115,6 +122,12 @@ const api: DoviraAPI = {
   // Phase 5
   extensionStatus: () => ipcRenderer.invoke('dovira:extension:status'),
   regenerateExtensionToken: () => ipcRenderer.invoke('dovira:extension:regenerateToken'),
+  // Phase 6
+  getAppUpdateState: () => ipcRenderer.invoke('dovira:update:state'),
+  checkAppUpdate: () => ipcRenderer.invoke('dovira:update:check'),
+  downloadAppUpdate: () => ipcRenderer.invoke('dovira:update:download'),
+  installAppUpdate: () => ipcRenderer.invoke('dovira:update:install'),
+  onAppUpdateState: (cb) => subscribe<AppUpdateState>('dovira:update:state', cb),
   onSchedulerCountdown: (cb) =>
     subscribe<SchedulerCountdown | null>('dovira:scheduler:countdown', cb),
   onClipboardLink: (cb) => subscribe<string>('dovira:clipboard:link', cb),

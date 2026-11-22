@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path'
 import { get } from 'node:https'
 import type { EngineInfo } from '../types'
+import { currentPlatform, ENGINE_FILES, ensureExecutable } from '../util/paths'
 
 function runVersion(binaryPath: string, args: string[], re: RegExp): Promise<string | null> {
   return new Promise((resolve) => {
@@ -52,6 +53,33 @@ const LATEST_URLS: Record<string, string> = {
 export async function checkLatest(name: string): Promise<string | null> {
   try {
     if (name === 'ffmpeg') {
+      // Phase 6: the ffmpeg source differs per platform — Windows is
+      // gyan.dev, macOS is evermeet, Linux is BtbN.
+      const platform = currentPlatform()
+      if (platform === 'mac') {
+        const res = await fetch('https://evermeet.cx/ffmpeg/info/ffmpeg/release', {
+          signal: AbortSignal.timeout(10_000)
+        })
+        if (!res.ok) return null
+        const json = (await res.json()) as { version?: string }
+        return typeof json.version === 'string' ? json.version : null
+      }
+      if (platform === 'linux') {
+        const res = await fetch(
+          'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest',
+          {
+            headers: { 'User-Agent': 'DOVIRA-version-check/1.0' },
+            signal: AbortSignal.timeout(10_000)
+          }
+        )
+        if (!res.ok) return null
+        const json = (await res.json()) as { assets?: { name: string }[] }
+        const asset = (json.assets ?? []).find((a) =>
+          /^ffmpeg-n[0-9.]+-latest-linux64-gpl-/.test(a.name)
+        )
+        const m = asset ? asset.name.match(/^ffmpeg-n([0-9.]+)-latest-linux64-gpl-/) : null
+        return m ? m[1] : null
+      }
       const res = await fetch('https://www.gyan.dev/ffmpeg/builds/', {
         signal: AbortSignal.timeout(10_000)
       })
@@ -140,16 +168,19 @@ function sha256File(path: string): Promise<string> {
 }
 
 /**
- * Update yt-dlp in place: download latest exe → verify against the release's
- * SHA2-256SUMS → backup old → replace → smoke test. Any failure restores
- * the backup and reports { ok:false }; the old version keeps running.
+ * Update yt-dlp in place: download latest binary → verify against the
+ * release's SHA2-256SUMS → backup old → replace → smoke test. Any failure
+ * restores the backup and reports { ok:false }; the old version keeps
+ * running. Phase 6: the asset name is per-platform (yt-dlp.exe on
+ * Windows, yt-dlp_macos / yt-dlp_linux elsewhere).
  */
 export async function updateYtDlp(
   binDir: string
 ): Promise<{ ok: boolean; version?: string; error?: string }> {
-  const target = join(binDir, 'yt-dlp.exe')
+  const file = ENGINE_FILES['yt-dlp']
+  const target = join(binDir, file)
   const backup = `${target}.bak`
-  const tmpExe = join(binDir, 'yt-dlp.exe.new')
+  const tmpExe = join(binDir, `${file}.new`)
   const tmpSums = join(binDir, 'SHA2-256SUMS.new')
   try {
     const res = await fetch('https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest', {
@@ -161,7 +192,7 @@ export async function updateYtDlp(
     const tag = json.tag_name
     if (!tag) throw new Error('no release tag')
     await downloadFile(
-      `https://github.com/yt-dlp/yt-dlp/releases/download/${tag}/yt-dlp.exe`,
+      `https://github.com/yt-dlp/yt-dlp/releases/download/${tag}/${file}`,
       tmpExe
     )
     await downloadFile(
@@ -169,8 +200,8 @@ export async function updateYtDlp(
       tmpSums
     )
     const sums = readFileSync(tmpSums, 'utf-8')
-    const line = sums.split(/\r?\n/).find((l) => l.trim().endsWith('yt-dlp.exe'))
-    if (!line) throw new Error('yt-dlp.exe missing from SHA2-256SUMS')
+    const line = sums.split(/\r?\n/).find((l) => l.trim().endsWith(file))
+    if (!line) throw new Error(`${file} missing from SHA2-256SUMS`)
     const expected = line.split(/\s+/)[0]
     const actual = await sha256File(tmpExe)
     if (expected.toLowerCase() !== actual.toLowerCase()) {
@@ -179,6 +210,8 @@ export async function updateYtDlp(
     if (existsSync(target)) renameSync(target, backup)
     try {
       renameSync(tmpExe, target)
+      // macOS/Linux need the executable bit on the new binary.
+      ensureExecutable(target)
       const version = await getYtDlpVersion(target)
       if (!version) throw new Error('smoke test failed: --version printed nothing')
       rmSync(tmpSums, { force: true })
