@@ -33,9 +33,9 @@ export function getYtDlpVersion(binaryPath: string): Promise<string | null> {
   return runVersion(binaryPath, ['--version'], /([0-9]{4}\.[0-9]{2}\.[0-9]{2})/)
 }
 
-/** `ffmpeg version 9.0.2 ...` → "9.0.2". */
+/** `ffmpeg version 9.0.2 ...` → "9.0.2". BtbN prints `n9.0.2-...` — allow the 'n' prefix. */
 export function getFfmpegVersion(binaryPath: string): Promise<string | null> {
-  return runVersion(binaryPath, ['-version'], /ffmpeg version ([0-9.]+)/)
+  return runVersion(binaryPath, ['-version'], /ffmpeg version n?([0-9.]+)/)
 }
 
 /** `deno 2.9.8 ...` → "2.9.8". */

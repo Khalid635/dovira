@@ -5,15 +5,25 @@
  *   npm run fetch-binaries -- --platform mac
  *   npm run fetch-binaries -- --platform linux
  *
- * Plain Node (no build step — Vite 8 ships no esbuild, so this file is .cjs).
+ * Plain Node (no build step - Vite 8 ships no esbuild, so this file is .cjs).
  * Windows uses PowerShell Expand-Archive for .zip files; macOS/Linux use
  * `unzip` (zip) and `tar -xJf` (tar.xz), then chmod +x the binaries.
  *
+ * Extraction is layout-tolerant: each archive is extracted into a temp
+ * dir and the wanted files are found by RECURSIVE search (the documented
+ * zipSubdir/binSubdir is only a hint). Upstream archives change their top
+ * folder from time to time - the old code hardcoded one layout and died
+ * on exactly that (CI run 44979642131). When a file is not found, the
+ * error lists the whole extracted tree so the cause is visible in CI.
+ *
+ * Downloads have a 120s stall timeout - a stalled connection used to hang
+ * the script forever (gyan.dev stalled at 2.4 MB on the laptop, 2026-11-22).
+ *
  * Verification per binary:
  * - aria2 (Windows only): no checksum file is published for the Windows
- *   zip — the zip must extract cleanly AND `aria2c --version` must print
+ *   zip - the zip must extract cleanly AND `aria2c --version` must print
  *   the pinned version. macOS/Linux have NO prebuilt aria2 binary at all
- *   (aria2 1.37.0 publishes win zips + source only) — build it from
+ *   (aria2 1.37.0 publishes win zips + source only) - build it from
  *   source with `bash scripts/build-aria2.sh <mac|linux>`; the app falls
  *   back to yt-dlp for plain files when aria2 is absent.
  * - yt-dlp: the release's SHA2-256SUMS file is downloaded and the
@@ -21,14 +31,19 @@
  * - ffmpeg: `ffmpeg -version` (single dash) must print the pinned
  *   version. The build's LICENSE is detected from the configuration line:
  *   gyan.dev 9.0.2 essentials (Windows), evermeet 9.1 (macOS) and BtbN
- *   n9.0 (Linux) are all GPL builds (--enable-gpl, libx264/libx265) —
+ *   n9.0 (Linux) are all GPL builds (--enable-gpl, libx264/libx265) -
  *   see THIRD_PARTY_NOTICES.md. GPL is acceptable for a bundled binary
  *   with a source notice; it does not change DOVIRA's own MIT license.
  *   Neither evermeet nor BtbN publishes a checksum file for these
  *   assets, so the version check + GPL detection is the verification.
+ *   evermeet ships ffmpeg and ffprobe as SEPARATE single-binary zips
+ *   (ffmpeg-9.1.zip has no ffprobe inside - CI run 44979642131 failed
+ *   on exactly that), so macOS fetches ffprobe as its own entry.
+ *   BtbN prints `ffmpeg version n9.0.2-...` (an 'n' prefix + rolling
+ *   build suffix), so the Linux version check allows that prefix.
  * - deno: the release's .sha256sum file is downloaded and compared.
  *   Deno ships PowerShell Get-FileHash output on Windows and GNU/BSD
- *   sums elsewhere — all three styles are parsed.
+ *   sums elsewhere - all three styles are parsed.
  * Any failure exits non-zero; nothing is left half-installed.
  */
 const {
@@ -39,15 +54,17 @@ const {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
-  renameSync
+  renameSync,
+  statSync
 } = {
   ...require('node:crypto'),
   ...require('node:fs')
 }
 const { get } = require('node:https')
 const { execFile } = require('node:child_process')
-const { join } = require('node:path')
+const { join, relative } = require('node:path')
 
 const ROOT = join(__dirname, '..')
 
@@ -66,6 +83,9 @@ if (!['win', 'mac', 'linux'].includes(PLATFORM)) {
   process.exit(1)
 }
 const BIN_DIR = join(ROOT, 'resources', 'bin', PLATFORM)
+
+// A download that makes no progress for this long is dead, not slow.
+const DOWNLOAD_TIMEOUT_MS = 120_000
 
 const BINARIES_BY_PLATFORM = {
   win: [
@@ -99,7 +119,7 @@ const BINARIES_BY_PLATFORM = {
       zipSubdir: 'ffmpeg-9.0.2-essentials_build',
       binSubdir: 'bin',
       versionArgs: ['-version'],
-      versionCheck: /ffmpeg version 9\.0\.2/
+      versionCheck: /ffmpeg version n?9\.0\.2/
     },
     {
       name: 'deno',
@@ -130,14 +150,25 @@ const BINARIES_BY_PLATFORM = {
       name: 'ffmpeg',
       version: '9.1',
       kind: 'zip',
-      // evermeet publishes no checksum file (only GPG .sig files) — the
+      // evermeet publishes no checksum file (only GPG .sig files) - the
       // version check + GPL detection below is the verification. Intel
       // x86_64 only; Apple Silicon runs it through Rosetta 2.
+      // evermeet's ffmpeg zip holds ONLY ffmpeg - ffprobe is a separate
+      // zip (see the ffprobe entry below).
       url: 'https://evermeet.cx/ffmpeg/ffmpeg-9.1.zip',
       file: 'ffmpeg',
-      extraFiles: ['ffprobe'],
       versionArgs: ['-version'],
-      versionCheck: /ffmpeg version 9\.1/
+      versionCheck: /ffmpeg version n?9\.1/
+    },
+    {
+      name: 'ffprobe',
+      version: '9.1',
+      kind: 'zip',
+      // Separate evermeet zip - ffmpeg-9.1.zip contains no ffprobe.
+      url: 'https://evermeet.cx/ffmpeg/ffprobe-9.1.zip',
+      file: 'ffprobe',
+      versionArgs: ['-version'],
+      versionCheck: /ffprobe version n?9\.1/
     },
     {
       name: 'deno',
@@ -167,16 +198,18 @@ const BINARIES_BY_PLATFORM = {
       name: 'ffmpeg',
       version: '9.0',
       kind: 'tarxz',
-      // BtbN publishes no checksum file for these assets — the version
+      // BtbN publishes no checksum file for these assets - the version
       // check + GPL detection below is the verification. The 'latest'
       // tag is rolling; the versioned asset name pins the 9.0 build.
+      // BtbN prints `ffmpeg version n9.0.2-...` - the check allows the
+      // 'n' prefix and any patch suffix.
       url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz',
       file: 'ffmpeg',
       extraFiles: ['ffprobe'],
       zipSubdir: 'ffmpeg-n9.0-latest-linux64-gpl-9.0',
       binSubdir: 'bin',
       versionArgs: ['-version'],
-      versionCheck: /ffmpeg version 9\.0/
+      versionCheck: /ffmpeg version n?9\.0/
     },
     {
       name: 'deno',
@@ -194,7 +227,7 @@ const BINARIES_BY_PLATFORM = {
 
 function download(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
-    get(url, { headers: { 'User-Agent': 'DOVIRA-fetch-binaries/1.0' } }, (res) => {
+    const req = get(url, { headers: { 'User-Agent': 'DOVIRA-fetch-binaries/1.0' } }, (res) => {
       const status = res.statusCode ?? 0
       if (status >= 300 && status < 400 && res.headers.location) {
         if (redirects >= 5) return reject(new Error('Too many redirects'))
@@ -212,7 +245,12 @@ function download(url, dest, redirects = 0) {
         resolve()
       })
       out.on('error', reject)
-    }).on('error', reject)
+    })
+    // A stalled connection must fail instead of hanging forever.
+    req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+      req.destroy(new Error(`Download timed out after ${DOWNLOAD_TIMEOUT_MS / 1000}s: ${url}`))
+    })
+    req.on('error', reject)
   })
 }
 
@@ -235,13 +273,13 @@ function sha256File(path) {
   })
 }
 
-/** Best-effort chmod 755 (macOS/Linux only — Windows has no exec bit). */
+/** Best-effort chmod 755 (macOS/Linux only - Windows has no exec bit). */
 function makeExecutable(path) {
   if (PLATFORM === 'win') return
   try {
     chmodSync(path, 0o755)
   } catch {
-    // A read-only dir must not fail the install — the app re-tries at startup.
+    // A read-only dir must not fail the install - the app re-tries at startup.
   }
 }
 
@@ -283,22 +321,74 @@ async function verifyChecksum(spec, downloadedPath) {
   }
 }
 
-async function finishArchive(spec, archivePath) {
-  const base = spec.zipSubdir
-    ? join(BIN_DIR, spec.zipSubdir, spec.binSubdir ?? '')
-    : BIN_DIR
+/** Recursively find `filename` under `dir`. Returns the full path or null. */
+function findInTree(dir, filename) {
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  for (const e of entries) {
+    if (e.isFile() && e.name === filename) return join(dir, e.name)
+  }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      const found = findInTree(join(dir, e.name), filename)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/** Relative paths of everything under `dir` (capped) - for error messages. */
+function listTree(dir, max = 40) {
+  const out = []
+  const walk = (d) => {
+    if (out.length >= max) return
+    let entries
+    try {
+      entries = readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (out.length >= max) return
+      const p = join(d, e.name)
+      out.push(relative(dir, p) + (e.isDirectory() ? '/' : ''))
+      if (e.isDirectory()) walk(p)
+    }
+  }
+  walk(dir)
+  return out
+}
+
+/**
+ * Move the wanted files out of the extracted tree into BIN_DIR, then
+ * verify the main binary runs and prints the pinned version.
+ * `extractDir` is the temp dir the archive was extracted into; it is
+ * removed afterwards. The wanted files are found by recursive search -
+ * the documented zipSubdir/binSubdir is only a hint, never a hard path.
+ */
+async function finishArchive(spec, archivePath, extractDir) {
   const files = [spec.file, ...(spec.extraFiles ?? [])]
   for (const f of files) {
-    const extracted = join(base, f)
-    if (!existsSync(extracted)) {
-      throw new Error(`Expected ${extracted} after extraction — layout changed upstream?`)
+    const hinted = spec.zipSubdir
+      ? join(extractDir, spec.zipSubdir, spec.binSubdir ?? '', f)
+      : join(extractDir, f)
+    const found = existsSync(hinted) ? hinted : findInTree(extractDir, f)
+    if (!found) {
+      const tree = listTree(extractDir).join('\n  ')
+      throw new Error(
+        `${spec.name}: ${f} not found after extraction. Extracted tree:\n  ${tree || '(empty)'}`
+      )
     }
     const target = join(BIN_DIR, f)
-    if (extracted !== target) renameSync(extracted, target)
+    if (found !== target) renameSync(found, target)
     makeExecutable(target)
   }
   rmSync(archivePath, { force: true })
-  if (spec.zipSubdir) rmSync(join(BIN_DIR, spec.zipSubdir), { recursive: true, force: true })
+  rmSync(extractDir, { recursive: true, force: true })
   const { stdout } = await execAsync(join(BIN_DIR, spec.file), spec.versionArgs ?? ['--version'])
   if (!spec.versionCheck.test(stdout)) {
     throw new Error(`${spec.name} version check failed after install:\n${stdout}`)
@@ -315,26 +405,34 @@ async function installZip(spec) {
   const zipPath = join(BIN_DIR, `${spec.name}-${spec.version}.zip`)
   console.log(`Downloading ${spec.name} ${spec.version}...`)
   await download(spec.url, zipPath)
+  if (statSync(zipPath).size === 0) throw new Error(`${spec.name}: downloaded file is empty`)
   if (spec.checksumUrl) await verifyChecksum(spec, zipPath)
+  const extractDir = join(BIN_DIR, `.extract-${spec.name}`)
+  rmSync(extractDir, { recursive: true, force: true })
+  mkdirSync(extractDir, { recursive: true })
   if (PLATFORM === 'win') {
     await execAsync('powershell', [
       '-NoProfile',
       '-Command',
-      `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${BIN_DIR}' -Force`
+      `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${extractDir}' -Force`
     ])
   } else {
-    await execAsync('unzip', ['-o', zipPath, '-d', BIN_DIR])
+    await execAsync('unzip', ['-o', zipPath, '-d', extractDir])
   }
-  await finishArchive(spec, zipPath)
+  await finishArchive(spec, zipPath, extractDir)
 }
 
 async function installTarXz(spec) {
   const tarPath = join(BIN_DIR, `${spec.name}-${spec.version}.tar.xz`)
   console.log(`Downloading ${spec.name} ${spec.version}...`)
   await download(spec.url, tarPath)
+  if (statSync(tarPath).size === 0) throw new Error(`${spec.name}: downloaded file is empty`)
   if (spec.checksumUrl) await verifyChecksum(spec, tarPath)
-  await execAsync('tar', ['-xJf', tarPath, '-C', BIN_DIR])
-  await finishArchive(spec, tarPath)
+  const extractDir = join(BIN_DIR, `.extract-${spec.name}`)
+  rmSync(extractDir, { recursive: true, force: true })
+  mkdirSync(extractDir, { recursive: true })
+  await execAsync('tar', ['-xJf', tarPath, '-C', extractDir])
+  await finishArchive(spec, tarPath, extractDir)
 }
 
 async function installExe(spec) {
@@ -342,6 +440,7 @@ async function installExe(spec) {
   const tmpPath = join(BIN_DIR, `${spec.file}.new`)
   console.log(`Downloading ${spec.name} ${spec.version}...`)
   await download(spec.url, tmpPath)
+  if (statSync(tmpPath).size === 0) throw new Error(`${spec.name}: downloaded file is empty`)
   if (spec.checksumUrl) await verifyChecksum(spec, tmpPath)
   renameSync(tmpPath, target)
   makeExecutable(target)
@@ -359,18 +458,18 @@ async function main() {
     if (existsSync(target)) {
       try {
         makeExecutable(target)
-        const args = spec.name === 'ffmpeg' ? ['-version'] : ['--version']
+        const args = spec.name === 'ffmpeg' || spec.name === 'ffprobe' ? ['-version'] : ['--version']
         const { stdout } = await execAsync(target, args)
         if (spec.versionCheck.test(stdout)) {
           // ffmpeg also needs ffprobe next to it.
           const extraOk = (spec.extraFiles ?? []).every((f) => existsSync(join(BIN_DIR, f)))
           if (extraOk) {
-            console.log(`${spec.name} ${spec.version} already present — skipping.`)
+            console.log(`${spec.name} ${spec.version} already present - skipping.`)
             continue
           }
         }
       } catch {
-        // Present but broken — re-download below.
+        // Present but broken - re-download below.
       }
     }
     if (spec.kind === 'zip') await installZip(spec)
@@ -382,7 +481,7 @@ async function main() {
       'Note: aria2 is not fetched on macOS/Linux (no prebuilt binary exists). ' +
         'Build it with: bash scripts/build-aria2.sh ' +
         PLATFORM +
-        ' — without it, plain files download through yt-dlp and torrents are unavailable.'
+        ' - without it, plain files download through yt-dlp and torrents are unavailable.'
     )
   }
   console.log('All binaries ready.')
