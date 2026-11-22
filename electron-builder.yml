@@ -5,10 +5,17 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!extension/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+# Phase 5: the built extension ships as real files (not inside the asar),
+# so users can load it unpacked straight from the install folder:
+# <install dir>\resources\extension
+extraResources:
+  - from: extension/dist
+    to: extension
 asarUnpack:
   - resources/**
 win:

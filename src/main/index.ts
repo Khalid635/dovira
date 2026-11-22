@@ -13,6 +13,7 @@ import { SchedulerManager } from './scheduler'
 import { TrayManager } from './tray'
 import { ClipboardWatcher } from './clipboard'
 import { registerIpc } from './ipc'
+import { LocalApiServer } from './localApi'
 import { findBinary } from './util/paths'
 import { initLogger, logMain } from './logger'
 
@@ -25,6 +26,8 @@ let aria2: Aria2Manager | null = null
 let scheduler: SchedulerManager | null = null
 let tray: TrayManager | null = null
 let clipboardWatcher: ClipboardWatcher | null = null
+/** Phase 5: Local API for the browser extension (127.0.0.1 + token). */
+let localApi: LocalApiServer | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
 
@@ -276,6 +279,12 @@ app.whenReady().then(() => {
   )
   if (settings.get().clipboardWatch) clipboardWatcher.start()
 
+  // Phase 5: Local API for the browser extension — 127.0.0.1 only,
+  // Bearer token required on every request. Start is best-effort: a
+  // bind failure is logged and the app runs on without it.
+  localApi = new LocalApiServer(settings, queue, userData)
+  void localApi.start()
+
   applyRuntimeSettings(settings.get())
 
   registerIpc({
@@ -289,6 +298,7 @@ app.whenReady().then(() => {
     binDir,
     getMainWindow: () => mainWindow,
     scheduler,
+    localApi,
     onSettingsChanged: (s) => applyRuntimeSettings(s)
   })
 
@@ -326,6 +336,11 @@ app.on('before-quit', () => {
   }
   try {
     tray?.destroy()
+  } catch {
+    // Never block quitting on cleanup.
+  }
+  try {
+    localApi?.stop()
   } catch {
     // Never block quitting on cleanup.
   }

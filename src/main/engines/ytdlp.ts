@@ -76,6 +76,23 @@ export interface YtDlpDownloadOpts {
   thumbnailOnly?: boolean
   /** Phase 4: skip via --download-archive when already downloaded. */
   useArchive?: boolean
+  /** Phase 5: per-link network overrides from the browser extension. */
+  cookiesFile?: string | null
+  userAgent?: string | null
+  referer?: string | null
+}
+
+/**
+ * Phase 5: per-call network overrides (from the browser extension's
+ * Local API request). When present they replace the Settings values for
+ * this one call — a per-link cookies file beats --cookies-from-browser,
+ * and the extension's User-Agent/Referer are used instead of yt-dlp's
+ * defaults. Never logged.
+ */
+export interface NetOverride {
+  cookiesFile?: string | null
+  userAgent?: string | null
+  referer?: string | null
 }
 
 export interface YtDlpDownloadCallbacks {
@@ -391,14 +408,18 @@ export class YtDlpManager {
   /**
    * Phase 4: cookies + proxy only, reused everywhere. Split out of
    * baseArgs because the playlist fetch must NOT get --no-playlist.
+   * Phase 5: an override (browser extension, per link) replaces the
+   * Settings cookies for this one call.
    */
-  private networkArgs(): string[] {
+  private networkArgs(override?: NetOverride): string[] {
     // Phase 3: cookies + proxy, wired into every yt-dlp call. A cookies.txt
     // file is used only when no browser is selected; the browser flag takes
     // precedence.
     const args: string[] = []
     const net = this.getNetwork?.()
-    if (net) {
+    if (override?.cookiesFile) {
+      args.push('--cookies', override.cookiesFile)
+    } else if (net) {
       if (net.cookieBrowser && net.cookieBrowser !== 'none') {
         args.push('--cookies-from-browser', net.cookieBrowser)
       } else if (net.cookiesFile) {
@@ -406,12 +427,14 @@ export class YtDlpManager {
       }
       if (net.proxyUrl) args.push('--proxy', net.proxyUrl)
     }
+    if (override?.userAgent) args.push('--user-agent', override.userAgent)
+    if (override?.referer) args.push('--referer', override.referer)
     return args
   }
 
-  private baseArgs(): string[] {
+  private baseArgs(override?: NetOverride): string[] {
     const args: string[] = [
-      ...this.networkArgs(),
+      ...this.networkArgs(override),
       '--no-warnings',
       '--no-playlist',
       '--ffmpeg-location',
@@ -422,7 +445,7 @@ export class YtDlpManager {
   }
 
   /** Fetch title/thumbnail/duration/formats for a URL (60s timeout). */
-  async fetchInfo(url: string): Promise<YtDlpInfo> {
+  async fetchInfo(url: string, override?: NetOverride): Promise<YtDlpInfo> {
     let parsed: URL
     try {
       parsed = new URL(url.trim())
@@ -432,7 +455,7 @@ export class YtDlpManager {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new YtDlpError('unsupported-url', 'not http(s)')
     }
-    const args = [...this.baseArgs(), '--dump-single-json', '--', url.trim()]
+    const args = [...this.baseArgs(override), '--dump-single-json', '--', url.trim()]
     const out = await this.runCapture(args, 60_000)
     // A timeout gets its own code — before, runCapture folded it into
     // stderr "(timed out)" and mapYtDlpError turned it into 'network', so
@@ -578,7 +601,11 @@ export class YtDlpManager {
     if (opts.thumbnailOnly) {
       const template = opts.savePath.replace(/\.[^.]+$/, '.%(ext)s')
       return [
-        ...this.baseArgs(),
+        ...this.baseArgs({
+          cookiesFile: opts.cookiesFile,
+          userAgent: opts.userAgent,
+          referer: opts.referer
+        }),
         '--write-thumbnail',
         '--skip-download',
         '--convert-thumbnails',
@@ -589,7 +616,16 @@ export class YtDlpManager {
         opts.url
       ]
     }
-    const args = [...this.baseArgs(), '--newline', '--progress-template', PROGRESS_TEMPLATE]
+    const args = [
+      ...this.baseArgs({
+        cookiesFile: opts.cookiesFile,
+        userAgent: opts.userAgent,
+        referer: opts.referer
+      }),
+      '--newline',
+      '--progress-template',
+      PROGRESS_TEMPLATE
+    ]
     if (opts.kind === 'video') {
       args.push('-f', opts.formatString, '--merge-output-format', opts.container ?? 'mp4')
     } else {

@@ -4,6 +4,7 @@ import type {
   AppInfo,
   DownloadInfo,
   EngineInfo,
+  ExtensionApiStatus,
   PlainFileInfo,
   PlaylistInfo,
   ProgressEvent,
@@ -56,6 +57,9 @@ export interface DoviraAPI {
     saveDir?: string
   ): Promise<{ ok: boolean; id?: string; error?: string }>
   clearDownloadArchive(): Promise<boolean>
+  // Phase 5: browser extension pairing (Local API status + token).
+  extensionStatus(): Promise<ExtensionApiStatus>
+  regenerateExtensionToken(): Promise<string>
   onSchedulerCountdown(cb: (c: SchedulerCountdown | null) => void): () => void
   onClipboardLink(cb: (url: string) => void): () => void
   onProgress(cb: (p: ProgressEvent) => void): () => void
@@ -108,6 +112,9 @@ const api: DoviraAPI = {
   addThumbnailOnly: (url: string, saveDir?: string) =>
     ipcRenderer.invoke('dovira:downloads:addThumbnailOnly', url, saveDir),
   clearDownloadArchive: () => ipcRenderer.invoke('dovira:settings:clearArchive'),
+  // Phase 5
+  extensionStatus: () => ipcRenderer.invoke('dovira:extension:status'),
+  regenerateExtensionToken: () => ipcRenderer.invoke('dovira:extension:regenerateToken'),
   onSchedulerCountdown: (cb) =>
     subscribe<SchedulerCountdown | null>('dovira:scheduler:countdown', cb),
   onClipboardLink: (cb) => subscribe<string>('dovira:clipboard:link', cb),

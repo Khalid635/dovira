@@ -1,0 +1,43 @@
+{
+  "action": {
+    "default_icon": "icons/icon.png",
+    "default_popup": "popup.html",
+    "default_title": "DOVIRA"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "description": "Send links and videos to the DOVIRA desktop app. The app must be running on this PC.",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "128": "icons/icon.png",
+    "16": "icons/icon.png",
+    "48": "icons/icon.png"
+  },
+  "manifest_version": 3,
+  "name": "DOVIRA \u2014 Download with DOVIRA",
+  "options_page": "options.html",
+  "permissions": [
+    "contextMenus",
+    "cookies",
+    "downloads",
+    "notifications",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "version": "0.4.0"
+}

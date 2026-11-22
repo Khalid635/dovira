@@ -84,6 +84,8 @@ export interface Settings {
   playlistSkipDownloaded: boolean
   /** Phase 4: embed title/artist metadata by default (video + audio). */
   embedMetadataDefault: boolean
+  /** Phase 5: the Local API token the browser extension pairs with. Empty = not generated yet. */
+  extensionToken: string
 }
 
 /** Phase 3: the scheduler's current state, shown in Settings. */
@@ -210,6 +212,10 @@ export interface AddOptions {
   thumbnailOnly?: boolean
   /** Phase 4: skip via --download-archive when the video was downloaded before. */
   useArchive?: boolean
+  /** Phase 5: per-link network overrides from the browser extension. */
+  extCookiesFile?: string | null
+  userAgent?: string | null
+  referer?: string | null
 }
 
 export interface EngineInfo {
@@ -218,4 +224,13 @@ export interface EngineInfo {
   latest: string | null
   updateAvailable: boolean
   path: string | null
+}
+
+/** Phase 5: Local API status, shown in Settings > Browser & Cookies. */
+export interface ExtensionApiStatus {
+  running: boolean
+  /** The port the Local API listens on (null when not running). */
+  port: number | null
+  /** The pairing token (shown so the user can copy it into the extension). */
+  token: string
 }

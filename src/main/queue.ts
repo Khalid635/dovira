@@ -157,6 +157,11 @@ interface YtDlpState {
   thumbnailOnly?: boolean
   /** Phase 4: skip via --download-archive. */
   useArchive?: boolean
+  /** Phase 5: per-link extension cookies file (userData/ext-cookies/<id>.txt). */
+  extCookiesFile?: string | null
+  /** Phase 5: per-link User-Agent / Referer from the browser extension. */
+  userAgent?: string | null
+  referer?: string | null
 }
 
 function parseYtDlpState(raw: string | null): YtDlpState | null {
@@ -184,6 +189,15 @@ export class QueueManager extends EventEmitter {
   private aria2Restarts = 0
   private shutDown = false
   private ytDlpArgs = new Map<string, string[]>()
+  /**
+   * Phase 5: per-link request headers (User-Agent / Referer / Cookie) the
+   * browser extension sent for a plain-file (aria2) download. aria2 only
+   * needs them at addUri time; a resume after an app restart re-sends
+   * without them — login-walled plain files may then fail, which is a
+   * documented v0.4 limitation. yt-dlp downloads persist theirs in
+   * YtDlpState instead, so they survive restarts.
+   */
+  private extHeaders = new Map<string, string[]>()
 
   constructor(
     private db: DoviraDb,
@@ -235,7 +249,14 @@ export class QueueManager extends EventEmitter {
    * video site or anything else → yt-dlp info; on yt-dlp failure, a HEAD
    * request decides whether it is a plain file after all (§2).
    */
-  async fetchInfo(url: string): Promise<{
+  async fetchInfo(
+    url: string,
+    netOverride?: {
+      cookiesFile?: string | null
+      userAgent?: string | null
+      referer?: string | null
+    }
+  ): Promise<{
     ok: boolean
     info?: VideoInfo
     plainFile?: PlainFileInfo
@@ -286,7 +307,7 @@ export class QueueManager extends EventEmitter {
     }
     if (this.ytdlp) {
       try {
-        const info = await this.ytdlp.fetchInfo(url.trim())
+        const info = await this.ytdlp.fetchInfo(url.trim(), netOverride)
         return { ok: true, info }
       } catch (err) {
         const code = err instanceof YtDlpError ? err.code : 'unknown'
@@ -471,7 +492,10 @@ export class QueueManager extends EventEmitter {
       subMode: opts.subMode ?? 'embed',
       autoSubs: opts.autoSubs ?? false,
       thumbnailOnly: opts.thumbnailOnly ?? false,
-      useArchive: opts.useArchive ?? false
+      useArchive: opts.useArchive ?? false,
+      extCookiesFile: opts.extCookiesFile ?? null,
+      userAgent: opts.userAgent ?? null,
+      referer: opts.referer ?? null
     }
     const info: DownloadInfo = {
       id,
@@ -767,6 +791,27 @@ export class QueueManager extends EventEmitter {
     return true
   }
 
+  /**
+   * Phase 5: delete a per-link extension cookies file (tiny text file
+   * under userData/ext-cookies). Best-effort — a completed/removed
+   * download never needs it again, and a stale temp file is harmless.
+   */
+  private deleteExtCookiesFile(d: DownloadInfo): void {
+    const file = parseYtDlpState(d.ytdlpState)?.extCookiesFile
+    if (!file) return
+    this.deleteExtCookiesFilePath(file)
+  }
+
+  /** Delete an extension cookies file by path (null = nothing to do). */
+  private deleteExtCookiesFilePath(file: string | null): void {
+    if (!file) return
+    try {
+      if (existsSync(file)) unlinkSync(file)
+    } catch {
+      // Stale temp file — harmless.
+    }
+  }
+
   async remove(id: string, deleteFile: boolean): Promise<boolean> {
     const d = this.downloads.get(id)
     if (!d) return false
@@ -793,6 +838,8 @@ export class QueueManager extends EventEmitter {
         // File may be locked — the record is still removed.
       }
     }
+    this.deleteExtCookiesFile(d)
+    this.extHeaders.delete(id)
     this.downloads.delete(id)
     this.db.deleteDownload(id)
     void this.pump()
@@ -944,6 +991,9 @@ export class QueueManager extends EventEmitter {
     const count = this.db.clearHistory()
     for (const [id, d] of [...this.downloads.entries()]) {
       if (['completed', 'failed', 'cancelled'].includes(d.status)) {
+        // Phase 5: finished rows may still hold an extension cookies file.
+        this.deleteExtCookiesFile(d)
+        this.extHeaders.delete(id)
         this.downloads.delete(id)
         this.retryCount.delete(id)
         this.ytDlpArgs.delete(id)
@@ -1012,7 +1062,7 @@ export class QueueManager extends EventEmitter {
         return
       }
     }
-    const opts: Record<string, string> = {
+    const opts: Record<string, string | string[]> = {
       dir: dirname(d.savePath),
       'max-connection-per-server': String(s.connectionsPerDownload),
       split: String(s.connectionsPerDownload),
@@ -1026,6 +1076,10 @@ export class QueueManager extends EventEmitter {
     if (!isTorrentUrl(d.url)) opts['out'] = basename(d.savePath)
     // Phase 3: proxy applies to aria2 too (yt-dlp gets it via baseArgs).
     if (s.proxyUrl) opts['all-proxy'] = s.proxyUrl
+    // Phase 5: per-link headers the browser extension sent (User-Agent /
+    // Referer / Cookie). aria2's `header` option takes a list of strings.
+    const ext = this.extHeaders.get(d.id)
+    if (ext && ext.length > 0) opts['header'] = ext
     try {
       const gid = await this.aria2.addUri(d.url, opts)
       d.status = 'downloading'
@@ -1065,8 +1119,116 @@ export class QueueManager extends EventEmitter {
       subMode: state?.subMode ?? 'embed',
       autoSubs: state?.autoSubs ?? false,
       thumbnailOnly: state?.thumbnailOnly ?? false,
-      useArchive: state?.useArchive ?? false
+      useArchive: state?.useArchive ?? false,
+      cookiesFile: state?.extCookiesFile ?? null,
+      userAgent: state?.userAgent ?? null,
+      referer: state?.referer ?? null
     }
+  }
+
+  /**
+   * Phase 5: add a download sent by the browser extension's Local API.
+   * The extension sends one URL with no quality choice — the app picks
+   * the Settings defaults, exactly like the dialog's batch path:
+   * torrents/plain files → aria2 (with the extension's headers when
+   * given); videos → yt-dlp at the default quality, audio-only URLs as
+   * 320kbps MP3. A playlist URL is refused with 'playlist' — picking
+   * entries needs the app's Add dialog, and silently queueing a whole
+   * playlist from one click would be a surprise.
+   */
+  async addFromExtension(
+    url: string,
+    opts: {
+      kind?: 'video' | 'audio' | 'auto'
+      quality?: string
+      cookiesFile?: string | null
+      userAgent?: string | null
+      referer?: string | null
+      headers?: string[]
+    } = {}
+  ): Promise<{ ok: boolean; id?: string; error?: string }> {
+    const trimmed = url.trim()
+    let parsed: URL
+    try {
+      parsed = new URL(trimmed)
+    } catch {
+      return { ok: false, error: 'invalid-url' }
+    }
+    if (
+      parsed.protocol !== 'http:' &&
+      parsed.protocol !== 'https:' &&
+      parsed.protocol !== 'magnet:'
+    ) {
+      return { ok: false, error: 'unsupported-url' }
+    }
+    const netOverride = {
+      cookiesFile: opts.cookiesFile ?? null,
+      userAgent: opts.userAgent ?? null,
+      referer: opts.referer ?? null
+    }
+    const res = await this.fetchInfo(trimmed, netOverride)
+    if (!res.ok) return { ok: false, error: res.error ?? 'unknown' }
+    if (res.torrent) {
+      // Torrents never use the per-link cookies file — drop it so it
+      // does not linger (the Local API only unlinks on failure).
+      this.deleteExtCookiesFilePath(opts.cookiesFile ?? null)
+      return this.add(trimmed)
+    }
+    if (res.plainFile) {
+      const added = await this.add(trimmed)
+      if (added.ok && added.id && opts.headers && opts.headers.length > 0) {
+        this.extHeaders.set(added.id, opts.headers)
+      }
+      // Plain files get cookies as a request header, not a file.
+      this.deleteExtCookiesFilePath(opts.cookiesFile ?? null)
+      return added
+    }
+    if (res.playlist) {
+      return { ok: false, error: 'playlist' }
+    }
+    if (!res.info) return { ok: false, error: 'unknown' }
+    const s = this.settings.get()
+    const info = res.info
+    const hasVideo = info.formats.some((f) => f.height !== null)
+    const kind: 'video' | 'audio' =
+      opts.kind === 'video' || opts.kind === 'audio' ? opts.kind : hasVideo ? 'video' : 'audio'
+    const container = s.videoContainer
+    const name =
+      kind === 'video'
+        ? `${sanitizeFilename(info.title)}.${container}`
+        : `${sanitizeFilename(info.title)}.mp3`
+    const height =
+      opts.quality && /^\d{3,4}$/.test(opts.quality) ? opts.quality : s.defaultVideoQuality
+    const bitrate =
+      opts.quality && ['320', '192', '128'].includes(opts.quality)
+        ? opts.quality
+        : s.defaultAudioBitrate
+    const savePath = `${s.downloadDir}\\${name}`
+    return this.addWithOptions({
+      url: trimmed,
+      kind,
+      formatId: kind === 'video' ? `${height}p` : `mp3-${bitrate}`,
+      formatString:
+        kind === 'video' ? `bv*[height<=${height}]+ba/b[height<=${height}]` : 'bestaudio',
+      qualityLabel: kind === 'video' ? `${height}p` : `${bitrate} kbps`,
+      subtitles: false,
+      subLang: s.subtitleLang,
+      embedThumbnail: false,
+      embedMetadata: s.embedMetadataDefault,
+      clipStart: null,
+      clipEnd: null,
+      subMode: 'embed',
+      autoSubs: false,
+      thumbnailOnly: false,
+      useArchive: false,
+      extCookiesFile: opts.cookiesFile ?? null,
+      userAgent: opts.userAgent ?? null,
+      referer: opts.referer ?? null,
+      savePath,
+      filename: name,
+      title: info.title,
+      thumbnailUrl: info.thumbnail
+    })
   }
 
   private async startYtDlp(d: DownloadInfo): Promise<void> {
@@ -1332,6 +1494,9 @@ export class QueueManager extends EventEmitter {
     d.speedBps = 0
     d.etaSeconds = null
     d.completedAt = Date.now()
+    // Phase 5: the per-link extension cookies file is no longer needed —
+    // a completed download never re-runs (re-download builds fresh opts).
+    this.deleteExtCookiesFile(d)
     this.db.updateDownload(id, {
       status: 'completed',
       totalBytes: d.totalBytes,

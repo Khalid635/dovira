@@ -15,9 +15,10 @@ import {
   type EngineSpec
 } from './engines/versions'
 import { diskFreeBytes } from './util/paths'
-import type { AddOptions, Settings } from './types'
+import type { AddOptions, ExtensionApiStatus, Settings } from './types'
 import { logMain } from './logger'
 import type { SchedulerManager } from './scheduler'
+import type { LocalApiServer } from './localApi'
 
 export interface IpcDeps {
   queue: QueueManager
@@ -31,6 +32,8 @@ export interface IpcDeps {
   getMainWindow: () => BrowserWindow | null
   /** Phase 3: scheduler status + countdown cancel. */
   scheduler: SchedulerManager
+  /** Phase 5: Local API (token + status for Settings > Browser & Cookies). */
+  localApi: LocalApiServer
   /** Phase 3: called after every settings:set — applies launch-at-startup, clipboard watch, etc. */
   onSettingsChanged: (s: Settings) => void
 }
@@ -201,6 +204,11 @@ export function registerIpc(deps: IpcDeps): void {
     deps.scheduler.cancelCountdown()
     return true
   })
+  // Phase 5: browser extension pairing — status (running/port/token)
+  // and token regeneration. The token is shown in Settings so the user
+  // can copy it into the extension's options page.
+  ipcMain.handle('dovira:extension:status', (): ExtensionApiStatus => deps.localApi.getStatus())
+  ipcMain.handle('dovira:extension:regenerateToken', (): string => deps.localApi.regenerateToken())
   // The four --version spawns used to run sequentially, so startup init()
   // waited the SUM of four cold process spawns (several seconds under
   // Defender) and Home sat on its loading state. They are independent —

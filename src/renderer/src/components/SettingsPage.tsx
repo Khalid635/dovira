@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
-import type { SchedulerStatus, Settings } from '../../../main/types'
+import type { ExtensionApiStatus, SchedulerStatus, Settings } from '../../../main/types'
 import { IconCheck } from './icons'
 
 const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
@@ -31,6 +31,10 @@ export default function SettingsPage(): React.JSX.Element {
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   // Phase 3: scheduler status (next run / last run) for the Scheduler section.
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
+  // Phase 5: browser extension pairing (Local API status + token).
+  const [extStatus, setExtStatus] = useState<ExtensionApiStatus | null>(null)
+  const [showToken, setShowToken] = useState(false)
+  const [tokenCopied, setTokenCopied] = useState(false)
 
   useEffect(() => {
     void loadEngines(false)
@@ -51,6 +55,39 @@ export default function SettingsPage(): React.JSX.Element {
       cancelled = true
     }
   }, [settings?.schedulerEnabled, settings?.schedulerTime, settings?.schedulerAction])
+
+  // Phase 5: Local API status for the Browser & Cookies section.
+  useEffect(() => {
+    if (typeof window.dovira === 'undefined') return
+    let cancelled = false
+    void window.dovira
+      .extensionStatus()
+      .then((s) => {
+        if (!cancelled) setExtStatus(s)
+      })
+      .catch(() => {
+        // Section still renders — with the "not running" message.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const copyToken = async (): Promise<void> => {
+    if (!extStatus?.token) return
+    try {
+      await navigator.clipboard.writeText(extStatus.token)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch {
+      // Clipboard unavailable — the user can still select the text.
+    }
+  }
+
+  const regenerateToken = async (): Promise<void> => {
+    const token = await window.dovira.regenerateExtensionToken()
+    setExtStatus((prev) => (prev ? { ...prev, token } : { running: false, port: null, token }))
+  }
 
   // Settings never arrived: distinguish "still loading" from "failed".
   // The bare "…" Phase 1 showed forever is gone — a failed load always
@@ -347,6 +384,45 @@ export default function SettingsPage(): React.JSX.Element {
                 )}
               </span>
             </label>
+          </div>
+          {/* Phase 5: Browser extension pairing — Local API status + token. */}
+          <div className="settings-field">
+            <span className="mb-1 block text-[13px] text-[var(--muted)]">
+              {t('settings.extensionStatus')}
+            </span>
+            <p className="text-[13px]">
+              {extStatus?.running
+                ? t('settings.extensionStatusRunning', { port: extStatus.port ?? 0 })
+                : t('settings.extensionStatusStopped')}
+            </p>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.extensionInstallHint')}
+            </p>
+          </div>
+          <div className="settings-field">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.extensionToken')}
+              </span>
+              <span className="flex gap-2">
+                <input
+                  className="input flex-1 font-mono"
+                  type={showToken ? 'text' : 'password'}
+                  value={extStatus?.token ?? ''}
+                  readOnly
+                />
+                <button className="btn" onClick={() => setShowToken(!showToken)}>
+                  {showToken ? t('settings.extensionTokenHide') : t('settings.extensionTokenShow')}
+                </button>
+                <button className="btn" onClick={() => void copyToken()}>
+                  {tokenCopied ? t('settings.extensionCopied') : t('settings.extensionTokenCopy')}
+                </button>
+                <button className="btn btn-ghost" onClick={() => void regenerateToken()}>
+                  {t('settings.extensionRegenerate')}
+                </button>
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.extensionHint')}</p>
           </div>
         </section>
 

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DOVIRA — Options</title>
+    <style>
+      body { max-width: 520px; margin: 24px auto; padding: 0 16px; font-family: system-ui, sans-serif; background: #0f1115; color: #e7e9ee; font-size: 14px; }
+      h1 { font-size: 18px; }
+      label { display: block; margin: 16px 0 4px; color: #8b93a5; font-size: 13px; }
+      input[type="text"], input[type="password"], input[type="number"] { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #2a2f3a; background: #171a21; color: #e7e9ee; font-size: 14px; }
+      .row { display: flex; gap: 8px; margin-top: 20px; }
+      button { cursor: pointer; border: 0; border-radius: 8px; background: #5b8cff; color: #fff; font-size: 13px; padding: 8px 14px; }
+      button.ghost { background: #1e222b; color: #e7e9ee; }
+      #status { margin-top: 16px; padding: 10px; border-radius: 8px; background: #171a21; }
+      #status.ok { color: #22c55e; }
+      #status.bad { color: #ef4444; }
+      p.hint { color: #8b93a5; font-size: 13px; line-height: 1.6; }
+      .check { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+      .check input { width: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>DOVIRA — Options</h1>
+    <p class="hint">
+      Pair this extension with the DOVIRA desktop app: copy the pairing token from the app
+      (Settings &gt; Browser &amp; Cookies) and paste it here. The app must be running on this PC.
+    </p>
+    <label for="token">Pairing token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="Paste the token from the app" />
+    <label for="port">Local API port</label>
+    <input id="port" type="number" min="1" max="65535" value="17530" />
+    <div class="check">
+      <input id="intercept" type="checkbox" />
+      <label for="intercept" style="margin: 0; color: #e7e9ee">
+        Send browser downloads to DOVIRA instead (intercept downloads)
+      </label>
+    </div>
+    <p class="hint">
+      When this is on, every download the browser starts is cancelled and sent to the app instead.
+      Off by default.
+    </p>
+    <div class="row">
+      <button id="save" type="button">Save</button>
+      <button id="test" type="button" class="ghost">Test connection</button>
+    </div>
+    <div id="status">Not saved yet.</div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

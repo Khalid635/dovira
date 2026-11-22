@@ -163,7 +163,7 @@ export class Aria2Manager {
     return json.result as T
   }
 
-  async addUri(url: string, options: Record<string, string>): Promise<string> {
+  async addUri(url: string, options: Record<string, string | string[]>): Promise<string> {
     return this.rpc<string>('aria2.addUri', [[url], options])
   }
 
