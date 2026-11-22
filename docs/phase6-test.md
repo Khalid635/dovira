@@ -290,3 +290,103 @@ the CI runners.
   CI runs above prove the mac/linux fetch itself (both green in run
   44984348473). No claim is made that a mac/linux binary runs on
   Windows.
+
+## 11. Attempt 3 fixes (commit 91c76c6, 2026-11-22 ~10:35-11:00)
+
+Code fixes for run 44984348473, pushed to main as **91c76c6**
+("fix: win fetch diagnostics + tar fallback, mac dylib bundling,
+linux gettext (Phase 6 attempt 3)"). The tag was NOT moved for this
+commit — the parent moves v0.5.0 after the workflow edit below.
+
+### Mac aria2-build root cause (from the mac job log, 12,625 lines)
+
+The build itself succeeded (configure + make, `CXXLD aria2c`), but
+the script's sanitized-environment gate failed with exit 3:
+`ERROR: aria2c does not run with a sanitized environment (missing
+bundled dylib?)`. Two defects in `scripts/build-aria2.sh`, either one
+alone enough to fail the gate:
+
+1. **Dylib-to-dylib references pointed at `lib/lib/`.** The bundled
+   libs live in `resources/bin/mac/lib/`; the transitive-deps loop
+   rewrote references inside them to `@loader_path/lib/<name>`, which
+   resolves correctly from the main binary (in `mac/`) but from inside
+   `lib/` resolves to `lib/lib/<name>` — nonexistent. The log proves
+   such a reference exists: the 6 bundled dylibs are libxml2.16,
+   libsqlite3, libssh2.1, libcares.2, libcrypto.4, libssl.4, and
+   libssl necessarily links libcrypto. The `otool` gate could not catch
+   it (no `/opt/homebrew/` string remains after the rewrite).
+   Fix: references inside bundled dylibs are now `@loader_path/<name>`;
+   references in the main binary stay `@loader_path/lib/<name>`.
+2. **Bundled dylibs were never re-signed.** `install_name_tool -id`
+   invalidated their Homebrew signatures (the log shows 6 warnings,
+   one per dylib: "changes being made to the file will invalidate the
+   code signature"), and arm64 dyld refuses to load a dylib whose
+   signature is invalid. Only the main binary was signed. Fix: every
+   bundled dylib is now ad-hoc signed after all `install_name_tool`
+   changes, before the binary is signed.
+
+Diagnostics added so the next failure is diagnosable from the log
+alone: a gate that rejects any `@loader_path/lib/` dependency inside
+a bundled dylib (each dylib's own LC_ID_DYLIB is `@loader_path/lib/`
+by design, so the check skips header + id lines); an `otool -L`
+dump before the gate; and the sanitized run's stdout+stderr is now
+captured and printed on failure (the old gate swallowed stderr with
+`2>/dev/null`, which is why run 44984348473 showed no dyld error).
+
+### Windows fetch diagnostics + tar fallback (`scripts/fetch-binaries.cjs`)
+
+- `installZip` now logs the downloaded zip's size + first magic bytes
+  (`aria2: downloaded 2475379 bytes, magic 504b0304`) and the
+  extracted file count right after `Expand-Archive`.
+- A non-`PK` magic fails fast (the "zip" is an error page, not an
+  archive).
+- An empty tree on Windows is retried with `tar -xf` (ships on
+  Windows Server 2025) before failing; the failure message names zip
+  size, magic bytes, and both counts, so the next diagnosis needs no
+  guessing. (If the zip is valid and both extractors yield 0 files,
+  antivirus quarantine — e.g. Defender removing aria2c.exe on write —
+  is the remaining suspect.)
+- Laptop verification: `tar -xf` on the real aria2 zip extracts all 8
+  files and `aria2c.exe --version` prints 1.37.0. Targeted re-run
+  (aria2c.exe deleted, rest present): new log lines appear,
+  aria2 1.37.0 reinstalled, yt-dlp/ffmpeg/deno skipped as present,
+  "All binaries ready."
+
+### Linux gettext — fixed in the script, NO workflow change needed
+
+`scripts/build-aria2.sh` already owns the `apt-get install` step, so
+`gettext` was added to that list (it provides `autopoint`, which
+`autoreconf -i` needs). The ubuntu runner failure
+(`Can't exec "autopoint"`, `autoreconf: error: autopoint failed with
+exit status: 2`, linux job log lines 251-252) is fixed by this commit
+alone — no workflow edit is required for Linux.
+
+### Static checks on 91c76c6
+
+- `npm run typecheck`: **0 errors**. `npm run lint`: **0 errors**
+  (7 pre-existing prettier warnings, same set as section 10 — none in
+  the changed files). `npm run build`: **passes**. `node --check` on
+  the script: **0**. `bash -n` on `build-aria2.sh`: **OK**. **0 CRLF**
+  in both changed files. Preload imports only `electron`;
+  `sandbox: true` kept.
+
+### Still open — parent's steps (NOT done here)
+
+- **Workflow edit (web UI — the PAT has no `workflow` scope):**
+  `.github/workflows/build.yml`, step "Record aria2 status" — it runs
+  before `npm run build`, so `dist/` does not exist yet and
+  `echo ... > dist/aria2-status-<platform>.txt` fails on all three
+  runners. Exact diff (one line):
+  ```diff
+       - name: Record aria2 status
+         shell: bash
+  -        run: echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
+  +        run: mkdir -p dist && echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
+  ```
+  (Moving the step after "Build installer" would also work, but
+  `mkdir -p dist` keeps the step where the publish job's artifact
+  upload expects the file.)
+- **Move tag v0.5.0** to 91c76c6 and push it (triggers a fresh run).
+- **Watch the new run** and verify the v0.5.0 pre-release assets
+  (section 7 list). The mac aria2 build and the win fetch fallback
+  cannot be proven on the laptop — the CI run is the proof.
