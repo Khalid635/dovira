@@ -48,8 +48,7 @@ export const ENGINE_FILES_BY_PLATFORM: Record<DoviraPlatform, Record<string, str
 }
 
 /** Engine filenames for the platform this app is running on. */
-export const ENGINE_FILES: Record<string, string> =
-  ENGINE_FILES_BY_PLATFORM[currentPlatform()]
+export const ENGINE_FILES: Record<string, string> = ENGINE_FILES_BY_PLATFORM[currentPlatform()]
 
 /** The platform's binary directory name under resources/bin/. */
 export function platformDirName(platform: DoviraPlatform = currentPlatform()): string {

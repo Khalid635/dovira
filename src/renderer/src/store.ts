@@ -80,6 +80,12 @@ interface Store {
   dialogErrorDetail: string | null
   openDialog: (url?: string) => void
   closeDialog: () => void
+  // Phase 7: site grabber dialog (opened from the Sidebar).
+  grabberOpen: boolean
+  openGrabber: () => void
+  closeGrabber: () => void
+  // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
+  setDownloadSpeedLimit: (id: string, kbps: number) => Promise<boolean>
   fetchInfo: (url: string) => Promise<void>
   addWithOptions: (opts: AddOptions) => Promise<{ ok: boolean; error?: string }>
   // Phase 4: playlist / thumbnail-only / batch / archive.
@@ -118,6 +124,7 @@ export const useStore = create<Store>()((set, get) => ({
   initError: null,
   toast: null,
   dialogOpen: false,
+  grabberOpen: false,
   dialogUrl: '',
   dialogLoading: false,
   dialogInfo: null,
@@ -405,6 +412,19 @@ export const useStore = create<Store>()((set, get) => ({
 
   closeDialog: () => {
     set({ dialogOpen: false, dialogLoading: false })
+  },
+
+  openGrabber: () => set({ grabberOpen: true }),
+  closeGrabber: () => set({ grabberOpen: false }),
+
+  setDownloadSpeedLimit: async (id, kbps) => {
+    try {
+      const ok = await window.dovira.setDownloadSpeedLimit(id, kbps)
+      if (ok) await get().refresh()
+      return ok
+    } catch {
+      return false
+    }
   },
 
   fetchInfo: async (url) => {

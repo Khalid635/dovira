@@ -187,6 +187,23 @@ export class Aria2Manager {
     return this.rpc<string>('aria2.removeDownloadResult', [gid])
   }
 
+  /**
+   * Phase 7: change options of one active download — used to apply a new
+   * speed limit live (e.g. {'max-download-limit': '512000'}; '0' =
+   * unlimited). The gid must belong to an active download.
+   */
+  async changeOption(gid: string, options: Record<string, string>): Promise<string> {
+    return this.rpc<string>('aria2.changeOption', [gid, options])
+  }
+
+  /**
+   * Phase 7: change the global options — used to apply a new global speed
+   * limit live (e.g. {'max-overall-download-limit': '512000'}).
+   */
+  async changeGlobalOption(options: Record<string, string>): Promise<string> {
+    return this.rpc<string>('aria2.changeGlobalOption', [options])
+  }
+
   private pickFreePort(): Promise<number> {
     return new Promise((resolve, reject) => {
       const server = createServer()

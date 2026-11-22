@@ -80,6 +80,8 @@ export interface YtDlpDownloadOpts {
   cookiesFile?: string | null
   userAgent?: string | null
   referer?: string | null
+  /** Phase 7: effective speed limit in KB/s, 0 = unlimited. */
+  speedLimitKBps?: number
 }
 
 /**
@@ -141,6 +143,30 @@ export function mapYtDlpError(raw: string): string {
   if (s.includes('404') || s.includes('not found')) return 'not-found'
   if (s.includes('timed out') || s.includes('etimedout')) return 'network'
   return 'unknown'
+}
+
+/**
+ * Phase 7: rewrite the --limit-rate value inside an already-built arg list
+ * (stored lastArgs reused on resume). Returns a new array; the original is
+ * untouched. kbps <= 0 removes the flag (unlimited). The flag is inserted
+ * before '-o' so it stays with the other download options.
+ */
+export function rewriteLimitRate(args: string[], kbps: number): string[] {
+  const out: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--limit-rate') {
+      i++ // skip the old value too
+      continue
+    }
+    out.push(args[i])
+  }
+  if (kbps > 0) {
+    const flag = ['--limit-rate', `${Math.floor(kbps)}K`]
+    const oIdx = out.indexOf('-o')
+    if (oIdx === -1) out.push(...flag)
+    else out.splice(oIdx, 0, ...flag)
+  }
+  return out
 }
 
 /**
@@ -664,6 +690,10 @@ export class YtDlpManager {
       const archive = this.getNetwork?.().downloadArchive
       if (archive) args.push('--download-archive', archive)
     }
+    // Phase 7: speed limit — yt-dlp's own downloader obeys --limit-rate.
+    if (opts.speedLimitKBps && opts.speedLimitKBps > 0) {
+      args.push('--limit-rate', `${Math.floor(opts.speedLimitKBps)}K`)
+    }
     args.push('-o', opts.savePath, '--', opts.url)
     return args
   }
@@ -674,17 +704,12 @@ export class YtDlpManager {
    * savePath with the same progress template, and resumes a .part file
    * on a rerun (yt-dlp continues partial downloads by default).
    */
-  buildPlainArgs(url: string, savePath: string): string[] {
-    return [
-      ...this.baseArgs(),
-      '--newline',
-      '--progress-template',
-      PROGRESS_TEMPLATE,
-      '-o',
-      savePath,
-      '--',
-      url
-    ]
+  buildPlainArgs(url: string, savePath: string, speedLimitKBps = 0): string[] {
+    const args = [...this.baseArgs(), '--newline', '--progress-template', PROGRESS_TEMPLATE]
+    // Phase 7: speed limit, same as buildArgs.
+    if (speedLimitKBps > 0) args.push('--limit-rate', `${Math.floor(speedLimitKBps)}K`)
+    args.push('-o', savePath, '--', url)
+    return args
   }
 
   /**

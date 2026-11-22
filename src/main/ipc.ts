@@ -15,7 +15,14 @@ import {
   type EngineSpec
 } from './engines/versions'
 import { diskFreeBytes } from './util/paths'
-import type { AddOptions, AppUpdateState, ExtensionApiStatus, Settings } from './types'
+import { scanPage } from './grabber'
+import type {
+  AddOptions,
+  AppUpdateState,
+  ExtensionApiStatus,
+  GrabberScanResult,
+  Settings
+} from './types'
 import { logMain } from './logger'
 import type { SchedulerManager } from './scheduler'
 import type { LocalApiServer } from './localApi'
@@ -172,6 +179,30 @@ export function registerIpc(deps: IpcDeps): void {
     typeof url === 'string'
       ? queue.addThumbnailOnly(url, typeof saveDir === 'string' ? saveDir : undefined)
       : { ok: false, error: 'invalid-url' }
+  )
+  // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
+  ipcMain.handle('dovira:downloads:setSpeedLimit', (_e, id: unknown, kbps: unknown) =>
+    typeof id === 'string' && typeof kbps === 'number'
+      ? queue.setDownloadSpeedLimit(id, kbps)
+      : false
+  )
+  // Phase 7: site grabber — scan a page for downloadable links, then queue
+  // the selected ones as normal plain-file downloads.
+  ipcMain.handle('dovira:grabber:scan', (_e, url: unknown): Promise<GrabberScanResult> =>
+    typeof url === 'string'
+      ? scanPage(url)
+      : Promise.resolve({
+          ok: false,
+          pageUrl: '',
+          title: null,
+          items: [],
+          error: 'invalid-url'
+        })
+  )
+  ipcMain.handle('dovira:grabber:add', (_e, urls: unknown) =>
+    Array.isArray(urls) && urls.every((u) => typeof u === 'string')
+      ? queue.addMany(urls as string[])
+      : { added: 0, failed: 0, ids: [] as string[] }
   )
   // Phase 4: delete the download archive (userData/download-archive.txt).
   // Returns true when a file was actually removed.

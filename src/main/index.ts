@@ -49,6 +49,11 @@ function applyRuntimeSettings(s: Settings): void {
     if (s.clipboardWatch && !clipboardWatcher.isRunning()) clipboardWatcher.start()
     else if (!s.clipboardWatch && clipboardWatcher.isRunning()) clipboardWatcher.stop()
   }
+  // Phase 7: a changed global speed limit applies to running aria2
+  // downloads immediately (and to yt-dlp ones on resume). applySpeedLimits
+  // is a no-op when nothing is downloading, so calling it on every
+  // settings change is cheap.
+  if (queue) void queue.applySpeedLimits()
 }
 
 function createWindow(): void {

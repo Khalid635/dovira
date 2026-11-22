@@ -25,6 +25,7 @@ interface DownloadRow {
   format_string: string | null
   ytdlp_state: string | null
   sort_order: number
+  speed_limit_kbps: number
   created_at: number
   started_at: number | null
   completed_at: number | null
@@ -52,6 +53,8 @@ export interface DownloadInsert {
   formatString?: string | null
   ytdlpState?: string | null
   sortOrder?: number
+  /** Phase 7: per-download speed limit in KB/s, 0 = use the global limit. */
+  speedLimitKBps?: number
   createdAt: number
   startedAt?: number | null
   completedAt?: number | null
@@ -74,6 +77,7 @@ export interface DownloadPatch {
   formatString?: string | null
   ytdlpState?: string | null
   sortOrder?: number
+  speedLimitKBps?: number
 }
 
 /**
@@ -133,6 +137,13 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       UPDATE downloads SET sort_order = created_at;
       CREATE INDEX IF NOT EXISTS idx_downloads_sort ON downloads(sort_order);
     `
+  },
+  {
+    // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
+    version: 4,
+    sql: `
+      ALTER TABLE downloads ADD COLUMN speed_limit_kbps INTEGER NOT NULL DEFAULT 0;
+    `
   }
 ]
 
@@ -161,7 +172,8 @@ function rowToInfo(row: DownloadRow): DownloadInfo {
     formatId: row.format_id,
     formatString: row.format_string,
     ytdlpState: row.ytdlp_state,
-    sortOrder: row.sort_order ?? row.created_at
+    sortOrder: row.sort_order ?? row.created_at,
+    speedLimitKBps: row.speed_limit_kbps ?? 0
   }
 }
 
@@ -214,8 +226,8 @@ export class DoviraDb {
           (id, url, title, filename, save_path, kind, format_label, status,
            total_bytes, done_bytes, error_code, error_message, thumbnail_url,
            site, remote_id, engine, engine_ref, format_id, format_string,
-           ytdlp_state, sort_order, created_at, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           ytdlp_state, sort_order, speed_limit_kbps, created_at, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         d.id,
@@ -239,6 +251,7 @@ export class DoviraDb {
         d.formatString ?? null,
         d.ytdlpState ?? null,
         d.sortOrder ?? d.createdAt,
+        d.speedLimitKBps ?? 0,
         d.createdAt,
         d.startedAt ?? null,
         d.completedAt ?? null
@@ -264,7 +277,8 @@ export class DoviraDb {
       ['formatLabel', 'format_label'],
       ['formatString', 'format_string'],
       ['ytdlpState', 'ytdlp_state'],
-      ['sortOrder', 'sort_order']
+      ['sortOrder', 'sort_order'],
+      ['speedLimitKBps', 'speed_limit_kbps']
     ]
     for (const [key, col] of map) {
       if (patch[key] !== undefined) {

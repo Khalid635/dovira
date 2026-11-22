@@ -9,6 +9,7 @@ import {
   IconClock,
   IconDownload,
   IconFile,
+  IconGlobe,
   IconSettings,
   IconVideo,
   type IconProps
@@ -52,6 +53,7 @@ export default function Sidebar(): React.JSX.Element {
   const appInfo = useStore((s) => s.appInfo)
   const setFilter = useStore((s) => s.setFilter)
   const setView = useStore((s) => s.setView)
+  const openGrabber = useStore((s) => s.openGrabber)
 
   const downloadItems: NavItem[] = [
     { key: 'all', labelKey: 'sidebar.all', icon: IconAll, count: countFor(downloads, 'all') },
@@ -142,7 +144,7 @@ export default function Sidebar(): React.JSX.Element {
         <div className="min-w-0">
           <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
           <div className="text-[11px] leading-tight text-[var(--muted)]">
-            v{appInfo?.version ?? '0.3.0'} · Phase 4
+            v{appInfo?.version ?? '0.6.0'} · Phase 7
           </div>
           <div className="truncate text-[10px] leading-tight text-[var(--muted)]">
             {t('app.tagline')}
@@ -155,6 +157,11 @@ export default function Sidebar(): React.JSX.Element {
         {renderItems(downloadItems)}
         <div className="sidebar-section">{t('sidebar.sectionMedia')}</div>
         {renderItems(mediaItems)}
+        <div className="sidebar-section">{t('sidebar.sectionTools')}</div>
+        <button className="nav-item" onClick={openGrabber}>
+          <IconGlobe size={15} />
+          <span className="flex-1 text-left">{t('grabber.title')}</span>
+        </button>
       </nav>
 
       <div className="border-t border-[var(--border)] p-2">

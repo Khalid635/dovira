@@ -251,3 +251,25 @@ export function IconRetry(props: IconProps): React.JSX.Element {
     </Svg>
   )
 }
+
+export function IconGauge(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 12a5.5 5.5 0 1 1 11 0" />
+      <path d="M8 12 11 7.5" />
+      <path d="M2.5 12h.1" />
+      <path d="M13.5 12h.1" />
+    </Svg>
+  )
+}
+
+export function IconGlobe(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M1.5 8h13" />
+      <path d="M8 1.5c-4 4-4 9 0 13" />
+      <path d="M8 1.5c4 4 4 9 0 13" />
+    </Svg>
+  )
+}

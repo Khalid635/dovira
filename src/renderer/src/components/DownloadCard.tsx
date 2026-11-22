@@ -11,6 +11,7 @@ import {
   IconDownload,
   IconExternal,
   IconFolder,
+  IconGauge,
   IconPause,
   IconPlay,
   IconRetry,
@@ -94,6 +95,15 @@ export default function DownloadCard({
   // Phase 3: speed samples for the expanded card's graph.
   const samples = useStore((s) => s.speedHistory[d.id] ?? [])
   const [expanded, setExpanded] = useState(false)
+  // Phase 7: effective limit — the card's own limit wins, else the global one.
+  const settings = useStore((s) => s.settings)
+  const setDownloadSpeedLimit = useStore((s) => s.setDownloadSpeedLimit)
+  const effLimit = d.speedLimitKBps > 0 ? d.speedLimitKBps : (settings?.speedLimitKBps ?? 0)
+  // Phase 7: torrents are aria2 rows whose URL is a magnet: link or a
+  // .torrent file — the per-download limit is untested for them, so the
+  // control stays hidden (the global limit still applies via aria2).
+  const isTorrent =
+    d.url.startsWith('magnet:') || d.url.toLowerCase().split('?')[0].endsWith('.torrent')
 
   const pct = d.totalBytes > 0 ? Math.min(100, Math.round((d.doneBytes / d.totalBytes) * 100)) : 0
   const statusKey = `status.${d.status}`
@@ -180,6 +190,9 @@ export default function DownloadCard({
         <div className="text-right text-[12px] tabular-nums text-[var(--muted)]">
           {d.status === 'downloading' ? (
             <span>
+              {effLimit > 0 && (
+                <span className="badge badge-downloading mr-1">{t('status.limited')}</span>
+              )}
               {formatSpeed(d.speedBps)} · ETA {formatEta(d.etaSeconds)}
             </span>
           ) : d.status === 'queued' && queuePosition ? (
@@ -391,6 +404,66 @@ export default function DownloadCard({
             <span>{t('card.added')}</span>
             <span>{d.createdAt ? formatTime(d.createdAt) : '—'}</span>
           </div>
+          {/* Phase 7: per-download speed limit — torrents excluded (untested). */}
+          {!isTorrent && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
+              <span className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+                <IconGauge size={13} />
+                {t('download.speedLimit')}
+              </span>
+              <div className="seg-tabs" role="group" aria-label={t('download.speedLimit')}>
+                <button
+                  type="button"
+                  className={`seg-tab ${d.speedLimitKBps === 0 ? 'seg-tab-active' : ''}`}
+                  onClick={() => void setDownloadSpeedLimit(d.id, 0)}
+                >
+                  {t('download.speedLimitGlobal')}
+                </button>
+                {[100, 500, 1024].map((kbps) => (
+                  <button
+                    key={kbps}
+                    type="button"
+                    className={`seg-tab ${d.speedLimitKBps === kbps ? 'seg-tab-active' : ''}`}
+                    onClick={() => void setDownloadSpeedLimit(d.id, kbps)}
+                  >
+                    {formatSpeed(kbps * 1024)}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-1 text-[12px] text-[var(--muted)]">
+                <input
+                  key={d.speedLimitKBps}
+                  className="input w-20 py-1 text-[12px]"
+                  type="number"
+                  min={0}
+                  max={1_000_000}
+                  defaultValue={
+                    ![0, 100, 500, 1024].includes(d.speedLimitKBps) && d.speedLimitKBps > 0
+                      ? d.speedLimitKBps
+                      : undefined
+                  }
+                  placeholder={t('settings.speedLimitCustom')}
+                  onBlur={(e) => {
+                    const v = Math.max(
+                      0,
+                      Math.min(1_000_000, Math.floor(Number(e.target.value) || 0))
+                    )
+                    void setDownloadSpeedLimit(d.id, v)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
+                  aria-label={t('settings.speedLimitCustom')}
+                />
+                KB/s
+              </label>
+              {effLimit > 0 && (
+                <span className="badge badge-downloading">
+                  {t('status.limited')} · {formatSpeed(effLimit * 1024)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

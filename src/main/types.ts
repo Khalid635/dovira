@@ -42,6 +42,11 @@ export interface DownloadInfo {
   ytdlpState: string | null
   /** Phase 3: queue position (lower = starts first). Display order is unchanged. */
   sortOrder: number
+  /**
+   * Phase 7: per-download speed limit in KB/s. 0 = use the global
+   * settings.speedLimitKBps. Persisted (DB migration v4).
+   */
+  speedLimitKBps: number
 }
 
 export type CookieBrowser = 'none' | 'chrome' | 'edge' | 'firefox' | 'brave'
@@ -255,6 +260,33 @@ export interface EngineInfo {
   latest: string | null
   updateAvailable: boolean
   path: string | null
+}
+
+/**
+ * Phase 7: one downloadable link found by the site grabber.
+ * kind is decided by extension (or content-type for extension-less links).
+ */
+export type GrabberKind = 'image' | 'video' | 'audio' | 'document' | 'archive' | 'other'
+
+export interface GrabberItem {
+  /** Final URL after redirects — this is what gets downloaded. */
+  url: string
+  filename: string
+  ext: string
+  kind: GrabberKind
+  /** Bytes from a HEAD request; null when the server did not say. */
+  sizeBytes: number | null
+}
+
+/** Phase 7: result of scanning one page for downloadable links. */
+export interface GrabberScanResult {
+  ok: boolean
+  /** Final page URL after redirects. */
+  pageUrl: string
+  title: string | null
+  items: GrabberItem[]
+  /** Error code when ok is false ('invalid-url' | 'not-found' | 'forbidden' | 'network' | 'not-html' | 'page-too-large' | 'unknown'). */
+  error?: string
 }
 
 /** Phase 5: Local API status, shown in Settings > Browser & Cookies. */

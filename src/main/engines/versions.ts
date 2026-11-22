@@ -65,13 +65,10 @@ export async function checkLatest(name: string): Promise<string | null> {
         return typeof json.version === 'string' ? json.version : null
       }
       if (platform === 'linux') {
-        const res = await fetch(
-          'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest',
-          {
-            headers: { 'User-Agent': 'DOVIRA-version-check/1.0' },
-            signal: AbortSignal.timeout(10_000)
-          }
-        )
+        const res = await fetch('https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest', {
+          headers: { 'User-Agent': 'DOVIRA-version-check/1.0' },
+          signal: AbortSignal.timeout(10_000)
+        })
         if (!res.ok) return null
         const json = (await res.json()) as { assets?: { name: string }[] }
         const asset = (json.assets ?? []).find((a) =>
@@ -191,10 +188,7 @@ export async function updateYtDlp(
     const json = (await res.json()) as { tag_name?: string }
     const tag = json.tag_name
     if (!tag) throw new Error('no release tag')
-    await downloadFile(
-      `https://github.com/yt-dlp/yt-dlp/releases/download/${tag}/${file}`,
-      tmpExe
-    )
+    await downloadFile(`https://github.com/yt-dlp/yt-dlp/releases/download/${tag}/${file}`, tmpExe)
     await downloadFile(
       `https://github.com/yt-dlp/yt-dlp/releases/download/${tag}/SHA2-256SUMS`,
       tmpSums

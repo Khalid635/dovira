@@ -8,6 +8,7 @@ import type { Aria2Manager } from './engines/aria2'
 import {
   YtDlpManager,
   YtDlpError,
+  rewriteLimitRate,
   ytdlpPartFiles,
   type YtDlpDownload,
   type YtDlpDownloadOpts
@@ -235,6 +236,98 @@ export class QueueManager extends EventEmitter {
     return this.aria2 === null && d.engine === 'aria2' && !isTorrentUrl(d.url)
   }
 
+  /**
+   * Phase 7: the speed limit that actually applies to a download — its own
+   * per-download limit when set, else the global settings limit. 0 =
+   * unlimited either way.
+   */
+  private effectiveLimitKBps(d: DownloadInfo): number {
+    if (d.speedLimitKBps > 0) return d.speedLimitKBps
+    return this.settings.get().speedLimitKBps
+  }
+
+  /**
+   * Phase 7: apply the current limits to everything already running.
+   * aria2 picks a new limit up live (changeGlobalOption for the global cap
+   * + changeOption per active gid for its effective cap). yt-dlp cannot
+   * change mid-flight — a running yt-dlp job keeps its old limit until it
+   * is paused/resumed, when the stored args are rewritten (see
+   * startYtDlp). Best-effort: a failed RPC never throws into the caller
+   * (settings save must not break because aria2 blinked).
+   */
+  async applySpeedLimits(): Promise<void> {
+    const aria2 = this.aria2
+    if (!aria2 || !aria2.isReady()) return
+    const global = this.settings.get().speedLimitKBps
+    try {
+      await aria2.changeGlobalOption({
+        'max-overall-download-limit': global > 0 ? String(global * 1024) : '0'
+      })
+    } catch {
+      // A restart racing this call — the next start applies the limit.
+    }
+    for (const [id, entry] of [...this.active.entries()]) {
+      if (!entry.gid) continue
+      const d = this.downloads.get(id)
+      if (!d) continue
+      const eff = this.effectiveLimitKBps(d)
+      try {
+        await aria2.changeOption(entry.gid, {
+          'max-download-limit': eff > 0 ? String(eff * 1024) : '0'
+        })
+      } catch {
+        // gid may be stale (aria2 restarted) — local state still wins.
+      }
+    }
+  }
+
+  /**
+   * Phase 7: set a per-download speed limit (KB/s, 0 = use the global
+   * limit). Persisted, so it survives restarts. An active aria2 download
+   * picks it up immediately; a yt-dlp download picks it up on resume.
+   */
+  async setDownloadSpeedLimit(id: string, kbps: number): Promise<boolean> {
+    const d = this.downloads.get(id)
+    if (!d) return false
+    const limit = Number.isFinite(kbps) ? Math.max(0, Math.min(1_000_000, Math.floor(kbps))) : 0
+    d.speedLimitKBps = limit
+    this.db.updateDownload(id, { speedLimitKBps: limit })
+    const entry = this.active.get(id)
+    if (entry?.gid && this.aria2?.isReady()) {
+      try {
+        await this.aria2.changeOption(entry.gid, {
+          'max-download-limit': limit > 0 ? String(limit * 1024) : '0'
+        })
+      } catch {
+        // Stale gid — the limit still applies on the next start.
+      }
+    }
+    this.emitStatus(id)
+    return true
+  }
+
+  /**
+   * Phase 7: queue several plain-file URLs (site grabber). Each one goes
+   * through the normal add() — HEAD, dedup, aria2 routing. Returns how
+   * many were queued (a duplicate URL counts as added via its existing
+   * row) and how many failed.
+   */
+  async addMany(urls: string[]): Promise<{ added: number; failed: number; ids: string[] }> {
+    let added = 0
+    let failed = 0
+    const ids: string[] = []
+    for (const url of urls) {
+      const res = await this.add(url)
+      if (res.ok && res.id) {
+        added++
+        ids.push(res.id)
+      } else {
+        failed++
+      }
+    }
+    return { added, failed, ids }
+  }
+
   list(): DownloadInfo[] {
     return [...this.downloads.values()].sort((a, b) => b.createdAt - a.createdAt)
   }
@@ -443,7 +536,8 @@ export class QueueManager extends EventEmitter {
       formatId: null,
       formatString: null,
       ytdlpState: null,
-      sortOrder: now
+      sortOrder: now,
+      speedLimitKBps: 0
     }
     this.db.insertDownload({
       id: info.id,
@@ -538,7 +632,8 @@ export class QueueManager extends EventEmitter {
       formatId: opts.formatId,
       formatString: opts.formatString,
       ytdlpState: JSON.stringify(state),
-      sortOrder: now
+      sortOrder: now,
+      speedLimitKBps: 0
     }
     this.db.insertDownload({
       id: info.id,
@@ -635,7 +730,8 @@ export class QueueManager extends EventEmitter {
       formatId: null,
       formatString: null,
       ytdlpState: JSON.stringify(state),
-      sortOrder: now
+      sortOrder: now,
+      speedLimitKBps: 0
     }
     this.db.insertDownload({
       id: info.id,
@@ -1109,6 +1205,7 @@ export class QueueManager extends EventEmitter {
         return
       }
     }
+    const effLimit = this.effectiveLimitKBps(d)
     const opts: Record<string, string | string[]> = {
       dir: dirname(d.savePath),
       'max-connection-per-server': String(s.connectionsPerDownload),
@@ -1116,7 +1213,9 @@ export class QueueManager extends EventEmitter {
       continue: 'true',
       'allow-overwrite': 'false',
       'auto-file-renaming': 'false',
-      'max-overall-download-limit': s.speedLimitKBps > 0 ? String(s.speedLimitKBps * 1024) : '0'
+      'max-overall-download-limit': s.speedLimitKBps > 0 ? String(s.speedLimitKBps * 1024) : '0',
+      // Phase 7: per-download cap (0 = no cap beyond the global one).
+      'max-download-limit': effLimit > 0 ? String(effLimit * 1024) : '0'
     }
     // Phase 4: aria2 ignores `out` for torrents — the real filename
     // comes from the torrent metadata (fixed up by the poll tick).
@@ -1129,6 +1228,19 @@ export class QueueManager extends EventEmitter {
     if (ext && ext.length > 0) opts['header'] = ext
     try {
       const gid = await aria2.addUri(d.url, opts)
+      // Phase 7: addUri does NOT apply the global option — aria2 keeps
+      // whatever max-overall-download-limit it already had (e.g. 200 KB/s
+      // from an earlier limit). Sync it explicitly, so a limit that was
+      // raised back to unlimited (or changed) actually takes effect for
+      // this download — and so a limit set in settings applies after an
+      // aria2 restart, when the fresh process starts unlimited.
+      try {
+        await aria2.changeGlobalOption({
+          'max-overall-download-limit': s.speedLimitKBps > 0 ? String(s.speedLimitKBps * 1024) : '0'
+        })
+      } catch {
+        // Best-effort: the per-download cap still applies.
+      }
       d.status = 'downloading'
       d.startedAt = d.startedAt ?? Date.now()
       d.errorCode = null
@@ -1169,7 +1281,9 @@ export class QueueManager extends EventEmitter {
       useArchive: state?.useArchive ?? false,
       cookiesFile: state?.extCookiesFile ?? null,
       userAgent: state?.userAgent ?? null,
-      referer: state?.referer ?? null
+      referer: state?.referer ?? null,
+      // Phase 7: yt-dlp gets --limit-rate at start.
+      speedLimitKBps: this.effectiveLimitKBps(d)
     }
   }
 
@@ -1302,8 +1416,16 @@ export class QueueManager extends EventEmitter {
     }
     const opts = this.buildYtDlpOpts(d)
     const state = parseYtDlpState(d.ytdlpState)
+    // Phase 7: a resumed download reuses stored args — rewrite the limit
+    // inside them so the CURRENT limit is what the new process gets.
+    // Honest limit (proven by CLI test 2026-11-22): yt-dlp's HLS/DASH
+    // resume keeps the ORIGINAL throttle — a changed limit does NOT take
+    // effect on a resumed fragmented download, it takes effect on the
+    // NEXT fresh download. aria2 resumes DO apply the new limit.
     const args =
-      state?.lastArgs && state.lastArgs.length > 0 ? state.lastArgs : this.ytdlp.buildArgs(opts)
+      state?.lastArgs && state.lastArgs.length > 0
+        ? rewriteLimitRate(state.lastArgs, this.effectiveLimitKBps(d))
+        : this.ytdlp.buildArgs(opts)
     d.status = 'downloading'
     d.startedAt = d.startedAt ?? Date.now()
     d.errorCode = null
@@ -1435,7 +1557,13 @@ export class QueueManager extends EventEmitter {
       }
     }
     const ytdlp = this.ytdlp
-    const args = this.ytDlpArgs.get(d.id) ?? ytdlp.buildPlainArgs(d.url, d.savePath)
+    // Phase 7: same lastArgs rewrite as startYtDlp (same yt-dlp resume
+    // caveat as above — the rewritten limit is passed, but a resumed
+    // fragmented download keeps its original throttle).
+    const stored = this.ytDlpArgs.get(d.id)
+    const args = stored
+      ? rewriteLimitRate(stored, this.effectiveLimitKBps(d))
+      : ytdlp.buildPlainArgs(d.url, d.savePath, this.effectiveLimitKBps(d))
     d.status = 'downloading'
     d.startedAt = d.startedAt ?? Date.now()
     d.errorCode = null

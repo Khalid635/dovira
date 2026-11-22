@@ -5,6 +5,15 @@ import { IconCheck } from './icons'
 
 const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
 
+/** Phase 7: global speed-limit presets (KB/s). */
+const SPEED_PRESETS = [
+  { value: 0, labelKey: 'settings.speedLimitPresetUnlimited' },
+  { value: 100, labelKey: 'settings.speedLimitPreset100' },
+  { value: 500, labelKey: 'settings.speedLimitPreset500' },
+  { value: 1024, labelKey: 'settings.speedLimitPreset1m' },
+  { value: 5120, labelKey: 'settings.speedLimitPreset5m' }
+]
+
 const SECTIONS = [
   { id: 'settings-general', labelKey: 'settings.navGeneral' },
   { id: 'settings-network', labelKey: 'settings.navNetwork' },
@@ -243,19 +252,55 @@ export default function SettingsPage(): React.JSX.Element {
             </label>
           </div>
 
+          {/* Phase 7: speed-limit presets + custom value (was a bare number input). */}
           <div className="settings-field">
-            <label className="block">
-              <span className="mb-1 block text-[13px] text-[var(--muted)]">
-                {t('settings.speedLimit')} — {t('settings.speedLimitUnit')}
-              </span>
-              <input
-                className="input w-40"
-                type="number"
-                min={0}
-                value={settings.speedLimitKBps}
-                onChange={(e) => set({ speedLimitKBps: Number(e.target.value) })}
-              />
-            </label>
+            <span className="mb-1 block text-[13px] text-[var(--muted)]">
+              {t('settings.speedLimitPresets')}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="seg-tabs" role="group" aria-label={t('settings.speedLimitPresets')}>
+                {SPEED_PRESETS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    className={`seg-tab ${settings.speedLimitKBps === p.value ? 'seg-tab-active' : ''}`}
+                    onClick={() => set({ speedLimitKBps: p.value })}
+                  >
+                    {t(p.labelKey)}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center gap-1 text-[12px] text-[var(--muted)]">
+                <input
+                  key={settings.speedLimitKBps}
+                  className="input w-28 py-1 text-[12px]"
+                  type="number"
+                  min={0}
+                  max={1_000_000}
+                  defaultValue={
+                    !SPEED_PRESETS.some((p) => p.value === settings.speedLimitKBps)
+                      ? settings.speedLimitKBps
+                      : undefined
+                  }
+                  placeholder={t('settings.speedLimitCustom')}
+                  onBlur={(e) => {
+                    const v = Math.max(
+                      0,
+                      Math.min(1_000_000, Math.floor(Number(e.target.value) || 0))
+                    )
+                    set({ speedLimitKBps: v })
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
+                  aria-label={t('settings.speedLimitCustom')}
+                />
+                KB/s
+              </label>
+            </div>
+            <div className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.speedLimitHelp')}
+            </div>
           </div>
 
           {/* Phase 3: auto-retry count (0–10), next to the other download settings. */}
@@ -713,9 +758,7 @@ export default function SettingsPage(): React.JSX.Element {
               {t('settings.checkForUpdates')}
             </button>
           </div>
-          <div className="settings-field text-[13px] text-[var(--muted)]">
-            {updateStatusText}
-          </div>
+          <div className="settings-field text-[13px] text-[var(--muted)]">{updateStatusText}</div>
           {appUpdate.state === 'available' && (
             <div className="settings-field">
               <button className="btn btn-sm" onClick={() => void downloadAppUpdate()}>

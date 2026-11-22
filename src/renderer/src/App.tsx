@@ -5,6 +5,7 @@ import HistoryPage from './components/HistoryPage'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
+import SiteGrabberDialog from './components/SiteGrabberDialog'
 import {
   IconAlert,
   IconDownload,
@@ -318,6 +319,7 @@ function App(): React.JSX.Element {
       </div>
 
       <AddDownloadDialog />
+      <SiteGrabberDialog />
 
       {toast && (
         <div className="fixed bottom-12 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-xl">

@@ -6,6 +6,7 @@ import type {
   DownloadInfo,
   EngineInfo,
   ExtensionApiStatus,
+  GrabberScanResult,
   PlainFileInfo,
   PlaylistInfo,
   ProgressEvent,
@@ -36,6 +37,11 @@ export interface DoviraAPI {
   cancelDownload(id: string): Promise<boolean>
   removeDownload(id: string, deleteFile: boolean): Promise<boolean>
   retryDownload(id: string): Promise<boolean>
+  // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
+  setDownloadSpeedLimit(id: string, kbps: number): Promise<boolean>
+  // Phase 7: site grabber — scan a page, then queue the picked links.
+  scanPage(url: string): Promise<GrabberScanResult>
+  addGrabbedLinks(urls: string[]): Promise<{ added: number; failed: number; ids: string[] }>
   openFile(id: string): Promise<boolean>
   showInFolder(id: string): Promise<boolean>
   getSettings(): Promise<Settings>
@@ -98,6 +104,11 @@ const api: DoviraAPI = {
   removeDownload: (id: string, deleteFile: boolean) =>
     ipcRenderer.invoke('dovira:downloads:remove', id, deleteFile),
   retryDownload: (id: string) => ipcRenderer.invoke('dovira:downloads:retry', id),
+  // Phase 7
+  setDownloadSpeedLimit: (id: string, kbps: number) =>
+    ipcRenderer.invoke('dovira:downloads:setSpeedLimit', id, kbps),
+  scanPage: (url: string) => ipcRenderer.invoke('dovira:grabber:scan', url),
+  addGrabbedLinks: (urls: string[]) => ipcRenderer.invoke('dovira:grabber:add', urls),
   openFile: (id: string) => ipcRenderer.invoke('dovira:downloads:openFile', id),
   showInFolder: (id: string) => ipcRenderer.invoke('dovira:downloads:showInFolder', id),
   getSettings: () => ipcRenderer.invoke('dovira:settings:get'),
