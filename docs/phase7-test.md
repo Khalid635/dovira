@@ -239,11 +239,16 @@ perMachine=false, no code signing — same as v0.5.0).
 
 ## 7. GitHub Actions (tag v0.6.0)
 
-**PENDING** — filled after the v0.6.0 tag is pushed and the CI run
-completes (separate step, after this report). Expected: build
-win/mac/linux + publish all succeed; pre-release with all 8 assets
-(setup.exe, .dmg, .AppImage, .deb, latest.yml, latest-mac.yml,
-latest-linux.yml, checksums.txt).
+**VERIFIED 2026-11-22 ~15:51** - run 45008748239, conclusion **success** (~9 min; created 09:41:16Z, release published 09:50:37Z). Head SHA bbfcbed. Jobs: build linux success, build win success, build mac success, create pre-release success (lint + typecheck + build skipped on tag pushes, as expected).
+
+Pre-release **v0.6.0 LIVE**: https://github.com/Khalid635/dovira/releases/tag/v0.6.0 (release id 454345928, prerelease true). All 8 assets present:
+- dovira-0.6.0-setup.exe - 237,357,968 B (CI-built; 3,892 B larger than the laptop-built 237,354,076 B - expected, different builder)
+- dovira-0.6.0.dmg - 272,332,656 B
+- dovira-0.6.0.AppImage - 356,419,427 B
+- dovira_0.6.0_amd64.deb - 292,164,112 B
+- latest.yml - 341 B; latest-mac.yml - 329 B; latest-linux.yml - 517 B; checksums.txt - 349 B
+
+Tag v0.6.0 object 302559b70d09cf98f61735bbb2fd237e0fee1cfe, verified unchanged after push.
 
 ## 8. What was NOT tested here — Khalid's / real-machine checks
 
