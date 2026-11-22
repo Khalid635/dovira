@@ -6,6 +6,7 @@ import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
 import SiteGrabberDialog from './components/SiteGrabberDialog'
+import StatsRow from './components/StatsRow'
 import {
   IconAlert,
   IconDownload,
@@ -47,6 +48,7 @@ function App(): React.JSX.Element {
   const settings = useStore((s) => s.settings)
   const toast = useStore((s) => s.toast)
   const openDialog = useStore((s) => s.openDialog)
+  const openGrabber = useStore((s) => s.openGrabber)
   const pause = useStore((s) => s.pause)
   const resume = useStore((s) => s.resume)
   const remove = useStore((s) => s.remove)
@@ -75,17 +77,19 @@ function App(): React.JSX.Element {
     void init()
   }, [init])
 
-  // Theme: dark default, light from day 1 (§6.2).
-  useEffect(() => {
-    const theme = settings?.theme ?? 'dark'
-    const resolved =
-      theme === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : theme
-    document.documentElement.dataset.theme = resolved
+  // Theme: Mint light default (v0.7.0); 'system' resolves from the OS.
+  const effectiveTheme = useMemo(() => {
+    const theme = settings?.theme ?? 'light'
+    return theme === 'system'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+      : theme
   }, [settings?.theme])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = effectiveTheme
+  }, [effectiveTheme])
 
   // Ctrl+V anywhere opens the Add dialog with the clipboard link (§7.2);
   // Ctrl+N opens an empty dialog. Typing in an input keeps normal paste.
@@ -169,7 +173,7 @@ function App(): React.JSX.Element {
                     if (e.key === 'Enter') void submit()
                   }}
                 />
-                <button className="btn btn-primary" onClick={() => submit()}>
+                <button className="btn btn-accent" onClick={() => submit()}>
                   {t('add.button')}
                 </button>
               </div>
@@ -241,75 +245,93 @@ function App(): React.JSX.Element {
                     </button>
                   </div>
                 </div>
-              ) : visible.length === 0 ? (
-                // Loaded and empty: a proper empty state, not a black void.
-                <div className="flex h-full items-center justify-center">
-                  <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
-                    <div className="empty-icon">
-                      <IconDownload size={28} />
-                    </div>
-                    <div className="mt-4 text-[16px] font-medium">{t('empty.title')}</div>
-                    <div className="mx-auto mt-1 max-w-[320px] text-[13px] text-[var(--muted)]">
-                      {t('empty.hint')}
-                    </div>
-                    <div className="mt-2 text-[12px] text-[var(--muted)]">{t('app.tagline')}</div>
-                    <div className="mt-5 flex items-center justify-center gap-2">
-                      <button className="btn btn-primary" onClick={pasteLink}>
-                        {t('empty.pasteLink')}
-                      </button>
-                      <span className="kbd">Ctrl+V</span>
-                    </div>
-                  </div>
-                </div>
               ) : (
-                <div className="mx-auto w-full max-w-[860px]">
-                  {/* Column labels — same grid as the card rows, so the
+                <div className="mx-auto flex min-h-full w-full max-w-[860px] flex-col gap-3">
+                  {/* V22-style emerald banner */}
+                  <div className="banner">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[16px] font-extrabold leading-snug">
+                        {t('app.tagline')}
+                      </div>
+                    </div>
+                    <button className="btn btn-accent" onClick={() => openDialog('')}>
+                      {t('banner.cta')}
+                    </button>
+                  </div>
+                  {downloads.length > 0 && <StatsRow />}
+                  {visible.length === 0 ? (
+                    // Loaded and empty: a proper empty state, not a black void.
+                    <div className="flex flex-1 items-center justify-center py-8">
+                      <div className="card mx-auto w-full max-w-[420px] p-8 text-center">
+                        <div className="empty-icon">
+                          <IconDownload size={28} />
+                        </div>
+                        <div className="mt-4 text-[16px] font-medium">{t('empty.title')}</div>
+                        <div className="mx-auto mt-1 max-w-[320px] text-[13px] text-[var(--muted)]">
+                          {t('empty.hint')}
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                          <button className="btn btn-primary" onClick={pasteLink}>
+                            {t('empty.pasteLink')}
+                          </button>
+                          <button className="btn" onClick={openGrabber}>
+                            {t('empty.grabber')}
+                          </button>
+                          <span className="kbd">Ctrl+V</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Column labels — same grid as the card rows, so the
                       list reads like a table (IDM's scannability). */}
-                  <div className="dl-grid list-header">
-                    <span />
-                    <span>{t('list.name')}</span>
-                    <span className="text-right">{t('list.size')}</span>
-                    <span>{t('list.status')}</span>
-                    <span className="text-right">{t('list.speedEta')}</span>
-                    <span className="text-right normal-case tracking-normal">
-                      {t('list.count', { n: visible.length })}
-                    </span>
-                  </div>
-                  <div
-                    className="space-y-2"
-                    onDragOver={(e) => {
-                      if (draggedId) {
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'move'
-                      }
-                    }}
-                    onDrop={(e) => {
-                      // Dropped below the last card — move to the end.
-                      if (draggedId) {
-                        e.preventDefault()
-                        void reorderDownloads(draggedId, null)
-                        setDraggedId(null)
-                      }
-                    }}
-                  >
-                    {visible.map((d) => (
-                      <DownloadCard
-                        key={d.id}
-                        d={d}
-                        queuePosition={queuePositions.get(d.id)}
-                        draggable
-                        dragging={draggedId === d.id}
-                        onDragStart={() => setDraggedId(d.id)}
-                        onDragEnd={() => setDraggedId(null)}
-                        onDropOn={() => {
-                          if (draggedId && draggedId !== d.id) {
-                            void reorderDownloads(draggedId, d.id)
+                      <div className="dl-grid list-header">
+                        <span />
+                        <span>{t('list.name')}</span>
+                        <span className="text-right">{t('list.size')}</span>
+                        <span>{t('list.status')}</span>
+                        <span className="text-right">{t('list.speedEta')}</span>
+                        <span className="text-right normal-case tracking-normal">
+                          {t('list.count', { n: visible.length })}
+                        </span>
+                      </div>
+                      <div
+                        className="space-y-2"
+                        onDragOver={(e) => {
+                          if (draggedId) {
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
                           }
-                          setDraggedId(null)
                         }}
-                      />
-                    ))}
-                  </div>
+                        onDrop={(e) => {
+                          // Dropped below the last card — move to the end.
+                          if (draggedId) {
+                            e.preventDefault()
+                            void reorderDownloads(draggedId, null)
+                            setDraggedId(null)
+                          }
+                        }}
+                      >
+                        {visible.map((d) => (
+                          <DownloadCard
+                            key={d.id}
+                            d={d}
+                            queuePosition={queuePositions.get(d.id)}
+                            draggable
+                            dragging={draggedId === d.id}
+                            onDragStart={() => setDraggedId(d.id)}
+                            onDragEnd={() => setDraggedId(null)}
+                            onDropOn={() => {
+                              if (draggedId && draggedId !== d.id) {
+                                void reorderDownloads(draggedId, d.id)
+                              }
+                              setDraggedId(null)
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </main>

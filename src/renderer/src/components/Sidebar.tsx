@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react'
+import { useMemo, type ComponentType } from 'react'
 import logo from '../assets/logo.png'
 import { useStore, useT, type Filter } from '../store'
 import type { DownloadInfo } from '../../../main/types'
@@ -10,7 +10,9 @@ import {
   IconDownload,
   IconFile,
   IconGlobe,
+  IconMoon,
   IconSettings,
+  IconSun,
   IconVideo,
   type IconProps
 } from './icons'
@@ -54,6 +56,16 @@ export default function Sidebar(): React.JSX.Element {
   const setFilter = useStore((s) => s.setFilter)
   const setView = useStore((s) => s.setView)
   const openGrabber = useStore((s) => s.openGrabber)
+  const settings = useStore((s) => s.settings)
+  const updateSettings = useStore((s) => s.updateSettings)
+  const effectiveTheme = useMemo(() => {
+    const theme = settings?.theme ?? 'light'
+    return theme === 'system'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+      : theme
+  }, [settings?.theme])
 
   const downloadItems: NavItem[] = [
     { key: 'all', labelKey: 'sidebar.all', icon: IconAll, count: countFor(downloads, 'all') },
@@ -129,7 +141,7 @@ export default function Sidebar(): React.JSX.Element {
           <ItemIcon size={15} />
           <span className="flex-1 text-left">{t(item.labelKey)}</span>
           {typeof item.count === 'number' && (
-            <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[11px] tabular-nums text-[var(--muted)]">
+            <span className="sidebar-count rounded-full bg-[var(--sidebar-count-bg)] px-2 py-0.5 text-[11px] tabular-nums text-[var(--sidebar-muted)]">
               {item.count}
             </span>
           )}
@@ -138,15 +150,17 @@ export default function Sidebar(): React.JSX.Element {
     })
 
   return (
-    <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]">
+    <aside className="sidebar flex w-[220px] shrink-0 flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar-bg)]">
       <div className="flex items-center gap-2 px-4 pb-3 pt-4">
         <img src={logo} alt="DOVIRA" className="h-8 w-8 rounded-lg" />
         <div className="min-w-0">
-          <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
-          <div className="text-[11px] leading-tight text-[var(--muted)]">
-            v{appInfo?.version ?? '0.6.0'} · Phase 7
+          <div className="text-[16px] font-semibold leading-tight tracking-wide text-[var(--sidebar-text)]">
+            DOVIRA
           </div>
-          <div className="truncate text-[10px] leading-tight text-[var(--muted)]">
+          <div className="text-[11px] leading-tight text-[var(--sidebar-muted)]">
+            v{appInfo?.version ?? '0.7.0'} · Phase 7
+          </div>
+          <div className="truncate text-[10px] leading-tight text-[var(--sidebar-muted)]">
             {t('app.tagline')}
           </div>
         </div>
@@ -164,13 +178,22 @@ export default function Sidebar(): React.JSX.Element {
         </button>
       </nav>
 
-      <div className="border-t border-[var(--border)] p-2">
+      <div className="flex items-center gap-1 border-t border-[var(--sidebar-border)] p-2">
         <button
           onClick={() => setView('settings')}
-          className={`nav-item ${view === 'settings' ? 'nav-item-active' : ''}`}
+          className={`nav-item flex-1 ${view === 'settings' ? 'nav-item-active' : ''}`}
         >
           <IconSettings size={15} />
           <span className="flex-1 text-left">{t('sidebar.settings')}</span>
+        </button>
+        <button
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover-bg)] hover:text-[var(--sidebar-active-text)]"
+          title={t('theme.toggle')}
+          onClick={() =>
+            void updateSettings({ theme: effectiveTheme === 'dark' ? 'light' : 'dark' })
+          }
+        >
+          {effectiveTheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
         </button>
       </div>
     </aside>

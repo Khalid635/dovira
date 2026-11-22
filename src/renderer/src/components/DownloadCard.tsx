@@ -19,6 +19,16 @@ import {
   IconVideo
 } from './icons'
 
+// Stable empty speed history — the selector below MUST return the same
+// reference when a download has no samples yet. `?? []` allocates a new
+// array on every call, and useSyncExternalStore treats each one as a
+// changed snapshot, forcing re-renders until React throws #185
+// (maximum update depth) and unmounts the whole tree. That blanked the
+// app the moment any download was added (found 2026-11-22 in the v0.7.0
+// verification; the bug predates the redesign — it was never caught
+// because no earlier check rendered a download card in the UI).
+const EMPTY_SPEED_SAMPLES: number[] = []
+
 const STATUS_BADGE: Record<string, string> = {
   downloading: 'badge-downloading',
   paused: 'badge-paused',
@@ -93,7 +103,7 @@ export default function DownloadCard({
   const retry = useStore((s) => s.retry)
   const moveToTop = useStore((s) => s.moveToTop)
   // Phase 3: speed samples for the expanded card's graph.
-  const samples = useStore((s) => s.speedHistory[d.id] ?? [])
+  const samples = useStore((s) => s.speedHistory[d.id] ?? EMPTY_SPEED_SAMPLES)
   const [expanded, setExpanded] = useState(false)
   // Phase 7: effective limit — the card's own limit wins, else the global one.
   const settings = useStore((s) => s.settings)

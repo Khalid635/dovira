@@ -273,3 +273,20 @@ export function IconGlobe(props: IconProps): React.JSX.Element {
     </Svg>
   )
 }
+
+export function IconSun(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="3.2" />
+      <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" />
+    </Svg>
+  )
+}
+
+export function IconMoon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5 5.5 5.5 0 1 0 13.5 9.5Z" />
+    </Svg>
+  )
+}

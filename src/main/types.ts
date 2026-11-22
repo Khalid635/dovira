@@ -61,6 +61,8 @@ export interface Settings {
   connectionsPerDownload: number
   language: 'en' | 'bn'
   theme: 'dark' | 'light' | 'system'
+  /** v0.7.0: one-time flag — flips a stored 'dark' theme to the new Mint light default once. */
+  themeMigrated070: boolean
   /** Default video quality cap: '2160' | '1080' | '720' | '480' | '360'. */
   defaultVideoQuality: string
   videoContainer: 'mp4' | 'mkv'

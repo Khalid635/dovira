@@ -9,7 +9,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRetry: 3,
   connectionsPerDownload: 8,
   language: 'bn',
-  theme: 'dark',
+  theme: 'light',
+  /** v0.7.0: one-time migration flag (see SettingsManager). */
+  themeMigrated070: false,
   defaultVideoQuality: '1080',
   videoContainer: 'mp4',
   defaultAudioBitrate: '320',
@@ -58,8 +60,9 @@ function normalizeSettings(next: Settings): Settings {
   next.connectionsPerDownload = clampInt(next.connectionsPerDownload, 8, 1, 16)
   if (next.language !== 'en' && next.language !== 'bn') next.language = 'bn'
   if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') {
-    next.theme = 'dark'
+    next.theme = 'light'
   }
+  next.themeMigrated070 = next.themeMigrated070 === true
   next.defaultVideoQuality = clampQuality(next.defaultVideoQuality)
   if (next.videoContainer !== 'mp4' && next.videoContainer !== 'mkv') {
     next.videoContainer = 'mp4'
@@ -133,6 +136,16 @@ export class SettingsManager {
       }
     }
     normalizeSettings(next)
+    // v0.7.0 one-time migration: Mint is the new default. Stored settings
+    // from older versions say 'dark' (the old default); flip once so the
+    // redesign is visible on first 0.7.0 launch. The flag stops this from
+    // ever re-flipping after the user picks Dark themselves.
+    if (!next.themeMigrated070) {
+      next.theme = 'light'
+      next.themeMigrated070 = true
+      this.db.setSetting('theme', JSON.stringify('light'))
+      this.db.setSetting('themeMigrated070', JSON.stringify(true))
+    }
     this.cache = next
   }
 
