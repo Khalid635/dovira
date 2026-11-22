@@ -157,28 +157,78 @@ the CI runners.
 - `resources/bin/mac` and `resources/bin/linux` were removed after
   the probes (git-ignored; they must not leak into any installer).
 
-## 7. GitHub Actions (tag v0.5.0)
+## 7. GitHub Actions (tag v0.5.0) — runs 44979642131 and 44984348473
 
-- **BLOCKED — the push token lacks `workflow` scope.** The first
-  push (commit b7011a2, which included `.github/workflows/build.yml`)
-  was rejected by GitHub: "refusing to allow a Personal Access Token
-  to create or update workflow `.github/workflows/build.yml` without
-  `workflow` scope". The PAT (`muse-mcp-vscode`, classic, repo +
-  read:user) cannot create workflow files. Nothing was pushed by
-  that attempt; the remote URL was reset to plain https.
-- What was done instead: the 26 non-workflow files were recommitted
-  and pushed as **43a654dce999a38f0ea04465c24eddecd12c04c6** (main,
-  4e0b930..43a654d). The local tag v0.5.0 was deleted — it pointed at
-  the workflow-inclusive commit. The workflow file remains in the
-  laptop repo at `.github/workflows/build.yml` (untracked) — it is
-  NOT on the remote.
-- To finish: add `.github/workflows/build.yml` via the GitHub web UI
-  (Khalid's browser session — the web UI is not subject to the PAT
-  scope rule), then re-create the annotated tag v0.5.0 on the
-  resulting HEAD and push the tag. The tag push triggers the
-  workflow: CI + 3-OS matrix build + release creation.
-- Until then: NO Actions runs exist for v0.5.0 and NO v0.5.0 release
-  exists. The EXPECTED release assets once the workflow runs
+- Workflow file added via the GitHub web UI (Khalid's browser session —
+  the PAT lacks `workflow` scope, so it cannot push workflow files) as
+  **4ee1e76** ("ci: add GitHub Actions build + release workflow (Phase
+  6)"). Annotated tag v0.5.0 created on 4ee1e76 and pushed. The tag push
+  triggered run **44979642131**
+  (https://github.com/Khalid635/dovira/actions/runs/44979642131):
+  **all three build jobs failed at "Fetch engine binaries"**; publish
+  skipped; no v0.5.0 release exists.
+- Win job log: `Expected .../resources/bin/win/aria2-1.37.0-win-64bit-build1/aria2c.exe
+  after extraction — layout changed upstream?` — the script assumed a
+  fixed extracted layout. Mac/Linux failed at the same step (same
+  aria2 issue, plus two more latent causes found while fixing — §10).
+- Fix commit **5d73268** ("fix: fetch-binaries aria2 layout
+  (recursive search, mac ffprobe, n-prefixed ffmpeg versions)"):
+  `findInTree()` searches the extracted tree recursively (zipSubdir is
+  only a hint); extraction goes to a temp dir (`.extract-<name>`,
+  cleaned up); failures print the extracted tree; downloads get a 120s
+  stall timeout + an empty-file check; macOS ffprobe is its own
+  evermeet spec (`ffmpeg-9.1.zip` contains ffmpeg only); version
+  regexes accept the `n9.0.2`-style prefix BtbN prints, and
+  `getFfmpegVersion()` in `src/main/engines/versions.ts` parses it too.
+  Laptop verification of the fix is in §10.
+- Tag v0.5.0 MOVED to the fix commit: remote tag deleted, annotated tag
+  re-created on **5d73268** (tag object `c40b6522c7859682698bf31bb1c487510b6b9e30`,
+  `refs/tags/v0.5.0^{} = 5d73268b0bb0c5ca44ae838cbeef45a31b14573c`),
+  pushed. This triggered run **44984348473**
+  (https://github.com/Khalid635/dovira/actions/runs/44984348473),
+  2026-11-22 ~04:16–04:24 UTC — **FAILED again, differently**:
+  - **build win** (job 137091536594): "Fetch engine binaries" failed
+    in ~4 s: `Downloading aria2 1.37.0...` then
+    `aria2: aria2c.exe not found after extraction. Extracted tree:
+    (empty)`. The download returned HTTP 200 and a non-empty file, and
+    `Expand-Archive` exited 0 — yet the extract dir is empty. The
+    first run's win error proves the same zip DID extract on the runner
+    (files existed, wrong path), so this is environmental/transient,
+    not the layout bug: candidates are Windows Defender quarantining
+    aria2c.exe mid-extraction, or a corrupt/truncated download that
+    Expand-Archive silently accepted. The script does not log the zip
+    size or magic bytes, so the log cannot distinguish them.
+  - **build mac** (job 137091536733): "Fetch engine binaries"
+    **SUCCEEDED** (the fix works on macOS — evermeet flat
+    ffmpeg/ffprobe + recursive search). "Build aria2 from source"
+    outcome **failure** (inner error not isolated from the 12,625-line
+    log; masked by `continue-on-error: true`). "Record aria2 status"
+    then **FAILED**: `dist/aria2-status-mac.txt: No such file or
+    directory` — `dist/` does not exist yet at that step (see below).
+  - **build linux** (job 137091536763): "Fetch engine binaries"
+    **SUCCEEDED** (the fix works on Linux — BtbN `n9.0.2` regex).
+    "Build aria2 from source" failed: `autoreconf: error: autopoint
+    failed with exit status: 2` (the ubuntu runner lacks `autopoint`;
+    masked by `continue-on-error: true`, outcome `failure`).
+    "Record aria2 status" then **FAILED**:
+    `dist/aria2-status-linux.txt: No such file or directory` — same
+    missing-`dist/` cause as mac.
+  - **create pre-release**: skipped. **NO v0.5.0 release exists.**
+- Root cause of the mac/linux failures (workflow bug, not the app):
+  the "Record aria2 status" step runs BEFORE `npm run build` and
+  before electron-builder, so `dist/` does not exist yet;
+  `echo ... > dist/aria2-status-<platform>.txt` fails. Fix for a
+  third attempt: `mkdir -p dist` in that step (or move it after
+  "Build installer").
+- What a third attempt also needs: (a) win fetch diagnostics — log
+  the downloaded zip size + first magic bytes, log the extracted tree
+  count after Expand-Archive, and fall back to `tar -xf` (ships with
+  Windows Server 2025) if Expand-Archive yields an empty tree;
+  (b) install `autopoint` (gettext) on the ubuntu runner before the
+  aria2 source build (or accept `aria2=failure` there — torrents then
+  need aria2, plain downloads fall back to yt-dlp, per the release
+  notes); (c) isolate the mac aria2-build failure from the mac log.
+- The EXPECTED release assets once a run goes green
   (https://github.com/Khalid635/dovira/releases/tag/v0.5.0):
   `dovira-0.5.0-setup.exe`, `dovira-0.5.0.dmg`,
   `dovira-0.5.0.AppImage`, `dovira_0.5.0_amd64.deb`, `latest.yml`,
@@ -211,3 +261,32 @@ the CI runners.
   `docs/signpath-application.md`. NOT submitted; Khalid's decision.
 - Live-stream recording, per-entry playlist quality, channel
   subscribe (same as v0.4.0 — never in scope).
+
+## 10. Fix verification on the laptop (commit 5d73268, 2026-11-22 ~09:44–10:15)
+
+- Win end-to-end `npm run fetch-binaries -- --platform win`: the first
+  run installed aria2 1.37.0, yt-dlp 2026.10.26, ffmpeg/ffprobe 9.0.2
+  (gyan.dev is very slow/bursty from this network — the 109 MB ffmpeg
+  zip took ~30 min; the 120s stall timeout never fired because data
+  kept trickling). The run was cut short by the harness's own 600 s
+  wrapper timeout while deno was downloading; the orphaned node
+  process finished the job (deno 2.9.8 installed). Direct version
+  checks afterwards, all rc 0: aria2 1.37.0, yt-dlp 2026.10.26,
+  ffmpeg 9.0.2, ffprobe 9.0.2, deno 2.9.8. A clean re-run exits 0 in
+  ~13 s with all five "already present - skipping" + "All binaries
+  ready."
+- Recursive-search test with the REAL `findInTree`/`listTree` code
+  sliced out of the script, against real zips: aria2 zip extracted
+  with its top folder RENAMED to `some-new-folder-name-v2` → aria2c.exe
+  still found; evermeet ffmpeg/ffprobe zips extracted flat → both
+  found; missing file → null. Proves the fix is layout-independent.
+- Static checks on the fix commit: `npm run typecheck` **0 errors**;
+  `npm run lint` **0 errors** (7 pre-existing prettier warnings);
+  `npm run build` **passes**; `node --check` on the script **0**;
+  **0 CRLF** in both changed files; preload imports only `electron`;
+  `sandbox: true` kept (`src/main/index.ts:68`).
+- Mac/Linux fetch logic verified as far as Windows allows: the
+  mac/linux download + layout + SHA checks from §6 still hold, and the
+  CI runs above prove the mac/linux fetch itself (both green in run
+  44984348473). No claim is made that a mac/linux binary runs on
+  Windows.
