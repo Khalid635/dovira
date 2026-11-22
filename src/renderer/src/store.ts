@@ -5,6 +5,7 @@ import type {
   DownloadInfo,
   EngineInfo,
   PlainFileInfo,
+  PlaylistInfo,
   ProgressEvent,
   SchedulerCountdown,
   Settings,
@@ -69,6 +70,10 @@ interface Store {
   dialogLoading: boolean
   dialogInfo: VideoInfo | null
   dialogPlainFile: PlainFileInfo | null
+  /** Phase 4: a playlist/channel fetch result (dialog shows the entry list). */
+  dialogPlaylist: PlaylistInfo | null
+  /** Phase 4: a magnet/.torrent fetch result (dialog shows name + note). */
+  dialogTorrent: { name: string } | null
   dialogError: string | null
   /** Raw IPC error text — shown in the dialog in dev only, never the user-facing message. */
   dialogErrorDetail: string | null
@@ -76,6 +81,14 @@ interface Store {
   closeDialog: () => void
   fetchInfo: (url: string) => Promise<void>
   addWithOptions: (opts: AddOptions) => Promise<{ ok: boolean; error?: string }>
+  // Phase 4: playlist / thumbnail-only / batch / archive.
+  addPlaylist: (items: AddOptions[]) => Promise<{ added: number; failed: number }>
+  addThumbnailOnly: (
+    url: string,
+    saveDir?: string
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+  importBatchFile: () => Promise<string[] | null>
+  clearDownloadArchive: () => Promise<boolean>
   // Engines (Phase 2).
   engines: EngineInfo[]
   enginesLoading: boolean
@@ -103,6 +116,8 @@ export const useStore = create<Store>()((set, get) => ({
   dialogLoading: false,
   dialogInfo: null,
   dialogPlainFile: null,
+  dialogPlaylist: null,
+  dialogTorrent: null,
   dialogError: null,
   dialogErrorDetail: null,
   engines: [],
@@ -363,6 +378,8 @@ export const useStore = create<Store>()((set, get) => ({
       dialogUrl: url,
       dialogInfo: null,
       dialogPlainFile: null,
+      dialogPlaylist: null,
+      dialogTorrent: null,
       dialogError: null,
       dialogLoading: false
     })
@@ -380,6 +397,8 @@ export const useStore = create<Store>()((set, get) => ({
       dialogLoading: true,
       dialogInfo: null,
       dialogPlainFile: null,
+      dialogPlaylist: null,
+      dialogTorrent: null,
       dialogError: null,
       dialogErrorDetail: null
     })
@@ -391,7 +410,11 @@ export const useStore = create<Store>()((set, get) => ({
     }
     try {
       const res = await window.dovira.fetchInfo(value)
-      if (res.ok && res.info) {
+      if (res.ok && res.playlist) {
+        set({ dialogPlaylist: res.playlist, dialogLoading: false })
+      } else if (res.ok && res.torrent) {
+        set({ dialogTorrent: res.torrent, dialogLoading: false })
+      } else if (res.ok && res.info) {
         set({ dialogInfo: res.info, dialogLoading: false })
       } else if (res.ok && res.plainFile) {
         set({ dialogPlainFile: res.plainFile, dialogLoading: false })
@@ -424,6 +447,56 @@ export const useStore = create<Store>()((set, get) => ({
       get().showToast('toast.added')
     }
     return res
+  },
+
+  addPlaylist: async (items) => {
+    // One toast for the whole playlist, not one per video — and the
+    // per-item addWithOptions in this store would close the dialog and
+    // toast on every item, so this loops the raw bridge call instead.
+    let added = 0
+    let failed = 0
+    for (const opts of items) {
+      try {
+        const res = await window.dovira.addWithOptions(opts)
+        if (res.ok) added++
+        else failed++
+      } catch {
+        failed++
+      }
+    }
+    set({ dialogOpen: false })
+    await get().refresh()
+    if (added > 0) get().showToast('toast.playlistAdded', { n: added })
+    return { added, failed }
+  },
+
+  addThumbnailOnly: async (url, saveDir) => {
+    const res = await window.dovira.addThumbnailOnly(url, saveDir)
+    if (res.ok) {
+      set({ dialogOpen: false })
+      await get().refresh()
+      get().showToast('toast.added')
+    }
+    return res
+  },
+
+  importBatchFile: async () => {
+    try {
+      const res = await window.dovira.importBatchFile()
+      return res.ok ? res.urls : null
+    } catch {
+      return null
+    }
+  },
+
+  clearDownloadArchive: async () => {
+    try {
+      const cleared = await window.dovira.clearDownloadArchive()
+      get().showToast(cleared ? 'toast.archiveCleared' : 'settings.archiveEmpty')
+      return cleared
+    } catch {
+      return false
+    }
   },
 
   loadEngines: async (checkForUpdates) => {

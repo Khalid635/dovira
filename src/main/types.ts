@@ -80,6 +80,10 @@ export interface Settings {
   lastSchedulerRun: string | null
   /** Phase 3: clipboard watch (AI Link Detection) — OFF by default. */
   clipboardWatch: boolean
+  /** Phase 4: skip videos already downloaded (yt-dlp --download-archive). */
+  playlistSkipDownloaded: boolean
+  /** Phase 4: embed title/artist metadata by default (video + audio). */
+  embedMetadataDefault: boolean
 }
 
 /** Phase 3: the scheduler's current state, shown in Settings. */
@@ -148,6 +152,29 @@ export interface VideoInfo {
   uploader: string | null
   site: string | null
   formats: VideoFormat[]
+  /** Phase 4: true when the URL is a live stream (duration is null). */
+  isLive: boolean
+  /** Phase 4: languages with human-made subtitles (from the info JSON). */
+  subtitleLangs: string[]
+  /** Phase 4: languages with auto-generated captions. */
+  autoCaptionLangs: string[]
+}
+
+/** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
+export interface PlaylistEntry {
+  id: string
+  title: string
+  duration: number | null
+  url: string
+  thumbnail: string | null
+}
+
+/** Phase 4: a playlist/channel, fetched with --flat-playlist -J. */
+export interface PlaylistInfo {
+  url: string
+  title: string
+  uploader: string | null
+  entries: PlaylistEntry[]
 }
 
 /** A plain-file link: no video/audio tabs, just name + size + save path. */
@@ -170,6 +197,19 @@ export interface AddOptions {
   filename: string
   title: string | null
   thumbnailUrl: string | null
+  /** Phase 4: clip bounds (HH:MM:SS or seconds), null = no clip. Video only. */
+  clipStart?: string | null
+  clipEnd?: string | null
+  /** Phase 4: --embed-metadata (title/artist). */
+  embedMetadata?: boolean
+  /** Phase 4: subtitles destination — embed in the file, separate .srt, or both. */
+  subMode?: 'embed' | 'file' | 'both'
+  /** Phase 4: also take auto-generated captions when no manual subs exist. */
+  autoSubs?: boolean
+  /** Phase 4: download only the thumbnail (.jpg), no media. */
+  thumbnailOnly?: boolean
+  /** Phase 4: skip via --download-archive when the video was downloaded before. */
+  useArchive?: boolean
 }
 
 export interface EngineInfo {

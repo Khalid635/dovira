@@ -1,6 +1,7 @@
 import { BrowserWindow, Notification, dialog, ipcMain, shell, app } from 'electron'
 import type { OpenDialogOptions } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 import type { DoviraDb } from './db'
 import type { SettingsManager } from './settings'
 import type { QueueManager } from './queue'
@@ -129,6 +130,55 @@ export function registerIpc(deps: IpcDeps): void {
       ? await dialog.showOpenDialog(win, options)
       : await dialog.showOpenDialog(options)
     return res.canceled ? null : (res.filePaths[0] ?? null)
+  })
+  // Phase 4: batch import — read a .txt of URLs in main, return the lines
+  // (http(s) + magnet: only, trimmed, de-duped, max 200).
+  ipcMain.handle('dovira:batch:importFile', async () => {
+    const win = deps.getMainWindow()
+    const options: OpenDialogOptions = {
+      properties: ['openFile'],
+      filters: [{ name: 'Text file', extensions: ['txt'] }]
+    }
+    const res = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options)
+    if (res.canceled || !res.filePaths[0]) return { ok: false, urls: [] as string[] }
+    try {
+      const text = readFileSync(res.filePaths[0], 'utf-8')
+      const seen = new Set<string>()
+      const urls: string[] = []
+      for (const line of text.split(/\r?\n/)) {
+        const u = line.trim()
+        if (!u || seen.has(u) || urls.length >= 200) continue
+        if (u.startsWith('magnet:') || u.startsWith('http://') || u.startsWith('https://')) {
+          seen.add(u)
+          urls.push(u)
+        }
+      }
+      return { ok: true, urls }
+    } catch {
+      return { ok: false, urls: [] as string[] }
+    }
+  })
+  // Phase 4: thumbnail-only download.
+  ipcMain.handle('dovira:downloads:addThumbnailOnly', (_e, url: unknown, saveDir: unknown) =>
+    typeof url === 'string'
+      ? queue.addThumbnailOnly(url, typeof saveDir === 'string' ? saveDir : undefined)
+      : { ok: false, error: 'invalid-url' }
+  )
+  // Phase 4: delete the download archive (userData/download-archive.txt).
+  // Returns true when a file was actually removed.
+  ipcMain.handle('dovira:settings:clearArchive', () => {
+    const archivePath = join(app.getPath('userData'), 'download-archive.txt')
+    try {
+      if (existsSync(archivePath)) {
+        unlinkSync(archivePath)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
   })
   // Phase 3: History — missing files, re-download, clear (records only).
   ipcMain.handle('dovira:history:missing', () => queue.historyMissing())

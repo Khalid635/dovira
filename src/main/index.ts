@@ -227,7 +227,14 @@ app.whenReady().then(() => {
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
   const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary, () => {
     const s = settings.get()
-    return { cookieBrowser: s.cookieBrowser, cookiesFile: s.cookiesFile, proxyUrl: s.proxyUrl }
+    return {
+      cookieBrowser: s.cookieBrowser,
+      cookiesFile: s.cookiesFile,
+      proxyUrl: s.proxyUrl,
+      // Phase 4: the download archive lives in userData; only when the
+      // skip-downloaded setting is on.
+      downloadArchive: s.playlistSkipDownloaded ? join(userData, 'download-archive.txt') : null
+    }
   })
   queue = new QueueManager(db, settings, aria2, ytdlp)
 

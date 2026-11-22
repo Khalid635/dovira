@@ -142,7 +142,7 @@ export default function Sidebar(): React.JSX.Element {
         <div className="min-w-0">
           <div className="text-[16px] font-semibold leading-tight tracking-wide">DOVIRA</div>
           <div className="text-[11px] leading-tight text-[var(--muted)]">
-            v{appInfo?.version ?? '0.2.0'} · Phase 3
+            v{appInfo?.version ?? '0.3.0'} · Phase 4
           </div>
           <div className="truncate text-[10px] leading-tight text-[var(--muted)]">
             {t('app.tagline')}

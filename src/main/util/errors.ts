@@ -19,6 +19,10 @@ export function mapEngineError(raw: string): FriendlyError {
   ) {
     return { code: 'no-space', raw }
   }
+  // Phase 4: yt-dlp skipped a video already in the download archive.
+  if (s.includes('has already been recorded in the archive')) {
+    return { code: 'already-downloaded', raw }
+  }
   if (s.includes('aria2c.exe') && s.includes('not found')) {
     return { code: 'engine-missing', raw }
   }

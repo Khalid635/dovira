@@ -27,6 +27,7 @@ export default function SettingsPage(): React.JSX.Element {
   const enginesLoading = useStore((s) => s.enginesLoading)
   const loadEngines = useStore((s) => s.loadEngines)
   const updateEngine = useStore((s) => s.updateEngine)
+  const clearDownloadArchive = useStore((s) => s.clearDownloadArchive)
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   // Phase 3: scheduler status (next run / last run) for the Scheduler section.
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
@@ -495,6 +496,43 @@ export default function SettingsPage(): React.JSX.Element {
                 ))}
               </select>
             </label>
+          </div>
+
+          {/* Phase 4: skip videos already downloaded (playlists/batch). */}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.playlistSkipDownloaded')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.playlistSkipDownloaded}
+                  onChange={(e) => set({ playlistSkipDownloaded: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.playlistSkipDownloadedHint')}
+            </p>
+          </div>
+
+          {/* Phase 4: embed title/artist metadata by default. */}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={settings.embedMetadataDefault}
+                onChange={(e) => set({ embedMetadataDefault: e.target.checked })}
+              />
+              {t('settings.embedMetadataDefault')}
+            </label>
+          </div>
+
+          {/* Phase 4: clear the download archive (yt-dlp --download-archive). */}
+          <div className="settings-field">
+            <button className="btn btn-sm" onClick={() => void clearDownloadArchive()}>
+              {t('settings.clearArchive')}
+            </button>
           </div>
         </section>
 

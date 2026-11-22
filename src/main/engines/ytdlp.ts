@@ -19,6 +19,29 @@ export interface YtDlpInfo {
   uploader: string | null
   site: string | null
   formats: YtDlpFormat[]
+  /** Phase 4: true when the URL is a live stream (duration is null). */
+  isLive: boolean
+  /** Phase 4: languages with human-made subtitles (from the info JSON). */
+  subtitleLangs: string[]
+  /** Phase 4: languages with auto-generated captions. */
+  autoCaptionLangs: string[]
+}
+
+/** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
+export interface PlaylistEntry {
+  id: string
+  title: string
+  duration: number | null
+  url: string
+  thumbnail: string | null
+}
+
+/** Phase 4: a playlist/channel, fetched with --flat-playlist -J. */
+export interface PlaylistInfo {
+  url: string
+  title: string
+  uploader: string | null
+  entries: PlaylistEntry[]
 }
 
 export interface YtDlpProgress {
@@ -40,6 +63,19 @@ export interface YtDlpDownloadOpts {
   embedThumbnail?: boolean
   container?: string
   useAria2?: boolean
+  /** Phase 4: clip bounds (HH:MM:SS or seconds), null = no clip. Video only. */
+  clipStart?: string | null
+  clipEnd?: string | null
+  /** Phase 4: --embed-metadata (title/artist). */
+  embedMetadata?: boolean
+  /** Phase 4: subtitles destination — embed, separate .srt, or both. */
+  subMode?: 'embed' | 'file' | 'both'
+  /** Phase 4: also take auto-generated captions. */
+  autoSubs?: boolean
+  /** Phase 4: download only the thumbnail (.jpg), no media. */
+  thumbnailOnly?: boolean
+  /** Phase 4: skip via --download-archive when already downloaded. */
+  useArchive?: boolean
 }
 
 export interface YtDlpDownloadCallbacks {
@@ -335,6 +371,8 @@ export interface YtDlpNetworkOptions {
   cookieBrowser: string
   cookiesFile: string | null
   proxyUrl: string
+  /** Phase 4: path to download-archive.txt, or null when the setting is off. */
+  downloadArchive: string | null
 }
 
 export class YtDlpManager {
@@ -350,12 +388,15 @@ export class YtDlpManager {
     private getNetwork?: () => YtDlpNetworkOptions
   ) {}
 
-  private baseArgs(): string[] {
-    const args: string[] = ['--no-warnings', '--no-playlist', '--ffmpeg-location', this.ffmpegDir]
-    if (this.denoPath) args.push('--js-runtimes', `deno:${this.denoPath}`)
-    // Phase 3: cookies + proxy, wired into every yt-dlp call (fetchInfo and
-    // downloads share baseArgs). A cookies.txt file is used only when no
-    // browser is selected; the browser flag takes precedence.
+  /**
+   * Phase 4: cookies + proxy only, reused everywhere. Split out of
+   * baseArgs because the playlist fetch must NOT get --no-playlist.
+   */
+  private networkArgs(): string[] {
+    // Phase 3: cookies + proxy, wired into every yt-dlp call. A cookies.txt
+    // file is used only when no browser is selected; the browser flag takes
+    // precedence.
+    const args: string[] = []
     const net = this.getNetwork?.()
     if (net) {
       if (net.cookieBrowser && net.cookieBrowser !== 'none') {
@@ -365,6 +406,18 @@ export class YtDlpManager {
       }
       if (net.proxyUrl) args.push('--proxy', net.proxyUrl)
     }
+    return args
+  }
+
+  private baseArgs(): string[] {
+    const args: string[] = [
+      ...this.networkArgs(),
+      '--no-warnings',
+      '--no-playlist',
+      '--ffmpeg-location',
+      this.ffmpegDir
+    ]
+    if (this.denoPath) args.push('--js-runtimes', `deno:${this.denoPath}`)
     return args
   }
 
@@ -434,20 +487,131 @@ export class YtDlpManager {
             ? (json['channel'] as string)
             : null,
       site: parsed.hostname,
-      formats
+      formats,
+      isLive: json['is_live'] === true,
+      subtitleLangs:
+        json['subtitles'] && typeof json['subtitles'] === 'object'
+          ? Object.keys(json['subtitles'] as Record<string, unknown>)
+          : [],
+      autoCaptionLangs:
+        json['automatic_captions'] && typeof json['automatic_captions'] === 'object'
+          ? Object.keys(json['automatic_captions'] as Record<string, unknown>)
+          : []
+    }
+  }
+
+  /**
+   * Phase 4: fetch a playlist/channel as flat entries (no formats —
+   * quality is chosen once in the dialog and applied to every entry).
+   */
+  async fetchPlaylist(url: string): Promise<PlaylistInfo> {
+    let parsed: URL
+    try {
+      parsed = new URL(url.trim())
+    } catch {
+      throw new YtDlpError('invalid-url', 'not a URL')
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new YtDlpError('unsupported-url', 'not http(s)')
+    }
+    const args = [...this.networkArgs(), '--no-warnings', '--flat-playlist', '-J']
+    if (this.denoPath) args.push('--js-runtimes', `deno:${this.denoPath}`)
+    args.push('--', url.trim())
+    const out = await this.runCapture(args, 60_000)
+    if (out.timedOut) {
+      throw new YtDlpError('timeout', 'fetchPlaylist timed out after 60s')
+    }
+    let json: Record<string, unknown>
+    try {
+      json = JSON.parse(out.stdout) as Record<string, unknown>
+    } catch {
+      throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
+    }
+    if (out.code !== 0) {
+      throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
+    }
+    const entriesRaw = Array.isArray(json['entries']) ? json['entries'] : []
+    const entries: PlaylistEntry[] = []
+    for (const e of entriesRaw as Record<string, unknown>[]) {
+      const id = typeof e['id'] === 'string' ? (e['id'] as string) : ''
+      if (!id) continue
+      const thumbs = Array.isArray(e['thumbnails']) ? e['thumbnails'] : []
+      const thumb = thumbs.length > 0 ? thumbs[thumbs.length - 1] : null
+      entries.push({
+        id,
+        title: typeof e['title'] === 'string' ? (e['title'] as string) : id,
+        duration: typeof e['duration'] === 'number' ? (e['duration'] as number) : null,
+        url:
+          typeof e['url'] === 'string' && (e['url'] as string)
+            ? (e['url'] as string)
+            : `https://www.youtube.com/watch?v=${id}`,
+        thumbnail:
+          thumb && typeof (thumb as Record<string, unknown>)['url'] === 'string'
+            ? ((thumb as Record<string, unknown>)['url'] as string)
+            : typeof e['thumbnail'] === 'string'
+              ? (e['thumbnail'] as string)
+              : null
+      })
+    }
+    return {
+      url: url.trim(),
+      title: typeof json['title'] === 'string' ? (json['title'] as string) : url.trim(),
+      uploader:
+        typeof json['uploader'] === 'string'
+          ? (json['uploader'] as string)
+          : typeof json['channel'] === 'string'
+            ? (json['channel'] as string)
+            : null,
+      entries
     }
   }
 
   /** Build the exact arg list for a download (stored for resume). */
   buildArgs(opts: YtDlpDownloadOpts): string[] {
+    // Phase 4: thumbnail-only — no media, no format, no progress template.
+    // The run is one quick call; the queue treats it as a no-progress
+    // download and completes it on exit 0 + file exists.
+    // The -o template MUST contain %(ext)s: with a fixed name yt-dlp
+    // refuses ("Fixed output name but more than one file to download").
+    // The stem is the row's savePath minus its .jpg extension, so the
+    // produced file lands exactly on savePath.
+    if (opts.thumbnailOnly) {
+      const template = opts.savePath.replace(/\.[^.]+$/, '.%(ext)s')
+      return [
+        ...this.baseArgs(),
+        '--write-thumbnail',
+        '--skip-download',
+        '--convert-thumbnails',
+        'jpg',
+        '-o',
+        template,
+        '--',
+        opts.url
+      ]
+    }
     const args = [...this.baseArgs(), '--newline', '--progress-template', PROGRESS_TEMPLATE]
     if (opts.kind === 'video') {
       args.push('-f', opts.formatString, '--merge-output-format', opts.container ?? 'mp4')
     } else {
       args.push('-x', '--audio-format', 'mp3', '--audio-quality', `${opts.audioBitrate ?? '320'}K`)
     }
+    // Phase 4: clip — a time range of the video (video only; the dialog
+    // rejects audio+clip). End may be empty = to the end.
+    if (opts.clipStart) {
+      args.push(
+        '--download-sections',
+        `*${opts.clipStart}-${opts.clipEnd ?? ''}`,
+        '--force-keyframes-at-cuts'
+      )
+    }
+    if (opts.embedMetadata) args.push('--embed-metadata')
     if (opts.subtitles) {
-      args.push('--write-subs', '--sub-langs', opts.subLang ?? 'en', '--embed-subs')
+      args.push('--write-subs', '--sub-langs', opts.subLang ?? 'en')
+      if (opts.subMode === 'file' || opts.subMode === 'both') {
+        args.push('--sub-format', 'srt/best')
+      }
+      if (opts.subMode !== 'file') args.push('--embed-subs')
+      if (opts.autoSubs) args.push('--write-auto-subs')
     }
     if (opts.embedThumbnail) args.push('--embed-thumbnail')
     if (opts.useAria2) {
@@ -457,6 +621,12 @@ export class YtDlpManager {
         '--downloader-args',
         'aria2c:-x 8 -s 8 --disable-ipv6 --file-allocation=none'
       )
+    }
+    // Phase 4: skip videos already recorded in the download archive
+    // (playlist/batch items only — never single re-downloads from History).
+    if (opts.useArchive) {
+      const archive = this.getNetwork?.().downloadArchive
+      if (archive) args.push('--download-archive', archive)
     }
     args.push('-o', opts.savePath, '--', opts.url)
     return args
@@ -553,7 +723,20 @@ export class YtDlpDownload {
         for (const line of chunk.toString('utf-8').split(/\r?\n/)) {
           if (!line.trim()) continue
           const p = parseProgressLine(line)
-          if (p) this.cb.onProgress(p)
+          if (p) {
+            this.cb.onProgress(p)
+          } else {
+            // Phase 4: yt-dlp writes status lines to stdout, not stderr —
+            // including the download-archive skip notice ("has already
+            // been recorded in the archive"). Keep non-progress stdout
+            // lines in the tail too, or the queue's archive check can
+            // never match and a skip fails as 'unknown' instead of
+            // 'already-downloaded'.
+            this.stderrTail.push(line)
+            if (this.stderrTail.length > 50) {
+              this.stderrTail.splice(0, this.stderrTail.length - 50)
+            }
+          }
         }
       })
       child.stderr?.on('data', (chunk: Buffer) => {

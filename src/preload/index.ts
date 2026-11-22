@@ -5,6 +5,7 @@ import type {
   DownloadInfo,
   EngineInfo,
   PlainFileInfo,
+  PlaylistInfo,
   ProgressEvent,
   SchedulerCountdown,
   SchedulerStatus,
@@ -17,9 +18,14 @@ import type {
 export interface DoviraAPI {
   listDownloads(): Promise<DownloadInfo[]>
   addDownload(url: string, saveDir?: string): Promise<{ ok: boolean; id?: string; error?: string }>
-  fetchInfo(
-    url: string
-  ): Promise<{ ok: boolean; info?: VideoInfo; plainFile?: PlainFileInfo; error?: string }>
+  fetchInfo(url: string): Promise<{
+    ok: boolean
+    info?: VideoInfo
+    plainFile?: PlainFileInfo
+    playlist?: PlaylistInfo
+    torrent?: { name: string }
+    error?: string
+  }>
   addWithOptions(opts: AddOptions): Promise<{ ok: boolean; id?: string; error?: string }>
   listEngines(checkForUpdates: boolean): Promise<EngineInfo[]>
   updateEngine(name: string): Promise<{ ok: boolean; version?: string; error?: string }>
@@ -43,6 +49,13 @@ export interface DoviraAPI {
   reorderDownloads(id: string, beforeId: string | null): Promise<boolean>
   schedulerStatus(): Promise<SchedulerStatus>
   schedulerCancel(): Promise<boolean>
+  // Phase 4
+  importBatchFile(): Promise<{ ok: boolean; urls: string[] }>
+  addThumbnailOnly(
+    url: string,
+    saveDir?: string
+  ): Promise<{ ok: boolean; id?: string; error?: string }>
+  clearDownloadArchive(): Promise<boolean>
   onSchedulerCountdown(cb: (c: SchedulerCountdown | null) => void): () => void
   onClipboardLink(cb: (url: string) => void): () => void
   onProgress(cb: (p: ProgressEvent) => void): () => void
@@ -90,6 +103,11 @@ const api: DoviraAPI = {
     ipcRenderer.invoke('dovira:downloads:reorder', id, beforeId),
   schedulerStatus: () => ipcRenderer.invoke('dovira:scheduler:status'),
   schedulerCancel: () => ipcRenderer.invoke('dovira:scheduler:cancel'),
+  // Phase 4
+  importBatchFile: () => ipcRenderer.invoke('dovira:batch:importFile'),
+  addThumbnailOnly: (url: string, saveDir?: string) =>
+    ipcRenderer.invoke('dovira:downloads:addThumbnailOnly', url, saveDir),
+  clearDownloadArchive: () => ipcRenderer.invoke('dovira:settings:clearArchive'),
   onSchedulerCountdown: (cb) =>
     subscribe<SchedulerCountdown | null>('dovira:scheduler:countdown', cb),
   onClipboardLink: (cb) => subscribe<string>('dovira:clipboard:link', cb),

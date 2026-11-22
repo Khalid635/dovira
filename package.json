@@ -1,6 +1,6 @@
 {
   "name": "dovira",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DOVIRA — Download Smarter. Go Further. Open-source AI download manager.",
   "main": "./out/main/index.js",
   "author": "Khalid Bin Masud",

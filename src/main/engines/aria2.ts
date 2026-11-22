@@ -12,6 +12,9 @@ export interface Aria2Status {
   connections: string
   errorCode?: string
   errorMessage?: string
+  /** Magnet links: when the metadata download completes, aria2 starts the
+   * real file download under a new GID listed here. */
+  followedBy?: string[]
   dir: string
   files?: Array<{
     path: string
@@ -74,7 +77,20 @@ export class Aria2Manager {
       '--min-split-size=1M',
       '--file-allocation=none',
       '--console-log-level=warn',
-      '--enable-dht=false',
+      // Phase 4: magnet links need DHT (or trackers) to find peers;
+      // trackers in the link alone are often not enough. DHT chatter is
+      // harmless for normal file downloads. --seed-time=0 stays.
+      '--enable-dht=true',
+      // Phase 4: Local Peer Discovery is REQUIRED for magnets to work
+      // behind a home NAT: DHT returns the public IP (unreachable from
+      // inside the NAT, no port-forward), trackers are often absent, and
+      // aria2 ignores the magnet x.pe parameter — so without LPD a
+      // local seeder is never found and the download stalls at
+      // [METADATA] forever. LPD finds peers on the same LAN via
+      // multicast. Verified 2026-11-22: app aria2 without this flag
+      // stayed conn=0 for 150s against a live local seeder; CLI aria2
+      // with LPD on completed the same magnet byte-identical.
+      '--bt-enable-lpd=true',
       '--seed-time=0',
       '--max-tries=5',
       '--retry-wait=5',

@@ -21,6 +21,7 @@ import type {
   DownloadInfo,
   DownloadKind,
   PlainFileInfo,
+  PlaylistInfo,
   ProgressEvent,
   StatusEvent,
   ToastEvent,
@@ -38,6 +39,46 @@ const MAX_ARIA2_RESTARTS = 3
 /** Retry backoff between auto-retries: a short outage (up to ~25s) is bridged
  * without burning all retries in the first seconds. */
 const RETRY_DELAYS_MS = [2000, 5000, 15000]
+
+/** Phase 4: magnet: links and .torrent file URLs go to aria2 as torrents. */
+function isTorrentUrl(url: string): boolean {
+  if (url.startsWith('magnet:')) return true
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.torrent')
+  } catch {
+    return false
+  }
+}
+
+/** Phase 4: torrent name from a magnet link's dn= param, else a default. */
+function magnetName(url: string): string {
+  try {
+    const dn = new URL(url).searchParams.get('dn')
+    if (dn) return dn
+  } catch {
+    // Fall through to the default name.
+  }
+  return 'torrent'
+}
+
+/** Phase 4: playlist/channel-looking URLs get a flat-playlist fetch first. */
+function looksLikePlaylist(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.searchParams.has('list')) return true
+    const p = parsed.pathname
+    return (
+      p.includes('/playlist') ||
+      p.includes('/channel/') ||
+      p.includes('/@') ||
+      p.includes('/c/') ||
+      p.includes('/user/') ||
+      p.includes('/playlists')
+    )
+  } catch {
+    return false
+  }
+}
 
 /**
  * yt-dlp download strategy, set by the docs/benchmark.md result.
@@ -103,6 +144,19 @@ interface YtDlpState {
   embedThumbnail?: boolean
   audioBitrate?: string
   container?: string
+  /** Phase 4: clip bounds (HH:MM:SS or seconds), null = no clip. */
+  clipStart?: string | null
+  clipEnd?: string | null
+  /** Phase 4: --embed-metadata. */
+  embedMetadata?: boolean
+  /** Phase 4: subtitles destination. */
+  subMode?: 'embed' | 'file' | 'both'
+  /** Phase 4: also take auto-generated captions. */
+  autoSubs?: boolean
+  /** Phase 4: thumbnail-only (.jpg) download. */
+  thumbnailOnly?: boolean
+  /** Phase 4: skip via --download-archive. */
+  useArchive?: boolean
 }
 
 function parseYtDlpState(raw: string | null): YtDlpState | null {
@@ -181,17 +235,43 @@ export class QueueManager extends EventEmitter {
    * video site or anything else → yt-dlp info; on yt-dlp failure, a HEAD
    * request decides whether it is a plain file after all (§2).
    */
-  async fetchInfo(
-    url: string
-  ): Promise<{ ok: boolean; info?: VideoInfo; plainFile?: PlainFileInfo; error?: string }> {
+  async fetchInfo(url: string): Promise<{
+    ok: boolean
+    info?: VideoInfo
+    plainFile?: PlainFileInfo
+    playlist?: PlaylistInfo
+    torrent?: { name: string }
+    error?: string
+  }> {
+    const trimmed = url.trim()
+    // Phase 4: magnet links never touch yt-dlp.
+    if (trimmed.startsWith('magnet:')) {
+      return { ok: true, torrent: { name: magnetName(trimmed) } }
+    }
     let parsed: URL
     try {
-      parsed = new URL(url.trim())
+      parsed = new URL(trimmed)
     } catch {
       return { ok: false, error: 'invalid-url' }
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return { ok: false, error: 'unsupported-url' }
+    }
+    // Phase 4: a .torrent file URL is a torrent, not a video.
+    if (isTorrentUrl(trimmed)) {
+      return { ok: true, torrent: { name: filenameFromUrl(trimmed) } }
+    }
+    // Phase 4: playlist/channel — flat fetch first; on failure fall back
+    // to the single-video fetch below (a channel URL that isn't a playlist
+    // still resolves — or errors honestly — as one video).
+    if (looksLikePlaylist(trimmed) && this.ytdlp) {
+      try {
+        const playlist = await this.ytdlp.fetchPlaylist(trimmed)
+        if (playlist.entries.length > 0) return { ok: true, playlist }
+        // Empty playlist — fall through to the single-video fetch.
+      } catch {
+        // Fall through to the single-video fetch below.
+      }
     }
     const ext = parsed.pathname.split('.').pop()?.toLowerCase() ?? ''
     if (FILE_EXTS.has(ext)) {
@@ -250,7 +330,12 @@ export class QueueManager extends EventEmitter {
     } catch {
       return { ok: false, error: 'invalid-url' }
     }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    // Phase 4: magnet: links are accepted (routed to aria2 as torrents).
+    if (
+      parsed.protocol !== 'http:' &&
+      parsed.protocol !== 'https:' &&
+      parsed.protocol !== 'magnet:'
+    ) {
       return { ok: false, error: 'unsupported-url' }
     }
     const s = this.settings.get()
@@ -267,20 +352,25 @@ export class QueueManager extends EventEmitter {
     }
 
     // Best-effort HEAD: filename from Content-Disposition + total size.
-    let filename = filenameFromUrl(url)
+    // Phase 4: no HEAD fetch for magnets (HEAD on a magnet is meaningless);
+    // the name comes from the magnet's dn= param instead.
+    const isMagnet = parsed.protocol === 'magnet:'
+    let filename = isMagnet ? magnetName(url.trim()) : filenameFromUrl(url)
     let totalBytes = 0
-    try {
-      const head = await fetch(url, {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: AbortSignal.timeout(10_000)
-      })
-      const fromCd = filenameFromUrl(url, head.headers.get('content-disposition'))
-      if (fromCd !== 'download') filename = fromCd
-      const len = Number(head.headers.get('content-length') ?? 0)
-      if (Number.isFinite(len) && len > 0) totalBytes = len
-    } catch {
-      // Some servers refuse HEAD — aria2 will report the size shortly.
+    if (!isMagnet) {
+      try {
+        const head = await fetch(url, {
+          method: 'HEAD',
+          redirect: 'follow',
+          signal: AbortSignal.timeout(10_000)
+        })
+        const fromCd = filenameFromUrl(url, head.headers.get('content-disposition'))
+        if (fromCd !== 'download') filename = fromCd
+        const len = Number(head.headers.get('content-length') ?? 0)
+        if (Number.isFinite(len) && len > 0) totalBytes = len
+      } catch {
+        // Some servers refuse HEAD — aria2 will report the size shortly.
+      }
     }
     if (totalBytes > 0 && free !== null && free < totalBytes) {
       return { ok: false, error: 'no-space' }
@@ -374,7 +464,14 @@ export class QueueManager extends EventEmitter {
       subLang: opts.subLang,
       embedThumbnail: opts.embedThumbnail,
       audioBitrate: opts.kind === 'audio' ? opts.qualityLabel.replace(/[^0-9]/g, '') : undefined,
-      container: opts.kind === 'video' ? 'mp4' : undefined
+      container: opts.kind === 'video' ? 'mp4' : undefined,
+      clipStart: opts.clipStart ?? null,
+      clipEnd: opts.clipEnd ?? null,
+      embedMetadata: opts.embedMetadata ?? false,
+      subMode: opts.subMode ?? 'embed',
+      autoSubs: opts.autoSubs ?? false,
+      thumbnailOnly: opts.thumbnailOnly ?? false,
+      useArchive: opts.useArchive ?? false
     }
     const info: DownloadInfo = {
       id,
@@ -420,6 +517,102 @@ export class QueueManager extends EventEmitter {
       engine: 'ytdlp',
       formatId: opts.formatId,
       formatString: opts.formatString,
+      ytdlpState: info.ytdlpState
+    })
+    this.downloads.set(id, info)
+    this.emitStatus(id)
+    void this.pump()
+    return { ok: true, id }
+  }
+
+  /**
+   * Phase 4: download only the video's thumbnail (.jpg) — one quick call,
+   * no progress events, no resume (a thumbnail fetch is one quick call).
+   * The row completes through the normal pump/startYtDlp path on exit 0 +
+   * the .jpg existing.
+   */
+  async addThumbnailOnly(
+    url: string,
+    saveDir?: string
+  ): Promise<{ ok: boolean; id?: string; error?: string }> {
+    let parsed: URL
+    try {
+      parsed = new URL(url.trim())
+    } catch {
+      return { ok: false, error: 'invalid-url' }
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: 'unsupported-url' }
+    }
+    if (!this.ytdlp) return { ok: false, error: 'engine-missing' }
+    const s = this.settings.get()
+    const free = diskFreeBytes(s.downloadDir)
+    if (free !== null && free < MIN_FREE_BYTES) return { ok: false, error: 'no-space' }
+
+    for (const d of this.downloads.values()) {
+      if (d.url === url && ['queued', 'downloading', 'paused', 'failed'].includes(d.status)) {
+        if (d.status === 'paused' || d.status === 'failed') void this.resume(d.id)
+        return { ok: true, id: d.id }
+      }
+    }
+
+    let title: string
+    try {
+      title = (await this.ytdlp.fetchInfo(url.trim())).title
+    } catch (err) {
+      return { ok: false, error: err instanceof YtDlpError ? err.code : 'unknown' }
+    }
+
+    const dir = saveDir ?? s.downloadDir
+    mkdirSync(dir, { recursive: true })
+    const filename = sanitizeFilename(title) + '.jpg'
+    const savePath = this.resolveUniqueSavePath(dir, filename)
+    const id = randomUUID()
+    const now = Date.now()
+    const state: YtDlpState = { thumbnailOnly: true, container: 'mp4' }
+    const info: DownloadInfo = {
+      id,
+      url: url.trim(),
+      title,
+      filename: basename(savePath),
+      savePath,
+      kind: 'video',
+      formatLabel: 'thumbnail',
+      status: 'queued',
+      totalBytes: 0,
+      doneBytes: 0,
+      speedBps: 0,
+      etaSeconds: null,
+      errorCode: null,
+      errorMessage: null,
+      thumbnailUrl: null,
+      site: parsed.hostname,
+      createdAt: now,
+      startedAt: null,
+      completedAt: null,
+      engine: 'ytdlp',
+      formatId: null,
+      formatString: null,
+      ytdlpState: JSON.stringify(state),
+      sortOrder: now
+    }
+    this.db.insertDownload({
+      id: info.id,
+      url: info.url,
+      title: info.title,
+      filename: info.filename,
+      savePath: info.savePath,
+      kind: info.kind,
+      formatLabel: info.formatLabel,
+      status: 'queued',
+      totalBytes: 0,
+      doneBytes: 0,
+      site: info.site,
+      createdAt: info.createdAt,
+      sortOrder: info.sortOrder,
+      engine: 'ytdlp',
+      formatId: null,
+      formatString: null,
       ytdlpState: info.ytdlpState
     })
     this.downloads.set(id, info)
@@ -725,6 +918,14 @@ export class QueueManager extends EventEmitter {
         subtitles: state?.subtitles ?? false,
         subLang: state?.subLang ?? 'en',
         embedThumbnail: state?.embedThumbnail ?? false,
+        clipStart: state?.clipStart ?? null,
+        clipEnd: state?.clipEnd ?? null,
+        embedMetadata: state?.embedMetadata ?? false,
+        subMode: state?.subMode ?? 'embed',
+        autoSubs: state?.autoSubs ?? false,
+        thumbnailOnly: state?.thumbnailOnly ?? false,
+        // Phase 4: never re-skip on an explicit re-download (plan §1).
+        useArchive: false,
         savePath: d.savePath,
         filename: d.filename,
         title: d.title,
@@ -813,7 +1014,6 @@ export class QueueManager extends EventEmitter {
     }
     const opts: Record<string, string> = {
       dir: dirname(d.savePath),
-      out: basename(d.savePath),
       'max-connection-per-server': String(s.connectionsPerDownload),
       split: String(s.connectionsPerDownload),
       continue: 'true',
@@ -821,6 +1021,9 @@ export class QueueManager extends EventEmitter {
       'auto-file-renaming': 'false',
       'max-overall-download-limit': s.speedLimitKBps > 0 ? String(s.speedLimitKBps * 1024) : '0'
     }
+    // Phase 4: aria2 ignores `out` for torrents — the real filename
+    // comes from the torrent metadata (fixed up by the poll tick).
+    if (!isTorrentUrl(d.url)) opts['out'] = basename(d.savePath)
     // Phase 3: proxy applies to aria2 too (yt-dlp gets it via baseArgs).
     if (s.proxyUrl) opts['all-proxy'] = s.proxyUrl
     try {
@@ -855,7 +1058,14 @@ export class QueueManager extends EventEmitter {
       subLang: state?.subLang ?? 'en',
       embedThumbnail: state?.embedThumbnail ?? false,
       container: state?.container ?? 'mp4',
-      useAria2: YTDLP_USE_ARIA2
+      useAria2: YTDLP_USE_ARIA2,
+      clipStart: state?.clipStart ?? null,
+      clipEnd: state?.clipEnd ?? null,
+      embedMetadata: state?.embedMetadata ?? false,
+      subMode: state?.subMode ?? 'embed',
+      autoSubs: state?.autoSubs ?? false,
+      thumbnailOnly: state?.thumbnailOnly ?? false,
+      useArchive: state?.useArchive ?? false
     }
   }
 
@@ -941,6 +1151,21 @@ export class QueueManager extends EventEmitter {
     this.active.delete(d.id)
     this.ytDlpArgs.delete(d.id)
     if (code === 0) {
+      // Phase 4: yt-dlp skipped this one — it is already in the download
+      // archive. A file on disk means the earlier download is the result;
+      // no file means it was downloaded before and skipped now.
+      if (stderr.includes('has already been recorded in the archive')) {
+        if (existsSync(d.savePath)) {
+          await this.complete(d.id)
+          return
+        }
+        this.fail(
+          d,
+          'already-downloaded',
+          stderr.slice(0, 300) || 'already recorded in the download archive'
+        )
+        return
+      }
       if (!existsSync(d.savePath)) {
         this.fail(d, 'unknown', stderr.slice(0, 300) || 'yt-dlp exited 0 but no output file')
         return
@@ -1011,6 +1236,17 @@ export class QueueManager extends EventEmitter {
             ? Math.round((d.totalBytes - d.doneBytes) / speed)
             : null
 
+        // Phase 4: torrents ignore aria2's `out` — the real file path
+        // comes from the torrent metadata. Fix the row up on first sight.
+        if (isTorrentUrl(d.url)) {
+          const realPath = st.files?.[0]?.path
+          if (realPath && realPath !== d.savePath) {
+            d.filename = basename(realPath)
+            d.savePath = realPath
+            this.db.updateDownload(id, { filename: d.filename, savePath: realPath })
+          }
+        }
+
         // Disk filled up mid-download: pause with a clear reason.
         if (total > 0) {
           const free = diskFreeBytes(this.settings.get().downloadDir)
@@ -1028,6 +1264,21 @@ export class QueueManager extends EventEmitter {
           entry.lastPersistedAt = now
         }
 
+        if (st.status === 'complete' && st.followedBy?.length) {
+          // Magnet link: aria2 first completes a tiny metadata download
+          // (~165 bytes), then starts the real file download under a new
+          // GID. Follow it — marking the row complete here would report
+          // a "completed" torrent whose file is just the metadata blob.
+          const nextGid = st.followedBy[0]
+          try {
+            await this.aria2.removeDownloadResult(entry.gid)
+          } catch {
+            // Session cleanup is best-effort.
+          }
+          entry.gid = nextGid
+          entry.lastPersistedAt = Date.now()
+          continue
+        }
         if (st.status === 'complete') {
           await this.complete(id)
         } else if (st.status === 'error') {

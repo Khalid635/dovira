@@ -25,7 +25,10 @@ export const DEFAULT_SETTINGS: Settings = {
   schedulerTime: '02:00',
   schedulerAction: 'none',
   lastSchedulerRun: null,
-  clipboardWatch: false
+  clipboardWatch: false,
+  // Phase 4
+  playlistSkipDownloaded: false,
+  embedMetadataDefault: false
 }
 
 const COOKIE_BROWSERS = ['none', 'chrome', 'edge', 'firefox', 'brave'] as const
@@ -93,6 +96,9 @@ function normalizeSettings(next: Settings): Settings {
     next.lastSchedulerRun = null
   }
   next.clipboardWatch = next.clipboardWatch === true
+  // Phase 4
+  next.playlistSkipDownloaded = next.playlistSkipDownloaded === true
+  next.embedMetadataDefault = next.embedMetadataDefault === true
   return next
 }
 
