@@ -70,7 +70,9 @@ if [ "$PLATFORM" = "mac" ]; then
 else
   echo "Installing build dependencies (apt)..."
   sudo apt-get update -qq
-  sudo apt-get install -y -qq autoconf automake libtool pkg-config \
+  # gettext provides autopoint, which autoreconf -i needs — the ubuntu
+  # runner has no autopoint (CI run 44984348473 failed on exactly that).
+  sudo apt-get install -y -qq autoconf automake libtool pkg-config gettext \
     libxml2-dev libsqlite3-dev libssl-dev zlib1g-dev libssh2-1-dev \
     libexpat1-dev libc-ares-dev
   autoreconf -i
@@ -106,7 +108,12 @@ if [ "$PLATFORM" = "mac" ]; then
     install_name_tool -id "@loader_path/lib/$base" "$LIB_DIR/$base"
     install_name_tool -change "$lib" "@loader_path/lib/$base" "$BIN"
   done
-  # Transitive deps: bundled libs may reference other Homebrew libs.
+  # Transitive deps: bundled libs may reference other Homebrew libs
+  # (e.g. libssl references libcrypto). References inside a bundled
+  # dylib resolve from inside lib/, so they must be @loader_path/<name>
+  # — @loader_path/lib/<name> would resolve to lib/lib/<name> and dyld
+  # fails to load (CI run 44984348473 failed the env -i gate on exactly
+  # that). References in the main binary stay @loader_path/lib/<name>.
   for _ in 1 2 3; do
     remaining="$(otool -L "$BIN" "$LIB_DIR"/*.dylib 2>/dev/null | awk '{print $1}' | grep -E '^/(opt/homebrew|usr/local)/' | sort -u || true)"
     [ -z "$remaining" ] && break
@@ -119,9 +126,16 @@ if [ "$PLATFORM" = "mac" ]; then
       fi
       install_name_tool -change "$lib" "@loader_path/lib/$base" "$BIN" 2>/dev/null || true
       for f in "$LIB_DIR"/*.dylib; do
-        install_name_tool -change "$lib" "@loader_path/lib/$base" "$f" 2>/dev/null || true
+        install_name_tool -change "$lib" "@loader_path/$base" "$f" 2>/dev/null || true
       done
     done
+  done
+  # Re-sign every bundled dylib: install_name_tool invalidated their
+  # Homebrew signatures, and arm64 dyld refuses to load a dylib whose
+  # signature is invalid. The main binary is signed right after.
+  for f in "$LIB_DIR"/*.dylib; do
+    [ -e "$f" ] || continue
+    codesign --force --sign - --timestamp=none "$f"
   done
   codesign --force --sign - --timestamp=none "$BIN"
   # Gate: no Homebrew path may remain, and the binary must run with a
@@ -132,8 +146,32 @@ if [ "$PLATFORM" = "mac" ]; then
     rm -rf "$LIB_DIR"
     exit 3
   fi
-  if ! env -i PATH=/usr/bin:/bin "$BIN" --version 2>/dev/null | head -n 1 | grep -q "aria2 version $ARIA2_VERSION"; then
+  # A dylib inside lib/ must never reference @loader_path/lib/ as a
+  # dependency (from inside lib/ that resolves to lib/lib/ — see the
+  # transitive loop). Each dylib's own LC_ID_DYLIB is @loader_path/lib/
+  # by design, so skip each file's header + id lines (tail -n +3).
+  for f in "$LIB_DIR"/*.dylib; do
+    [ -e "$f" ] || continue
+    if otool -L "$f" | tail -n +3 | grep -q '@loader_path/lib/'; then
+      echo "ERROR: $f references @loader_path/lib/ (must be @loader_path/ from inside lib/):" >&2
+      otool -L "$f" >&2
+      rm -f "$BIN"
+      rm -rf "$LIB_DIR"
+      exit 3
+    fi
+  done
+  echo "Linked libraries (otool -L):"
+  otool -L "$BIN" "$LIB_DIR"/*.dylib
+  # Capture the sanitized run's stderr too: the old gate swallowed it
+  # (2>/dev/null), so CI run 44984348473 showed only "does not run"
+  # with no dyld error to diagnose from.
+  SANITIZED_OUT="$(env -i PATH=/usr/bin:/bin "$BIN" --version 2>&1)" || true
+  if ! printf '%s' "$SANITIZED_OUT" | head -n 1 | grep -q "aria2 version $ARIA2_VERSION"; then
     echo "ERROR: aria2c does not run with a sanitized environment (missing bundled dylib?)" >&2
+    echo "--- sanitized run output (stdout+stderr) ---" >&2
+    printf '%s
+' "$SANITIZED_OUT" >&2
+    echo "--- end sanitized run output ---" >&2
     rm -f "$BIN"
     rm -rf "$LIB_DIR"
     exit 3

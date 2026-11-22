@@ -19,6 +19,13 @@
  * Downloads have a 120s stall timeout - a stalled connection used to hang
  * the script forever (gyan.dev stalled at 2.4 MB on the laptop, 2026-11-22).
  *
+ * Windows empty-extraction (CI run 44984348473): the aria2 zip
+ * downloaded fine (HTTP 200, non-empty) yet Expand-Archive exited 0
+ * with an EMPTY tree. installZip now logs the zip size + magic bytes,
+ * counts the extracted tree, and retries an empty tree with `tar -xf`
+ * (ships on Windows Server 2025) before failing with all three numbers
+ * in the message, so the next diagnosis needs no guessing.
+ *
  * Verification per binary:
  * - aria2 (Windows only): no checksum file is published for the Windows
  *   zip - the zip must extract cleanly AND `aria2c --version` must print
@@ -51,9 +58,12 @@ const {
   createReadStream,
   createWriteStream,
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   rmSync,
   renameSync,
@@ -363,6 +373,37 @@ function listTree(dir, max = 40) {
   return out
 }
 
+/** Number of files (not dirs) under `dir`, recursive. */
+function countTree(dir) {
+  let n = 0
+  const walk = (d) => {
+    let entries
+    try {
+      entries = readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.isFile()) n++
+      else if (e.isDirectory()) walk(join(d, e.name))
+    }
+  }
+  walk(dir)
+  return n
+}
+
+/** First 4 bytes of a file as lowercase hex (archive magic). */
+function magicBytes(path) {
+  const fd = openSync(path, 'r')
+  try {
+    const buf = Buffer.alloc(4)
+    const read = readSync(fd, buf, 0, 4, 0)
+    return buf.subarray(0, read).toString('hex')
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /**
  * Move the wanted files out of the extracted tree into BIN_DIR, then
  * verify the main binary runs and prints the pinned version.
@@ -405,7 +446,21 @@ async function installZip(spec) {
   const zipPath = join(BIN_DIR, `${spec.name}-${spec.version}.zip`)
   console.log(`Downloading ${spec.name} ${spec.version}...`)
   await download(spec.url, zipPath)
-  if (statSync(zipPath).size === 0) throw new Error(`${spec.name}: downloaded file is empty`)
+  const zipSize = statSync(zipPath).size
+  if (zipSize === 0) throw new Error(`${spec.name}: downloaded file is empty`)
+  // CI run 44984348473: the win aria2 zip downloaded (HTTP 200,
+  // non-empty) yet Expand-Archive exited 0 with an EMPTY tree. Log size
+  // + magic bytes so the next failure names the cause instead of
+  // guessing (a non-PK magic means the "zip" is an error page; a valid
+  // zip + empty tree after two extractors points at antivirus quarantine,
+  // e.g. Windows Defender removing aria2c.exe on write).
+  const magic = magicBytes(zipPath)
+  console.log(`${spec.name}: downloaded ${zipSize} bytes, magic ${magic}`)
+  if (!magic.startsWith('504b')) {
+    throw new Error(
+      `${spec.name}: downloaded file is not a zip (size ${zipSize} bytes, magic ${magic} — expected PK..)`
+    )
+  }
   if (spec.checksumUrl) await verifyChecksum(spec, zipPath)
   const extractDir = join(BIN_DIR, `.extract-${spec.name}`)
   rmSync(extractDir, { recursive: true, force: true })
@@ -418,6 +473,30 @@ async function installZip(spec) {
     ])
   } else {
     await execAsync('unzip', ['-o', zipPath, '-d', extractDir])
+  }
+  let count = countTree(extractDir)
+  console.log(`${spec.name}: extracted ${count} file(s)`)
+  let tarCount = null
+  if (count === 0 && PLATFORM === 'win') {
+    // Expand-Archive silently accepted a bad zip (or antivirus removed
+    // the files on write). Retry with tar, which ships on Windows
+    // Server 2025 / Windows 10 1803+ and reads zips independently.
+    console.log(`${spec.name}: Expand-Archive produced an empty tree — retrying with tar -xf...`)
+    try {
+      await execAsync('tar', ['-xf', zipPath, '-C', extractDir])
+    } catch (err) {
+      console.log(`${spec.name}: tar -xf failed: ${err.message}`)
+    }
+    tarCount = countTree(extractDir)
+    console.log(`${spec.name}: after tar -xf, extracted ${tarCount} file(s)`)
+    count = tarCount
+  }
+  if (count === 0) {
+    throw new Error(
+      `${spec.name}: extraction produced an empty tree (zip size ${zipSize} bytes, magic ${magic}, ` +
+        `Expand-Archive files 0${tarCount !== null ? `, tar files ${tarCount}` : ''}). ` +
+        `If the zip is valid, antivirus (e.g. Windows Defender) likely removed the files on write.`
+    )
   }
   await finishArchive(spec, zipPath, extractDir)
 }
