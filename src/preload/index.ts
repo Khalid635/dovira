@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AssistantAnswer } from '../main/smart/assistant'
 import type {
   AddOptions,
   AppInfo,
@@ -75,6 +76,8 @@ export interface DoviraAPI {
     existingCompletedAt?: number | null
   }>
   testLocalModel(): Promise<{ ok: boolean; error?: string }>
+  // AI Assistant (post-v1.0, v1.1.0).
+  askAssistant(question: string): Promise<AssistantAnswer>
   // Phase 7: site grabber — scan a page, then queue the picked links.
   scanPage(url: string): Promise<GrabberScanResult>
   addGrabbedLinks(urls: string[]): Promise<{ added: number; failed: number; ids: string[] }>
@@ -148,6 +151,7 @@ const api: DoviraAPI = {
   smartSuggestName: (input) => ipcRenderer.invoke('dovira:smart:suggestName', input),
   smartCheckDuplicate: (input) => ipcRenderer.invoke('dovira:smart:checkDuplicate', input),
   testLocalModel: () => ipcRenderer.invoke('dovira:smart:testLocalModel'),
+  askAssistant: (question: string) => ipcRenderer.invoke('dovira:assistant:ask', question),
   scanPage: (url: string) => ipcRenderer.invoke('dovira:grabber:scan', url),
   addGrabbedLinks: (urls: string[]) => ipcRenderer.invoke('dovira:grabber:add', urls),
   openFile: (id: string) => ipcRenderer.invoke('dovira:downloads:openFile', id),

@@ -171,6 +171,13 @@ export function registerIpc(deps: IpcDeps): void {
     })
   })
   ipcMain.handle('dovira:smart:testLocalModel', () => queue.testLocalModel())
+  // AI Assistant (post-v1.0, v1.1.0): one question → structured answer.
+  // Main re-validates the input; the question is capped at 500 chars.
+  ipcMain.handle('dovira:assistant:ask', (_e, question: unknown) =>
+    typeof question === 'string'
+      ? queue.askAssistant(question.slice(0, 500))
+      : { intent: 'fallback', source: 'rules', lines: [{ key: 'assistant.fallback' }] }
+  )
   const engineSpecs = (): EngineSpec[] => [
     { name: 'aria2', path: deps.aria2Binary, getVersion: getAria2Version },
     { name: 'yt-dlp', path: deps.ytDlpBinary, getVersion: getYtDlpVersion },

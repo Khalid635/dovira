@@ -290,3 +290,13 @@ export function IconMoon(props: IconProps): React.JSX.Element {
     </Svg>
   )
 }
+
+export function IconChat(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7Z" />
+      <path d="M5.5 6.5h5" />
+      <path d="M5.5 8.5h3.5" />
+    </Svg>
+  )
+}

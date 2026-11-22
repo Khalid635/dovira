@@ -116,6 +116,10 @@ export interface Settings {
   localModelProvider: 'ollama' | 'lmstudio'
   localModelEndpoint: string
   localModelName: string
+  /** AI Assistant (post-v1.0, v1.1.0): chat panel in the sidebar. Default ON. */
+  assistantEnabled: boolean
+  /** AI Assistant: send unmatched questions to the local model (Ollama/LM Studio). Default OFF. */
+  assistantLocalModel: boolean
 }
 
 /** Phase 6: app auto-update state, shown in Settings > App updates. */

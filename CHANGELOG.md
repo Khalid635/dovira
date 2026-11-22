@@ -2,6 +2,16 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [1.1.0] - 2026-11-23
+
+AI Assistant (post-v1.0, plan §16) — chat helper in the sidebar.
+
+### Added
+
+- **AI Assistant**: answers download questions from live app state — what's downloading, why something failed (plain-language error + what to do next), history search by keyword/kind/date, and how-to guidance for every feature. Rule-based and fully local: no API keys, no paid API, nothing leaves the machine.
+- **Optional local model**: questions the rules can't answer can go to a local Ollama or LM Studio model (Settings > Smart features > Assistant uses local model, default off). Reuses the Phase 7 endpoint settings; 5s timeout, silent fallback to rules. No Ollama/LM Studio runs on the test machine — verified against a fake local endpoint.
+- Chat history is in-memory only (last 50 messages, resets on restart).
+
 ## [1.0.0] - 2026-11-23
 
 Smart features + v1.0 launch (Phase 7 Smart).

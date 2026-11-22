@@ -56,7 +56,11 @@ export const DEFAULT_SETTINGS: Settings = {
   localModelEnabled: false,
   localModelProvider: 'ollama',
   localModelEndpoint: 'http://127.0.0.1:11434',
-  localModelName: 'llama3.2'
+  localModelName: 'llama3.2',
+  // AI Assistant (post-v1.0, v1.1.0) — rule-based first; the local model
+  // is an opt-in enhancement, default OFF.
+  assistantEnabled: true,
+  assistantLocalModel: false
 }
 
 const COOKIE_BROWSERS = ['none', 'chrome', 'edge', 'firefox', 'brave'] as const
@@ -161,6 +165,9 @@ function normalizeSettings(next: Settings): Settings {
   } else {
     next.localModelName = next.localModelName.trim().slice(0, 80)
   }
+  // AI Assistant (post-v1.0, v1.1.0).
+  next.assistantEnabled = next.assistantEnabled === true
+  next.assistantLocalModel = next.assistantLocalModel === true
   return next
 }
 

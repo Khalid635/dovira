@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { app } from 'electron'
 import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import type { DoviraDb } from './db'
@@ -16,7 +17,18 @@ import {
 import { categorize, organizeDir, type Category } from './smart/categorize'
 import { suggestName } from './smart/naming'
 import { AdaptiveNet } from './smart/adaptive'
-import { askCategory, testLocalModel, type LocalModelSettings } from './smart/localModel'
+import {
+  askCategory,
+  askLocalModel,
+  testLocalModel,
+  type LocalModelSettings
+} from './smart/localModel'
+import {
+  answerQuestion,
+  buildModelPrompt,
+  type AssistantAnswer,
+  type AssistantSnapshot
+} from './smart/assistant'
 import { findFileDuplicate, type DuplicateInfo } from './smart/duplicates'
 import { sanitizeFilename, resolveUniquePath, filenameFromUrl } from './util/filename'
 import { mapEngineError } from './util/errors'
@@ -1369,6 +1381,44 @@ export class QueueManager extends EventEmitter {
       model: s.localModelName
     }
     return testLocalModel(cfg)
+  }
+
+  /**
+   * AI Assistant (post-v1.0, v1.1.0): answer one chat question.
+   * Rules first, from live state. Only the `fallback` intent goes to the
+   * local model — and only when the user turned the assistant's model mode
+   * on. Any model failure falls back to the rules fallback answer.
+   */
+  async askAssistant(question: string): Promise<AssistantAnswer> {
+    const s = this.settings.get()
+    if (!s.assistantEnabled) {
+      return {
+        intent: 'fallback',
+        source: 'rules',
+        lines: [{ key: 'assistant.disabled' }]
+      }
+    }
+    const snap: AssistantSnapshot = {
+      downloads: this.list(),
+      settings: s,
+      appVersion: app.getVersion(),
+      downloadDir: s.downloadDir,
+      diskFreeBytes: diskFreeBytes(s.downloadDir)
+    }
+    const rules = answerQuestion(snap, question)
+    if (rules.intent !== 'fallback' || !s.assistantLocalModel) return rules
+    const prompt = buildModelPrompt(snap, question, s.language)
+    const text = await askLocalModel(
+      {
+        enabled: true,
+        provider: s.localModelProvider,
+        endpoint: s.localModelEndpoint,
+        model: s.localModelName
+      },
+      prompt
+    )
+    if (!text) return rules
+    return { intent: 'fallback', source: 'model', lines: [], modelText: text.trim() }
   }
 
   /**

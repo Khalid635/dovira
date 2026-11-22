@@ -17,7 +17,7 @@ import type {
 import { t, type Language } from './i18n'
 
 export type Filter = 'all' | 'downloading' | 'queued' | 'completed' | 'video' | 'audio' | 'files'
-export type View = 'home' | 'history' | 'settings'
+export type View = 'home' | 'history' | 'settings' | 'assistant'
 
 export interface Toast {
   key: string

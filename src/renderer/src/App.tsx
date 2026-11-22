@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import DownloadCard from './components/DownloadCard'
 import HistoryPage from './components/HistoryPage'
+import AssistantPage from './components/AssistantPage'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
@@ -155,6 +156,10 @@ function App(): React.JSX.Element {
         ) : view === 'history' ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <HistoryPage />
+          </div>
+        ) : view === 'assistant' ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <AssistantPage />
           </div>
         ) : (
           <>

@@ -874,6 +874,40 @@ export default function SettingsPage(): React.JSX.Element {
 
           <div className="settings-field">
             <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.assistant')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.assistantEnabled}
+                  onChange={(e) => set({ assistantEnabled: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.assistantHint')}</p>
+          </div>
+
+          {settings.assistantEnabled && (
+            <div className="settings-field">
+              <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+                <span>{t('settings.assistantLocalModel')}</span>
+                <span className="switch">
+                  <input
+                    type="checkbox"
+                    checked={settings.assistantLocalModel}
+                    onChange={(e) => set({ assistantLocalModel: e.target.checked })}
+                  />
+                  <span className="switch-track" />
+                </span>
+              </label>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
+                {t('settings.assistantLocalModelHint')}
+              </p>
+            </div>
+          )}
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
               <span>{t('settings.localModel')}</span>
               <span className="switch">
                 <input

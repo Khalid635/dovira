@@ -5,6 +5,7 @@ import type { DownloadInfo } from '../../../main/types'
 import {
   IconAll,
   IconAudio,
+  IconChat,
   IconCheckCircle,
   IconClock,
   IconDownload,
@@ -158,7 +159,7 @@ export default function Sidebar(): React.JSX.Element {
             DOVIRA
           </div>
           <div className="text-[11px] leading-tight text-[var(--sidebar-muted)]">
-            v{appInfo?.version ?? '0.7.0'} · Phase 7
+            v{appInfo?.version ?? '0.7.0'}
           </div>
           <div className="truncate text-[10px] leading-tight text-[var(--sidebar-muted)]">
             {t('app.tagline')}
@@ -175,6 +176,13 @@ export default function Sidebar(): React.JSX.Element {
         <button className="nav-item" onClick={openGrabber}>
           <IconGlobe size={15} />
           <span className="flex-1 text-left">{t('grabber.title')}</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'assistant' ? 'nav-item-active' : ''}`}
+          onClick={() => setView('assistant')}
+        >
+          <IconChat size={15} />
+          <span className="flex-1 text-left">{t('sidebar.assistant')}</span>
         </button>
       </nav>
 
