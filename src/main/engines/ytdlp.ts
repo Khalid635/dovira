@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { logMain } from '../logger'
 
 export interface YtDlpFormat {
   id: string
@@ -135,6 +136,9 @@ export function mapYtDlpError(raw: string): string {
     return 'login-required'
   }
   if (s.includes('drm') || s.includes('encrypted')) return 'drm'
+  // v0.6.1: a spawn failure (binary missing/unexecutable) used to surface
+  // as bare 'unknown' — report it as the engine problem it is.
+  if (s.includes('enoent')) return 'engine-missing'
   if (s.includes('unsupported url') || s.includes('no video formats found')) return 'unsupported'
   if (s.includes('requested format is not available') || s.includes('format is not available')) {
     return 'unsupported'
@@ -482,20 +486,31 @@ export class YtDlpManager {
       throw new YtDlpError('unsupported-url', 'not http(s)')
     }
     const args = [...this.baseArgs(override), '--dump-single-json', '--', url.trim()]
+    logMain('info', `ytdlp fetchInfo spawn: ${this.binaryPath} ${args.join(' ').slice(0, 600)}`)
     const out = await this.runCapture(args, 60_000)
     // A timeout gets its own code — before, runCapture folded it into
     // stderr "(timed out)" and mapYtDlpError turned it into 'network', so
     // the dialog could not tell a slow fetch from a broken connection.
     if (out.timedOut) {
+      logMain('error', `ytdlp fetchInfo FAILED (timeout 60s): ${url.trim()}`)
       throw new YtDlpError('timeout', 'fetchInfo timed out after 60s')
     }
     let json: Record<string, unknown>
     try {
       json = JSON.parse(out.stdout) as Record<string, unknown>
     } catch {
+      const kind = out.code === null ? 'spawn-error' : 'json-parse'
+      logMain(
+        'error',
+        `ytdlp fetchInfo FAILED (${kind} code=${String(out.code)}): ${url.trim()} stderr=${out.stderr.slice(0, 300)}`
+      )
       throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
     }
     if (out.code !== 0) {
+      logMain(
+        'error',
+        `ytdlp fetchInfo FAILED (exit ${String(out.code)}): ${url.trim()} stderr=${out.stderr.slice(0, 300)}`
+      )
       throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
     }
     const formatsRaw = Array.isArray(json['formats']) ? json['formats'] : []
@@ -566,17 +581,28 @@ export class YtDlpManager {
     const args = [...this.networkArgs(), '--no-warnings', '--flat-playlist', '-J']
     if (this.denoPath) args.push('--js-runtimes', `deno:${this.denoPath}`)
     args.push('--', url.trim())
+    logMain('info', `ytdlp fetchPlaylist spawn: ${this.binaryPath} ${args.join(' ').slice(0, 600)}`)
     const out = await this.runCapture(args, 60_000)
     if (out.timedOut) {
+      logMain('error', `ytdlp fetchPlaylist FAILED (timeout 60s): ${url.trim()}`)
       throw new YtDlpError('timeout', 'fetchPlaylist timed out after 60s')
     }
     let json: Record<string, unknown>
     try {
       json = JSON.parse(out.stdout) as Record<string, unknown>
     } catch {
+      const kind = out.code === null ? 'spawn-error' : 'json-parse'
+      logMain(
+        'error',
+        `ytdlp fetchPlaylist FAILED (${kind} code=${String(out.code)}): ${url.trim()} stderr=${out.stderr.slice(0, 300)}`
+      )
       throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
     }
     if (out.code !== 0) {
+      logMain(
+        'error',
+        `ytdlp fetchPlaylist FAILED (exit ${String(out.code)}): ${url.trim()} stderr=${out.stderr.slice(0, 300)}`
+      )
       throw new YtDlpError(mapYtDlpError(out.stderr), out.stderr.slice(0, 300))
     }
     const entriesRaw = Array.isArray(json['entries']) ? json['entries'] : []

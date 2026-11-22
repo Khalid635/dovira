@@ -56,6 +56,15 @@ export function platformDirName(platform: DoviraPlatform = currentPlatform()): s
 }
 
 /**
+ * True when `p` points inside an .asar archive (a path segment ending in
+ * `.asar`). Such paths are readable through Electron's patched fs but can
+ * never be executed — Windows cannot spawn a binary from inside an archive.
+ */
+function isInsideAsar(p: string): boolean {
+  return /(^|[\\/])[^\\/]+\.asar[\\/]/.test(p)
+}
+
+/**
  * Find a bundled engine binary.
  * Dev: <project>/resources/bin/<platform>/<file>
  * Packaged (asarUnpack: resources/**): <resources>/app.asar.unpacked/resources/bin/<platform>/<file>
@@ -73,6 +82,12 @@ export function findBinary(name: string, appPath: string, resourcesPath: string)
     join(resourcesPath, 'resources', 'bin', dir, file)
   ]
   for (const c of candidates) {
+    // v0.6.1: a candidate inside app.asar MUST be skipped. asarUnpack
+    // duplicates resources/bin into the asar as well as unpacking it, so
+    // existsSync() says the asar-internal path exists — but spawning it
+    // fails with ENOENT, and every engine call in the installed app
+    // surfaced as a bare 'unknown' (v0.6.0 bug). The unpacked copy wins.
+    if (isInsideAsar(c)) continue
     if (existsSync(c)) return c
   }
   return null

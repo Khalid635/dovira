@@ -111,6 +111,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const [saveDir, setSaveDir] = useState('')
   const [busy, setBusy] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitDetail, setSubmitDetail] = useState<string | null>(null)
   // Phase 4: Single | Batch mode, clip, metadata, subtitle mode, thumbnail-only.
   const [mode, setMode] = useState<'single' | 'batch'>('single')
   const [clipEnabled, setClipEnabled] = useState(false)
@@ -142,6 +143,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setSaveDir(settings?.downloadDir ?? '')
     setBusy(false)
     setSubmitError(null)
+    setSubmitDetail(null)
     if (settings) setBitrate(settings.defaultAudioBitrate)
     // Phase 4: fresh state for the new dialog.
     setMode('single')
@@ -348,7 +350,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setBusy(true)
     const res = await addWithOptions(opts)
     setBusy(false)
-    if (!res.ok) setSubmitError(res.error ?? 'unknown')
+    if (!res.ok) {
+      setSubmitError(res.error ?? 'unknown')
+      setSubmitDetail(res.errorDetail ?? null)
+    }
   }
 
   // Phase 4: playlist submit — every selected entry with the chosen quality.
@@ -1113,6 +1118,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
         {submitError && (
           <div className="mt-3 text-[13px] text-[var(--danger)]">{t(errorKey(submitError))}</div>
         )}
+        {submitDetail && <div className="mt-1 text-[11px] text-[var(--muted)]">{submitDetail}</div>}
 
         <div className="mt-5 flex justify-end gap-2">
           <button className="btn" onClick={closeDialog}>

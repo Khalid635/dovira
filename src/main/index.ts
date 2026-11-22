@@ -247,6 +247,13 @@ app.whenReady().then(() => {
     return
   }
   const binDir = dirname((aria2Binary ?? ytDlpBinary) as string)
+  // v0.6.1: the resolved paths are the first thing to check when an engine
+  // call fails — v0.6.0 resolved them inside app.asar and every spawn
+  // failed with ENOENT while the log showed nothing.
+  logMain(
+    'info',
+    `engines resolved: yt-dlp=${ytDlpBinary} aria2=${aria2Binary ?? 'none'} ffmpeg=${ffmpegBinary} deno=${denoBinary} binDir=${binDir}`
+  )
 
   aria2 = aria2Binary ? new Aria2Manager(aria2Binary, settings.get().downloadDir) : null
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.

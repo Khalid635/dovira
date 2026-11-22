@@ -87,7 +87,11 @@ interface Store {
   // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
   setDownloadSpeedLimit: (id: string, kbps: number) => Promise<boolean>
   fetchInfo: (url: string) => Promise<void>
-  addWithOptions: (opts: AddOptions) => Promise<{ ok: boolean; error?: string }>
+  addWithOptions: (opts: AddOptions) => Promise<{
+    ok: boolean
+    error?: string
+    errorDetail?: string
+  }>
   // Phase 4: playlist / thumbnail-only / batch / archive.
   addPlaylist: (items: AddOptions[]) => Promise<{ added: number; failed: number }>
   addThumbnailOnly: (
@@ -456,7 +460,11 @@ export const useStore = create<Store>()((set, get) => ({
       } else if (res.ok && res.plainFile) {
         set({ dialogPlainFile: res.plainFile, dialogLoading: false })
       } else {
-        set({ dialogError: res.error ?? 'unknown', dialogLoading: false })
+        set({
+          dialogError: res.error ?? 'unknown',
+          dialogErrorDetail: res.errorDetail ?? null,
+          dialogLoading: false
+        })
         get().showToast('toast.infoFailed')
       }
     } catch (err) {

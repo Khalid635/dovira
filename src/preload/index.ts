@@ -28,8 +28,14 @@ export interface DoviraAPI {
     playlist?: PlaylistInfo
     torrent?: { name: string }
     error?: string
+    errorDetail?: string
   }>
-  addWithOptions(opts: AddOptions): Promise<{ ok: boolean; id?: string; error?: string }>
+  addWithOptions(opts: AddOptions): Promise<{
+    ok: boolean
+    id?: string
+    error?: string
+    errorDetail?: string
+  }>
   listEngines(checkForUpdates: boolean): Promise<EngineInfo[]>
   updateEngine(name: string): Promise<{ ok: boolean; version?: string; error?: string }>
   pauseDownload(id: string): Promise<boolean>

@@ -17,6 +17,7 @@ import { categorize } from './smart/categorize'
 import { sanitizeFilename, resolveUniquePath, filenameFromUrl } from './util/filename'
 import { mapEngineError } from './util/errors'
 import { diskFreeBytes } from './util/paths'
+import { logMain } from './logger'
 import type {
   AddOptions,
   DownloadInfo,
@@ -66,6 +67,11 @@ function magnetName(url: string): string {
 function looksLikePlaylist(url: string): boolean {
   try {
     const parsed = new URL(url)
+    // v0.6.1: a watch URL with a video id is ONE video, even when it
+    // carries list= (radio/mix) or start_radio=. Sending it through the
+    // flat-playlist fetch makes yt-dlp resolve the whole mix and hang
+    // past the 60s timeout (v0.6.0 bug: RDGMEM mix URLs failed 'unknown').
+    if (parsed.searchParams.has('v')) return false
     if (parsed.searchParams.has('list')) return true
     const p = parsed.pathname
     return (
@@ -373,6 +379,8 @@ export class QueueManager extends EventEmitter {
     playlist?: PlaylistInfo
     torrent?: { name: string }
     error?: string
+    /** v0.6.1: raw failure detail (yt-dlp stderr excerpt) — shown in the dialog. */
+    errorDetail?: string
   }> {
     const trimmed = url.trim()
     // Phase 4: magnet links never touch yt-dlp.
@@ -400,8 +408,13 @@ export class QueueManager extends EventEmitter {
         const playlist = await this.ytdlp.fetchPlaylist(trimmed)
         if (playlist.entries.length > 0) return { ok: true, playlist }
         // Empty playlist — fall through to the single-video fetch.
-      } catch {
-        // Fall through to the single-video fetch below.
+      } catch (err) {
+        // Fall through to the single-video fetch below — but log it: a
+        // slow/failed playlist fetch used to be invisible (v0.6.0).
+        logMain(
+          'warn',
+          `fetchInfo playlist-first failed, falling back to single video: ${trimmed} — ${err instanceof Error ? err.message : String(err)}`
+        )
       }
     }
     const ext = parsed.pathname.split('.').pop()?.toLowerCase() ?? ''
@@ -421,11 +434,16 @@ export class QueueManager extends EventEmitter {
         return { ok: true, info }
       } catch (err) {
         const code = err instanceof YtDlpError ? err.code : 'unknown'
+        const detail = err instanceof Error ? err.message : String(err)
+        logMain(
+          'error',
+          `fetchInfo failed: ${url.trim()} code=${code} detail=${detail.slice(0, 300)}`
+        )
         if (code === 'unsupported' || code === 'unknown' || code === 'not-found') {
           const pf = await this.headPlainFile(url.trim())
           if (pf) return { ok: true, plainFile: pf }
         }
-        return { ok: false, error: code }
+        return { ok: false, error: code, errorDetail: detail.slice(0, 300) || undefined }
       }
     }
     const pf = await this.headPlainFile(url.trim())
@@ -560,7 +578,12 @@ export class QueueManager extends EventEmitter {
   }
 
   /** Video/audio download with the dialog's chosen format (yt-dlp engine). */
-  async addWithOptions(opts: AddOptions): Promise<{ ok: boolean; id?: string; error?: string }> {
+  async addWithOptions(opts: AddOptions): Promise<{
+    ok: boolean
+    id?: string
+    error?: string
+    errorDetail?: string
+  }> {
     let parsed: URL
     try {
       parsed = new URL(opts.url.trim())
@@ -1307,7 +1330,12 @@ export class QueueManager extends EventEmitter {
       referer?: string | null
       headers?: string[]
     } = {}
-  ): Promise<{ ok: boolean; id?: string; error?: string }> {
+  ): Promise<{
+    ok: boolean
+    id?: string
+    error?: string
+    errorDetail?: string
+  }> {
     const trimmed = url.trim()
     let parsed: URL
     try {
@@ -1328,7 +1356,9 @@ export class QueueManager extends EventEmitter {
       referer: opts.referer ?? null
     }
     const res = await this.fetchInfo(trimmed, netOverride)
-    if (!res.ok) return { ok: false, error: res.error ?? 'unknown' }
+    if (!res.ok) {
+      return { ok: false, error: res.error ?? 'unknown', errorDetail: res.errorDetail }
+    }
     if (res.torrent) {
       // Torrents never use the per-link cookies file — drop it so it
       // does not linger (the Local API only unlinks on failure).
