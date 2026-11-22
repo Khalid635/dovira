@@ -237,6 +237,32 @@ the CI runners.
 - aria2 bundled per OS (from the release notes): Windows bundled;
   macOS/Linux TBD (CI builds aria2 from source in the workflow).
 
+- Third attempt — run **44986272677**
+  (https://github.com/Khalid635/dovira/actions/runs/44986272677),
+  2026-11-22 04:43:04–04:50:44 UTC — **SUCCESS**. Tag v0.5.0 was
+  moved to **636ed0a** ("ci: mkdir dist before recording aria2 status
+  (Phase 6)" — includes code fix 91c76c6 + the `mkdir -p dist`
+  workflow fix, applied via the GitHub web UI). Per-job results:
+  build linux **success**, build win **success**, build mac
+  **success**, create pre-release **success** (lint + typecheck +
+  build skipped on tag push, as in the earlier runs).
+- **v0.5.0 pre-release PUBLISHED** —
+  https://github.com/Khalid635/dovira/releases/tag/v0.5.0
+  (release id 454209935, published 2026-11-22T04:50:19Z,
+  prerelease: true), verified via the GitHub API. Assets (8):
+  - `dovira-0.5.0-setup.exe` — 237,345,687 B
+  - `dovira-0.5.0.dmg` — 272,332,395 B
+  - `dovira-0.5.0.AppImage` — 356,406,956 B
+  - `dovira_0.5.0_amd64.deb` — 291,939,144 B
+  - `latest.yml` — 341 B
+  - `latest-mac.yml` — 329 B
+  - `latest-linux.yml` — 517 B
+  - `checksums.txt` — 349 B
+  The win fetch fallback (tar) and the mac dylib bundling fix from
+  91c76c6 are proven by this green run — the CI run was the proof,
+  as noted in §11. Phase 6 is COMPLETE: code + 3-OS installers +
+  auto-update manifests + pre-release all live.
+
 ## 8. What was NOT tested here — Khalid's / real-machine checks
 
 - Real Mac: install the .dmg, Gatekeeper right-click > Open, run a
@@ -370,23 +396,12 @@ alone — no workflow edit is required for Linux.
   in both changed files. Preload imports only `electron`;
   `sandbox: true` kept.
 
-### Still open — parent's steps (NOT done here)
+### Parent's steps — DONE (2026-11-22 ~10:43-10:52 Dhaka)
 
-- **Workflow edit (web UI — the PAT has no `workflow` scope):**
-  `.github/workflows/build.yml`, step "Record aria2 status" — it runs
-  before `npm run build`, so `dist/` does not exist yet and
-  `echo ... > dist/aria2-status-<platform>.txt` fails on all three
-  runners. Exact diff (one line):
-  ```diff
-       - name: Record aria2 status
-         shell: bash
-  -        run: echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
-  +        run: mkdir -p dist && echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
-  ```
-  (Moving the step after "Build installer" would also work, but
-  `mkdir -p dist` keeps the step where the publish job's artifact
-  upload expects the file.)
-- **Move tag v0.5.0** to 91c76c6 and push it (triggers a fresh run).
-- **Watch the new run** and verify the v0.5.0 pre-release assets
-  (section 7 list). The mac aria2 build and the win fetch fallback
-  cannot be proven on the laptop — the CI run is the proof.
+- **Workflow edit applied via the GitHub web UI** as commit
+  **636ed0a** ("ci: mkdir dist before recording aria2 status
+  (Phase 6)").
+- **Tag v0.5.0 moved** to 636ed0a and pushed — triggered run
+  44986272677, which went **green**; the v0.5.0 pre-release is live
+  (see §7). The mac aria2 build and the win fetch fallback are proven
+  by the green CI run. Phase 6 is COMPLETE.
