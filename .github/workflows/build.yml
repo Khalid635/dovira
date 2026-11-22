@@ -73,7 +73,7 @@ jobs:
         run: bash scripts/build-aria2.sh ${{ matrix.platform }}
       - name: Record aria2 status
         shell: bash
-        run: echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
+        run: mkdir -p dist && echo "aria2=${{ steps.aria2.outcome }}" > "dist/aria2-status-${{ matrix.platform }}.txt"
       - run: npm run build
       - name: Build installer
         run: npx electron-builder ${{ matrix.builder }} --publish never
