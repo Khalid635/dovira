@@ -16,6 +16,7 @@ import { registerIpc } from './ipc'
 import { LocalApiServer } from './localApi'
 import { findBinary, ensureExecutable, ENGINE_FILES, platformDirName } from './util/paths'
 import { AppUpdater } from './updater'
+import { getYtDlpVersion } from './engines/versions'
 import { initLogger, logMain } from './logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -344,6 +345,14 @@ app.whenReady().then(() => {
   })
 
   logMain('info', 'window created')
+  // Phase 7: pre-warm yt-dlp — the first fetchInfo after a cold start pays
+  // the exe spawn cost (the user reported a 10s first fetch). Fire and
+  // forget: never blocks window creation, failures are silent.
+  void getYtDlpVersion(ytDlpBinary as string)
+    .then((v) => logMain('info', `yt-dlp pre-warmed: ${v ?? 'unknown version'}`))
+    .catch(() => {
+      // Silent — the first real fetch still works, just slower.
+    })
   createWindow()
   // Phase 6: one delayed startup check (only when the setting is on).
   appUpdater.startStartupCheck(10_000)

@@ -45,6 +45,36 @@ export interface DoviraAPI {
   retryDownload(id: string): Promise<boolean>
   // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
   setDownloadSpeedLimit(id: string, kbps: number): Promise<boolean>
+  // Phase 7 (v1.0): Smart features.
+  smartCategorize(input: {
+    filename: string
+    kind?: 'video' | 'audio' | 'file'
+    site?: string | null
+    duration?: number | null
+    ytCategory?: string | null
+  }): Promise<{ category: string; folder: string }>
+  smartSuggestName(input: {
+    filename: string
+    title?: string | null
+    height?: number | null
+    uploader?: string | null
+  }): Promise<{ name: string }>
+  smartCheckDuplicate(input: {
+    url: string
+    filename: string
+    saveDir: string
+    totalBytes: number | null
+    remoteId?: string | null
+    formatId?: string | null
+  }): Promise<{
+    duplicate: boolean
+    kind?: 'url' | 'remote' | 'file'
+    existingId?: string
+    existingName?: string
+    existingSize?: number | null
+    existingCompletedAt?: number | null
+  }>
+  testLocalModel(): Promise<{ ok: boolean; error?: string }>
   // Phase 7: site grabber — scan a page, then queue the picked links.
   scanPage(url: string): Promise<GrabberScanResult>
   addGrabbedLinks(urls: string[]): Promise<{ added: number; failed: number; ids: string[] }>
@@ -113,6 +143,11 @@ const api: DoviraAPI = {
   // Phase 7
   setDownloadSpeedLimit: (id: string, kbps: number) =>
     ipcRenderer.invoke('dovira:downloads:setSpeedLimit', id, kbps),
+  // Phase 7 (v1.0): Smart features.
+  smartCategorize: (input) => ipcRenderer.invoke('dovira:smart:categorize', input),
+  smartSuggestName: (input) => ipcRenderer.invoke('dovira:smart:suggestName', input),
+  smartCheckDuplicate: (input) => ipcRenderer.invoke('dovira:smart:checkDuplicate', input),
+  testLocalModel: () => ipcRenderer.invoke('dovira:smart:testLocalModel'),
   scanPage: (url: string) => ipcRenderer.invoke('dovira:grabber:scan', url),
   addGrabbedLinks: (urls: string[]) => ipcRenderer.invoke('dovira:grabber:add', urls),
   openFile: (id: string) => ipcRenderer.invoke('dovira:downloads:openFile', id),

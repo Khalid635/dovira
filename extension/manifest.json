@@ -22,7 +22,7 @@
     "48": "icons/icon.png"
   },
   "manifest_version": 3,
-  "name": "DOVIRA \u2014 Download with DOVIRA",
+  "name": "DOVIRA — Download with DOVIRA",
   "options_page": "options.html",
   "permissions": [
     "contextMenus",
@@ -33,5 +33,5 @@
     "activeTab",
     "scripting"
   ],
-  "version": "0.7.0"
+  "version": "1.0.0"
 }

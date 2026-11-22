@@ -97,6 +97,25 @@ export interface Settings {
   appUpdateCheck: boolean
   /** Phase 6: download an available app update without asking first. */
   appUpdateAutoDownload: boolean
+  /** Phase 7 (v1.0): AI File Organizer — sort downloads into category folders. */
+  smartOrganizer: boolean
+  /** Phase 7: folder name per category (user-editable). Keys are Category names. */
+  organizerFolders: Record<string, string>
+  /** Phase 7: user extension→category overrides, e.g. { "epub": "Documents" }. */
+  organizerOverrides: Record<string, string>
+  /** Phase 7: Smart filenames — strip junk tags, apply the name template. */
+  smartNaming: boolean
+  /** Phase 7: filename template, e.g. "{title} [{height}p]". */
+  nameTemplate: string
+  /** Phase 7: Duplicate Detection — warn when the file/URL was downloaded before. */
+  smartDuplicates: boolean
+  /** Phase 7: Smart Download — adapt aria2 connections / yt-dlp fragments to measured speed. */
+  smartDownload: boolean
+  /** Phase 7: local-model hook (Ollama / LM Studio) — default OFF, no bundled model. */
+  localModelEnabled: boolean
+  localModelProvider: 'ollama' | 'lmstudio'
+  localModelEndpoint: string
+  localModelName: string
 }
 
 /** Phase 6: app auto-update state, shown in Settings > App updates. */
@@ -198,6 +217,12 @@ export interface VideoInfo {
   subtitleLangs: string[]
   /** Phase 4: languages with auto-generated captions. */
   autoCaptionLangs: string[]
+  /** Phase 7: yt-dlp video id (for duplicate detection via remote_id). */
+  videoId: string | null
+  /** Phase 7: yt-dlp extractor key, e.g. "youtube". */
+  extractor: string | null
+  /** Phase 7: yt-dlp categories[0], e.g. "Music" — drives the organizer. */
+  ytCategory: string | null
 }
 
 /** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
@@ -254,6 +279,17 @@ export interface AddOptions {
   extCookiesFile?: string | null
   userAgent?: string | null
   referer?: string | null
+  /** Phase 7: yt-dlp video id + extractor (duplicate detection via remote_id). */
+  videoId?: string | null
+  extractor?: string | null
+  /** Phase 7: chosen video height (smart filename template {height}). */
+  height?: number | null
+  /** Phase 7: uploader name (smart filename template {uploader}). */
+  uploader?: string | null
+  /** Phase 7: the user already chose Re-download / Keep both — skip the duplicate safety net. */
+  skipDuplicateCheck?: boolean
+  /** Phase 7: false = the caller already decided the filename (Add dialog preview); otherwise main applies smart naming. */
+  applySmartName?: boolean
 }
 
 export interface EngineInfo {

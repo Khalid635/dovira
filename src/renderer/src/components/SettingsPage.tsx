@@ -14,12 +14,24 @@ const SPEED_PRESETS = [
   { value: 5120, labelKey: 'settings.speedLimitPreset5m' }
 ]
 
+/** Phase 7 (v1.0): organizer folder inputs — one per category. */
+const SMART_CATEGORIES = [
+  'Video',
+  'Music',
+  'Documents',
+  'Archives',
+  'Programs',
+  'Images',
+  'Others'
+] as const
+
 const SECTIONS = [
   { id: 'settings-general', labelKey: 'settings.navGeneral' },
   { id: 'settings-network', labelKey: 'settings.navNetwork' },
   { id: 'settings-browser', labelKey: 'settings.navBrowser' },
   { id: 'settings-scheduler', labelKey: 'settings.navScheduler' },
   { id: 'settings-video-audio', labelKey: 'settings.navVideoAudio' },
+  { id: 'settings-smart', labelKey: 'settings.navSmart' },
   { id: 'settings-engines', labelKey: 'settings.navEngines' },
   { id: 'settings-app-update', labelKey: 'settings.navAppUpdate' },
   { id: 'settings-about', labelKey: 'settings.navAbout' }
@@ -50,6 +62,10 @@ export default function SettingsPage(): React.JSX.Element {
   const [extStatus, setExtStatus] = useState<ExtensionApiStatus | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [tokenCopied, setTokenCopied] = useState(false)
+  // Phase 7 (v1.0): Smart — local-model test state + live template preview.
+  const [modelTesting, setModelTesting] = useState(false)
+  const [modelTest, setModelTest] = useState<'ok' | 'fail' | null>(null)
+  const [templatePreview, setTemplatePreview] = useState('')
 
   useEffect(() => {
     void loadEngines(false)
@@ -102,6 +118,48 @@ export default function SettingsPage(): React.JSX.Element {
   const regenerateToken = async (): Promise<void> => {
     const token = await window.dovira.regenerateExtensionToken()
     setExtStatus((prev) => (prev ? { ...prev, token } : { running: false, port: null, token }))
+  }
+
+  // Phase 7: live template preview — same code path as the real naming
+  // (main's suggestName), debounced so typing doesn't spam IPC.
+  useEffect(() => {
+    if (!settings?.smartNaming) return
+    if (typeof window.dovira === 'undefined') return
+    let cancelled = false
+    const id = setTimeout(() => {
+      void window.dovira
+        .smartSuggestName({
+          filename: 'Best PayPal Alternative (Official Video) [HD].mp4',
+          title: 'Best PayPal Alternative (Official Video) [HD]',
+          height: 1080,
+          uploader: 'Sample Channel'
+        })
+        .then((r) => {
+          if (!cancelled) setTemplatePreview(r.name)
+        })
+        .catch(() => {
+          // Keep the previous preview.
+        })
+    }, 400)
+    return () => {
+      cancelled = true
+      clearTimeout(id)
+    }
+  }, [settings?.nameTemplate, settings?.smartNaming])
+
+  // Phase 7: test the local-model endpoint (Ollama / LM Studio).
+  const testLocalModel = async (): Promise<void> => {
+    if (typeof window.dovira === 'undefined') return
+    setModelTesting(true)
+    setModelTest(null)
+    try {
+      const res = await window.dovira.testLocalModel()
+      setModelTest(res.ok ? 'ok' : 'fail')
+    } catch {
+      setModelTest('fail')
+    } finally {
+      setModelTesting(false)
+    }
   }
 
   // Settings never arrived: distinguish "still loading" from "failed".
@@ -691,6 +749,210 @@ export default function SettingsPage(): React.JSX.Element {
               {t('settings.clearArchive')}
             </button>
           </div>
+        </section>
+
+        {/* Phase 7 (v1.0): Smart features — organizer, smart names, duplicates, adaptive download, local model. */}
+        <section id="settings-smart" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.smart')}</h2>
+          </div>
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.smartOrganizer')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.smartOrganizer}
+                  onChange={(e) => set({ smartOrganizer: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.smartOrganizerHint')}
+            </p>
+          </div>
+
+          {settings.smartOrganizer && (
+            <div className="settings-field">
+              <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                {t('settings.organizerFolders')}
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                {SMART_CATEGORIES.map((c) => (
+                  <label key={c} className="block">
+                    <span className="mb-1 block text-[12px] text-[var(--muted)]">
+                      {t(`smart.category${c}`)}
+                    </span>
+                    <input
+                      className="input w-full"
+                      value={settings.organizerFolders[c] ?? c}
+                      onChange={(e) =>
+                        set({
+                          organizerFolders: { ...settings.organizerFolders, [c]: e.target.value }
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
+                {t('settings.organizerFoldersHint')}
+              </p>
+            </div>
+          )}
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.smartNaming')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.smartNaming}
+                  onChange={(e) => set({ smartNaming: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.smartNamingHint')}</p>
+          </div>
+
+          {settings.smartNaming && (
+            <div className="settings-field">
+              <label className="block">
+                <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                  {t('settings.nameTemplate')}
+                </span>
+                <input
+                  className="input w-full font-mono"
+                  value={settings.nameTemplate}
+                  onChange={(e) => set({ nameTemplate: e.target.value })}
+                />
+              </label>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
+                {t('settings.nameTemplatePreview', {
+                  name: templatePreview || settings.nameTemplate
+                })}
+              </p>
+            </div>
+          )}
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.smartDuplicates')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.smartDuplicates}
+                  onChange={(e) => set({ smartDuplicates: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.smartDuplicatesHint')}
+            </p>
+          </div>
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.smartDownload')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.smartDownload}
+                  onChange={(e) => set({ smartDownload: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.smartDownloadHint')}
+            </p>
+          </div>
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.localModel')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.localModelEnabled}
+                  onChange={(e) => set({ localModelEnabled: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.localModelHint')}</p>
+          </div>
+
+          {settings.localModelEnabled && (
+            <>
+              <div className="settings-field">
+                <label className="block">
+                  <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                    {t('settings.localModelProvider')}
+                  </span>
+                  <select
+                    className="input w-48"
+                    value={settings.localModelProvider}
+                    onChange={(e) =>
+                      set({ localModelProvider: e.target.value as 'ollama' | 'lmstudio' })
+                    }
+                  >
+                    <option value="ollama">Ollama</option>
+                    <option value="lmstudio">LM Studio</option>
+                  </select>
+                </label>
+              </div>
+              <div className="settings-field">
+                <label className="block">
+                  <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                    {t('settings.localModelEndpoint')}
+                  </span>
+                  <input
+                    className="input w-full font-mono"
+                    value={settings.localModelEndpoint}
+                    placeholder="http://127.0.0.1:11434"
+                    onChange={(e) => set({ localModelEndpoint: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="settings-field">
+                <label className="block">
+                  <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                    {t('settings.localModelName')}
+                  </span>
+                  <input
+                    className="input w-full"
+                    value={settings.localModelName}
+                    placeholder="llama3.2"
+                    onChange={(e) => set({ localModelName: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="settings-field">
+                <span className="flex items-center gap-2">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => void testLocalModel()}
+                    disabled={modelTesting}
+                  >
+                    {modelTesting ? t('settings.localModelTesting') : t('settings.localModelTest')}
+                  </button>
+                  {modelTest === 'ok' && (
+                    <span className="text-[13px]">{t('settings.localModelTestOk')}</span>
+                  )}
+                  {modelTest === 'fail' && (
+                    <span className="text-[13px] text-[var(--danger)]">
+                      {t('settings.localModelTestFailed')}
+                    </span>
+                  )}
+                </span>
+              </div>
+            </>
+          )}
         </section>
 
         <section id="settings-engines" className="card scroll-mt-6">

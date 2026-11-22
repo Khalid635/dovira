@@ -26,6 +26,11 @@ export interface YtDlpInfo {
   subtitleLangs: string[]
   /** Phase 4: languages with auto-generated captions. */
   autoCaptionLangs: string[]
+  /** Phase 7: yt-dlp video id + extractor (duplicate detection via remote_id). */
+  videoId: string | null
+  extractor: string | null
+  /** Phase 7: yt-dlp categories[0], e.g. "Music" (file organizer). */
+  ytCategory: string | null
 }
 
 /** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
@@ -83,6 +88,8 @@ export interface YtDlpDownloadOpts {
   referer?: string | null
   /** Phase 7: effective speed limit in KB/s, 0 = unlimited. */
   speedLimitKBps?: number
+  /** Phase 7: concurrent fragments (-N) — Smart Download, when > 1. */
+  fragments?: number
 }
 
 /**
@@ -485,6 +492,10 @@ export class YtDlpManager {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new YtDlpError('unsupported-url', 'not http(s)')
     }
+    // Phase 7: fetchInfo timing — the user reported a 10s fetch (normal
+    // 3–5s). Log how long the yt-dlp call itself took so cold-start vs
+    // extraction is visible in dovira.log.
+    const startedAt = Date.now()
     const args = [...this.baseArgs(override), '--dump-single-json', '--', url.trim()]
     logMain('info', `ytdlp fetchInfo spawn: ${this.binaryPath} ${args.join(' ').slice(0, 600)}`)
     const out = await this.runCapture(args, 60_000)
@@ -492,7 +503,10 @@ export class YtDlpManager {
     // stderr "(timed out)" and mapYtDlpError turned it into 'network', so
     // the dialog could not tell a slow fetch from a broken connection.
     if (out.timedOut) {
-      logMain('error', `ytdlp fetchInfo FAILED (timeout 60s): ${url.trim()}`)
+      logMain(
+        'error',
+        `ytdlp fetchInfo FAILED (timeout 60s, ${Date.now() - startedAt}ms): ${url.trim()}`
+      )
       throw new YtDlpError('timeout', 'fetchInfo timed out after 60s')
     }
     let json: Record<string, unknown>
@@ -536,6 +550,8 @@ export class YtDlpManager {
     }
     const thumbnails = Array.isArray(json['thumbnails']) ? json['thumbnails'] : []
     const thumb = thumbnails.length > 0 ? thumbnails[thumbnails.length - 1] : null
+    // Phase 7: log the fetch duration (cold-start diagnosis).
+    logMain('info', `fetchInfo ok ${Date.now() - startedAt}ms ${url.trim()}`)
     return {
       url: url.trim(),
       title: typeof json['title'] === 'string' ? (json['title'] as string) : url.trim(),
@@ -560,7 +576,14 @@ export class YtDlpManager {
       autoCaptionLangs:
         json['automatic_captions'] && typeof json['automatic_captions'] === 'object'
           ? Object.keys(json['automatic_captions'] as Record<string, unknown>)
-          : []
+          : [],
+      videoId: typeof json['id'] === 'string' ? (json['id'] as string) : null,
+      extractor:
+        typeof json['extractor_key'] === 'string' ? (json['extractor_key'] as string) : null,
+      ytCategory:
+        Array.isArray(json['categories']) && typeof json['categories'][0] === 'string'
+          ? (json['categories'][0] as string)
+          : null
     }
   }
 
@@ -719,6 +742,12 @@ export class YtDlpManager {
     // Phase 7: speed limit — yt-dlp's own downloader obeys --limit-rate.
     if (opts.speedLimitKBps && opts.speedLimitKBps > 0) {
       args.push('--limit-rate', `${Math.floor(opts.speedLimitKBps)}K`)
+    }
+    // Phase 7: concurrent fragments (Smart Download) — only for video/audio
+    // downloads with more than one fragment stream; thumbnail-only returns
+    // early above, and plain files use buildPlainArgs (single stream).
+    if (opts.fragments && opts.fragments > 1 && !opts.thumbnailOnly) {
+      args.push('-N', String(opts.fragments))
     }
     args.push('-o', opts.savePath, '--', opts.url)
     return args

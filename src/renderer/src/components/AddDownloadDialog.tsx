@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AddOptions, PlainFileInfo, VideoInfo } from '../../../main/types'
 import { useStore, useT } from '../store'
 import { formatBytes, formatEta } from '../util/format'
@@ -48,6 +48,8 @@ function errorKey(code: string | null): string {
       return 'error.bridge'
     case 'already-downloaded':
       return 'error.alreadyDownloaded'
+    case 'duplicate':
+      return 'error.duplicate'
     case 'timeout':
       // error.infoTimeout exists since Phase 2 but was never mapped — a
       // timed-out info fetch used to fall through to error.unknown.
@@ -128,6 +130,19 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const [batchText, setBatchText] = useState('')
   const [batchLines, setBatchLines] = useState<BatchLine[]>([])
   const [batchChecking, setBatchChecking] = useState(false)
+  // Phase 7 (v1.0): Smart features — organizer folder, smart name, duplicate panel.
+  const [smartName, setSmartName] = useState<string | null>(null)
+  const [useSmartName, setUseSmartName] = useState(true)
+  const [duplicate, setDuplicate] = useState<{
+    duplicate: boolean
+    kind?: 'url' | 'remote' | 'file'
+    existingId?: string
+    existingName?: string
+    existingSize?: number | null
+    existingCompletedAt?: number | null
+  } | null>(null)
+  const [duplicateBypass, setDuplicateBypass] = useState(false)
+  const [saveDirTouched, setSaveDirTouched] = useState(false)
 
   // Reset local state when a (new) dialog opens — the React-endorsed
   // "adjust state during render" pattern, not a setState-in-effect.
@@ -158,6 +173,12 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setBatchText('')
     setBatchLines([])
     setBatchChecking(false)
+    // Phase 7: fresh Smart state for the new dialog.
+    setSmartName(null)
+    setUseSmartName(true)
+    setDuplicate(null)
+    setDuplicateBypass(false)
+    setSaveDirTouched(false)
   }
   // Phase 4: a fresh playlist defaults to all entries selected.
   if (dialogPlaylist && prevPlaylistUrl !== dialogPlaylist.url) {
@@ -235,10 +256,60 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const effectiveSubtitles = subtitles && subsAvailable
   const readyCount = batchLines.filter((l) => l.status === 'ready').length
 
+  // Phase 7: organizer + smart name — runs once per fetched info/tab/quality.
+  // (Hooks must live above the early return below.)
+  useEffect(() => {
+    if (!dialogOpen) return
+    if (!dialogInfo && !dialogPlainFile) return
+    // No "already ran" guard needed: the effect only re-runs when its
+    // deps change, categorize is skipped once the user picks a folder
+    // (saveDirTouched), and the naming call is idempotent.
+    if (typeof window.dovira === 'undefined') return
+    const s = settings
+    if (!s) return
+    const kind = dialogInfo ? (tab === 'audio' ? 'audio' : 'video') : 'file'
+    const fname = dialogInfo
+      ? tab === 'audio'
+        ? `${sanitizeName(dialogInfo.title)}.mp3`
+        : `${sanitizeName(dialogInfo.title)}.${s.videoContainer ?? 'mp4'}`
+      : (dialogPlainFile?.filename ?? 'download')
+    if (s.smartOrganizer && !saveDirTouched) {
+      void window.dovira
+        .smartCategorize({
+          filename: fname,
+          kind,
+          site: dialogInfo?.site ?? null,
+          duration: dialogInfo?.duration ?? null,
+          ytCategory: dialogInfo?.ytCategory ?? null
+        })
+        .then((cat) => {
+          setSaveDir(cat.folder)
+        })
+        .catch(() => {
+          // Keep the default folder — the organizer is a convenience.
+        })
+    }
+    if (s.smartNaming && dialogInfo) {
+      void window.dovira
+        .smartSuggestName({
+          filename: fname,
+          title: dialogInfo.title,
+          height: tab === 'video' ? height : null,
+          uploader: dialogInfo.uploader
+        })
+        .then((r) => {
+          setSmartName(r.name !== fname ? r.name : null)
+        })
+        .catch(() => {
+          // Keep the plain name.
+        })
+    }
+  }, [dialogOpen, dialogInfo, dialogPlainFile, tab, settings, height, saveDirTouched])
+
   if (!dialogOpen) return <></>
 
   const container = settings?.videoContainer ?? 'mp4'
-  const filename =
+  const baseFilename =
     dialogInfo && tab === 'video'
       ? `${sanitizeName(dialogInfo.title)}.${container}`
       : dialogInfo && tab === 'audio'
@@ -246,6 +317,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
         : dialogPlainFile
           ? dialogPlainFile.filename
           : 'download'
+  // Phase 7: the smart name (previewed below) replaces the plain name
+  // unless the user unchecked it.
+  const filename = smartName && useSmartName && dialogInfo ? smartName : baseFilename
   // Playlist/batch show the folder (each entry gets its own filename).
   const savePath =
     dialogPlaylist || mode === 'batch'
@@ -254,7 +328,47 @@ export default function AddDownloadDialog(): React.JSX.Element {
         ? `${saveDir}\\${filename}`
         : filename
 
-  const submit = async (): Promise<void> => {
+  // Phase 7: duplicate pre-check (DB + destination folder).
+  const checkDup = async (): Promise<{
+    duplicate: boolean
+    kind?: 'url' | 'remote' | 'file'
+    existingId?: string
+    existingName?: string
+    existingSize?: number | null
+    existingCompletedAt?: number | null
+  } | null> => {
+    if (!dialogInfo || typeof window.dovira === 'undefined') return null
+    try {
+      return await window.dovira.smartCheckDuplicate({
+        url: dialogInfo.url,
+        filename,
+        saveDir: saveDir || settings?.downloadDir || '',
+        totalBytes: rows.find((r) => r.height === height)?.size ?? null,
+        remoteId:
+          dialogInfo.videoId && dialogInfo.extractor
+            ? `${dialogInfo.extractor}:${dialogInfo.videoId}`
+            : null,
+        formatId: tab === 'video' ? `${height}p` : `mp3-${bitrate}`
+      })
+    } catch {
+      return null
+    }
+  }
+
+  // Phase 7: the duplicate panel's three answers. Re-download and Keep
+  // both both proceed — the queue's unique-path resolver adds the (1)
+  // suffix when the file already exists on disk.
+  const resolveDuplicate = (choice: 'redownload' | 'skip' | 'keep-both'): void => {
+    if (choice === 'skip') {
+      closeDialog()
+      return
+    }
+    setDuplicate(null)
+    setDuplicateBypass(true)
+    void submit(true)
+  }
+
+  const submit = async (bypassDup = duplicateBypass): Promise<void> => {
     if (busy) return
     // Phase 4: batch mode — the footer button is "Download all (n)".
     if (mode === 'batch') {
@@ -347,10 +461,35 @@ export default function AddDownloadDialog(): React.JSX.Element {
             title: dialogInfo.title,
             thumbnailUrl: dialogInfo.thumbnail
           }
+    // Phase 7: duplicate pre-check — the panel offers Re-download /
+    // Skip / Keep both. Bypassed after the user already chose.
+    if (settings?.smartDuplicates && !bypassDup) {
+      setBusy(true)
+      const dup = await checkDup()
+      setBusy(false)
+      if (dup?.duplicate) {
+        setDuplicate(dup)
+        return
+      }
+    }
     setBusy(true)
-    const res = await addWithOptions(opts)
+    const res = await addWithOptions({
+      ...opts,
+      videoId: dialogInfo.videoId,
+      extractor: dialogInfo.extractor,
+      height: tab === 'video' ? height : null,
+      uploader: dialogInfo.uploader,
+      // The dialog already decided the filename (smart or plain).
+      applySmartName: false,
+      skipDuplicateCheck: bypassDup
+    })
     setBusy(false)
     if (!res.ok) {
+      // Safety-net race: the file appeared after the pre-check.
+      if (res.error === 'duplicate') {
+        const dup = await checkDup()
+        if (dup?.duplicate) setDuplicate(dup)
+      }
       setSubmitError(res.error ?? 'unknown')
       setSubmitDetail(res.errorDetail ?? null)
     }
@@ -529,7 +668,11 @@ export default function AddDownloadDialog(): React.JSX.Element {
 
   const pickSaveDir = async (): Promise<void> => {
     const dir = await window.dovira.pickFolder()
-    if (dir) setSaveDir(dir)
+    if (dir) {
+      setSaveDir(dir)
+      // Phase 7: a hand-picked folder wins — the organizer stops overriding it.
+      setSaveDirTouched(true)
+    }
   }
 
   const pasteFromClipboard = async (): Promise<void> => {
@@ -726,6 +869,22 @@ export default function AddDownloadDialog(): React.JSX.Element {
                 </div>
               </div>
             </div>
+
+            {smartName && smartName !== baseFilename && (
+              <div className="mt-3 flex items-center gap-2 text-[13px]">
+                <span className="min-w-0 flex-1 truncate text-[var(--muted)]" title={smartName}>
+                  {t('add.smartName')}: <span className="text-[var(--text)]">{smartName}</span>
+                </span>
+                <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={useSmartName}
+                    onChange={(e) => setUseSmartName(e.target.checked)}
+                  />
+                  {t('add.smartNameUse')}
+                </label>
+              </div>
+            )}
 
             <div className="seg-tabs mt-4" role="tablist">
               <button
@@ -1119,6 +1278,40 @@ export default function AddDownloadDialog(): React.JSX.Element {
           <div className="mt-3 text-[13px] text-[var(--danger)]">{t(errorKey(submitError))}</div>
         )}
         {submitDetail && <div className="mt-1 text-[11px] text-[var(--muted)]">{submitDetail}</div>}
+
+        {duplicate && (
+          <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div className="text-[13px] font-semibold">{t('add.duplicateTitle')}</div>
+            <div className="mt-1 text-[13px] text-[var(--muted)]">
+              {duplicate.existingName ?? ''}
+              {duplicate.existingSize ? `  ·  ${formatBytes(duplicate.existingSize)}` : ''}
+              {duplicate.existingCompletedAt
+                ? `  ·  ${new Date(duplicate.existingCompletedAt).toLocaleDateString()}`
+                : ''}
+            </div>
+            <div className="mt-1 text-[12px] text-[var(--muted)]">
+              {duplicate.kind === 'url'
+                ? t('add.duplicateUrl')
+                : duplicate.kind === 'remote'
+                  ? t('add.duplicateRemote')
+                  : t('add.duplicateFile')}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => resolveDuplicate('redownload')}
+              >
+                {t('add.duplicateRedownload')}
+              </button>
+              <button className="btn btn-sm" onClick={() => resolveDuplicate('keep-both')}>
+                {t('add.duplicateKeepBoth')}
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => resolveDuplicate('skip')}>
+                {t('add.duplicateSkip')}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="mt-5 flex justify-end gap-2">
           <button className="btn" onClick={closeDialog}>

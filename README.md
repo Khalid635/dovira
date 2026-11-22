@@ -6,9 +6,15 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux �
 
 ## Status
 
-**v0.5.0 — Phases 1–6 (done):** aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes, Windows completion notifications. **Phase 2 adds:** yt-dlp video/audio downloads with quality choice (Video 2160p–360p, Audio MP3 320/192/128 kbps), Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart). **Phase 3 adds:** History page, cookies support, scheduler and tray. **Phase 4 adds:** playlist/channel download (one quality for all entries, skip already-downloaded via the download archive), batch download (one URL per line, or import a .txt), clip download (a time range of a video), metadata + subtitle options (embed metadata, subtitle mode embed/file/both, auto-generated subtitles), thumbnail-only download, and torrent/magnet support. **Phase 5 adds:** browser extension (Manifest V3, Chrome + Firefox) — right-click "Download with DOVIRA", toolbar popup with the page's links, IDM-style floating download button on video pages, optional browser-download intercept (off by default), and a token-authenticated Local API on 127.0.0.1 in the app (pairing token in Settings > Browser & Cookies). Live-stream recording was NOT built (plan §12).
+**v1.0.0 — Phases 0–7 (done).** Everything in the master plan through v1.0 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
 
-**Phase 6 adds:** macOS (.dmg) and Linux (AppImage/.deb) installers built by GitHub Actions, per-OS engine binaries, and app auto-update via electron-updater + GitHub Releases with mandatory SHA-256 checksum verification before any update is installed. macOS notarization is skipped (no paid Apple Developer account) — the dmg is unsigned; see Install below. Phase 7 (next) is the AI File Organizer. See the master plan in the repo's docs or `ai-download-manager-plan-v2.md`.
+## Screenshots
+
+![Home — empty, Mint light theme](docs/screenshots/home-empty-light.png)
+
+![Add Download dialog — Mint light theme](docs/screenshots/dialog-light.png)
+
+![Home — empty, dark theme](docs/screenshots/home-empty-dark.png)
 
 ## Install
 
@@ -24,21 +30,28 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
 
 ## Features
 
-- **Direct file downloads** — multi-connection via aria2 (8 connections), pause/resume that survives app restarts
+- **Direct file downloads** — multi-connection via aria2, pause/resume that survives app restarts (network drop, app restart, PC reboot). yt-dlp resume always reuses the exact same format; if the partial file is gone, the app says so instead of silently restarting
 - **Video & audio downloads** — YouTube and other video sites via yt-dlp: pick Video quality (up to 2160p) or Audio MP3, subtitles and thumbnail included on request
-- **Smart Resume** — interrupted downloads resume where they stopped (network drop, app restart, PC reboot). yt-dlp resume always reuses the exact same format; if the partial file is gone, the app says so instead of silently restarting
+- **Smart Resume** — interrupted downloads resume where they stopped
 - **Queue** — max 3 simultaneous downloads, the rest wait their turn
 - **History** — every download is stored in local SQLite and survives restarts
 - **Playlists & batch** — download a whole playlist/channel (pick the entries, one quality for all) or paste many links at once; already-downloaded videos can be skipped via the download archive
 - **Clips, metadata & subtitles** — download just a time range of a video, embed title/artist metadata and thumbnails, or save subtitles as .srt (including auto-generated captions)
 - **Torrents** — magnet links and .torrent files via aria2 (DHT on, never seeds after a download finishes)
 - **Browser extension** — right-click "Download with DOVIRA", toolbar popup, floating download button on video pages, optional download intercept (off by default). Pairs with the app over a token-authenticated Local API on 127.0.0.1. See `extension/README.md` — Firefox (AMO) first; Chrome via Load unpacked. Do NOT submit the YouTube-download capability to the Chrome Web Store (its policy prohibits it).
-- **AI File Organizer (rule-based)** — downloads categorized by type; smart naming and duplicate detection interfaces are in place for Phase 7
+- **Site grabber** — scan a page for downloadable files (images, documents, media) and queue the ones you pick
+- **Speed limiter** — a global cap plus a per-download cap, applied live to running downloads. A changed limit takes effect on the next _fresh_ yt-dlp download, not a resumed fragmented one (yt-dlp keeps the original throttle on resume); aria2 resumes apply the new limit immediately
+- **Smart features (v1.0, Settings > Smart — every feature has its own switch)**
+  - **AI File Organizer** — downloads are sorted into Video, Music, Documents, Archives, Programs, Images or Others, from the file extension, yt-dlp metadata (category, duration) and the source domain. Folder names are editable; extension overrides are yours to set
+  - **Smart filenames** — strips `(Official Video)`, `[HD]`, emoji and extra spaces from titles, then applies your template (default `{title} [{height}p]`). The Add dialog shows a preview with a one-click revert
+  - **Duplicate Detection** — checks the history for the same URL or the same video + format, and the destination folder for the same name + size. If found, the dialog offers Re-download / Skip / Keep both
+  - **Smart Download** — measures your running speed and adapts: more aria2 connections and yt-dlp fragments when fast and stable, fewer (and longer retry gaps) when slow or unstable
+  - **Local AI model (optional, off by default)** — for the downloads the rules cannot categorize, an Ollama or LM Studio model running on your machine can be asked instead. No model is bundled; nothing leaves your machine
 - **AI Assistant** — planned after v1.0 (optional local model, off by default)
 
 Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
 
-## Limitations (v0.5.0)
+## Limitations (v1.0.0)
 
 - Login-only videos need cookies — set them in Settings > Browser & Cookies (the app says so instead of failing silently).
 - DRM-protected sites (Netflix, Prime Video, Disney+) can never be supported.
@@ -47,6 +60,8 @@ Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
 - Video quality shown comes only from the site's real format list — if a video has no 1080p, 1080p is not offered.
 - The macOS dmg is unsigned — first launch needs right-click > Open (see Install).
 - On macOS/Linux without a bundled aria2, torrents/magnets are unavailable (plain files still work via yt-dlp).
+- A changed speed limit or fragment count takes effect on the next _fresh_ yt-dlp download, not on a resumed fragmented one (see Speed limiter above).
+- The "Total size" stat counts the video stream size yt-dlp reports, which can differ from the final file size on disk.
 
 ## Build & run
 
@@ -74,14 +89,14 @@ Engine binaries live in `resources/bin/<win|mac|linux>/` and are **not** committ
 ```
 src/main/         Electron main: queue, db, settings, ipc, localApi (extension Local API), updater (auto-update), checksum (SHA-256 verification)
   engines/        aria2.ts (JSON-RPC), ytdlp.ts, versions.ts
-  smart/          categorize.ts, naming.ts, duplicates.ts (AI-ready, rule-based for now)
+  smart/          categorize.ts, naming.ts, duplicates.ts, adaptive.ts, localModel.ts (rule-based; local model optional)
   util/           filename.ts, errors.ts, paths.ts
 src/preload/      contextBridge API (window.dovira)
 src/renderer/     React UI: Home, DownloadCard, Settings, AddDownloadDialog, EN/BN i18n
 extension/        browser extension (Manifest V3): background, content script, popup, options
 resources/bin/    engine binaries (git-ignored)
 scripts/          fetch-binaries.cjs, build-extension.cjs, build-aria2.sh
-docs/             phase2-test.md, phase2-ytdlp-resume-test.md, phase6-test.md, benchmark.md
+docs/             phase test reports, benchmark.md, screenshots/
 ```
 
 ## DRM note

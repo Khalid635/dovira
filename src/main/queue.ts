@@ -13,7 +13,11 @@ import {
   type YtDlpDownload,
   type YtDlpDownloadOpts
 } from './engines/ytdlp'
-import { categorize } from './smart/categorize'
+import { categorize, organizeDir, type Category } from './smart/categorize'
+import { suggestName } from './smart/naming'
+import { AdaptiveNet } from './smart/adaptive'
+import { askCategory, testLocalModel, type LocalModelSettings } from './smart/localModel'
+import { findFileDuplicate, type DuplicateInfo } from './smart/duplicates'
 import { sanitizeFilename, resolveUniquePath, filenameFromUrl } from './util/filename'
 import { mapEngineError } from './util/errors'
 import { diskFreeBytes } from './util/paths'
@@ -41,6 +45,12 @@ const MAX_ARIA2_RESTARTS = 3
 /** Retry backoff between auto-retries: a short outage (up to ~25s) is bridged
  * without burning all retries in the first seconds. */
 const RETRY_DELAYS_MS = [2000, 5000, 15000]
+
+// Phase 7: same folder, ignoring a trailing slash and Windows case.
+function sameDir(a: string, b: string): boolean {
+  const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
 
 /** Phase 4: magnet: links and .torrent file URLs go to aria2 as torrents. */
 function isTorrentUrl(url: string): boolean {
@@ -196,6 +206,11 @@ export class QueueManager extends EventEmitter {
   private aria2Restarts = 0
   private shutDown = false
   private ytDlpArgs = new Map<string, string[]>()
+  /** Phase 7: Smart Download — rolling speed samples + failure count. */
+  private adaptive = new AdaptiveNet()
+  /** Phase 7: last live aria2 connection adjustment (10s cadence). */
+  private lastAdaptiveAt = 0
+  private lastAdaptiveConns = 0
   /**
    * Phase 5: per-link request headers (User-Agent / Referer / Cookie) the
    * browser extension sent for a plain-file (aria2) download. aria2 only
@@ -488,7 +503,7 @@ export class QueueManager extends EventEmitter {
       return { ok: false, error: 'unsupported-url' }
     }
     const s = this.settings.get()
-    const dir = saveDir ?? s.downloadDir
+    let dir = saveDir ?? s.downloadDir
     const free = diskFreeBytes(dir)
     if (free !== null && free < MIN_FREE_BYTES) return { ok: false, error: 'no-space' }
 
@@ -526,6 +541,42 @@ export class QueueManager extends EventEmitter {
     }
 
     filename = sanitizeFilename(filename)
+    // Phase 7 (v1.0): Smart features — smart filename, organizer folder,
+    // duplicate check. Each guarded by its own Settings switch. The
+    // organizer only applies when no explicit folder was passed (a folder
+    // the user picked — or the dialog already organized — is respected).
+    if (s.smartNaming) {
+      filename = suggestName({
+        filename,
+        title: null,
+        height: null,
+        uploader: null,
+        template: s.nameTemplate
+      })
+    }
+    if (s.smartOrganizer && !saveDir) {
+      dir = await this.organizeSaveDir(dir, filename, {
+        kind: 'file',
+        site: parsed.hostname,
+        duration: null,
+        ytCategory: null,
+        title: null
+      })
+    }
+    if (s.smartDuplicates) {
+      const dup = this.checkDuplicate({
+        url: url.trim(),
+        filename,
+        saveDir: dir,
+        totalBytes: totalBytes > 0 ? totalBytes : null,
+        remoteId: null,
+        formatId: null
+      })
+      if (dup.duplicate) {
+        this.emitToast({ key: 'toast.duplicateSkipped' })
+        return { ok: false, error: 'duplicate', id: dup.existingId }
+      }
+    }
     mkdirSync(dir, { recursive: true })
     const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
@@ -608,8 +659,50 @@ export class QueueManager extends EventEmitter {
       }
     }
 
-    const filename = sanitizeFilename(opts.filename)
-    const dir = dirname(opts.savePath)
+    let filename = sanitizeFilename(opts.filename)
+    // Phase 7: Smart filename — the Add dialog already previews this exact
+    // result and passes the final name; main re-applies it only for
+    // callers that did not (browser extension). applySmartName=false means
+    // "the caller already decided the name".
+    if (s.smartNaming && opts.applySmartName !== false) {
+      filename = suggestName({
+        filename,
+        title: opts.title ?? null,
+        height: opts.height ?? null,
+        uploader: opts.uploader ?? null,
+        template: s.nameTemplate
+      })
+    }
+    let dir = dirname(opts.savePath)
+    // Phase 7: organizer — only when the path is still the bare download
+    // dir (the dialog already organized its own path; a folder the user
+    // picked by hand is respected).
+    if (s.smartOrganizer && sameDir(dir, s.downloadDir)) {
+      dir = await this.organizeSaveDir(dir, filename, {
+        kind: opts.kind,
+        site: parsed.hostname,
+        duration: null,
+        ytCategory: null,
+        title: opts.title ?? null
+      })
+    }
+    // Phase 7: duplicate safety net (the dialog pre-checks; this catches
+    // races and extension adds). Re-download / Keep both pass
+    // skipDuplicateCheck.
+    if (s.smartDuplicates && !opts.skipDuplicateCheck) {
+      const dup = this.checkDuplicate({
+        url: opts.url.trim(),
+        filename,
+        saveDir: dir,
+        totalBytes: null,
+        remoteId: opts.videoId && opts.extractor ? `${opts.extractor}:${opts.videoId}` : null,
+        formatId: opts.formatId ?? null
+      })
+      if (dup.duplicate) {
+        this.emitToast({ key: 'toast.duplicateSkipped' })
+        return { ok: false, error: 'duplicate', errorDetail: dup.existingId }
+      }
+    }
     mkdirSync(dir, { recursive: true })
     const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
@@ -674,6 +767,8 @@ export class QueueManager extends EventEmitter {
       createdAt: info.createdAt,
       sortOrder: info.sortOrder,
       engine: 'ytdlp',
+      // Phase 7: remote_id = "<extractor>:<videoId>" (duplicate detection).
+      remoteId: opts.videoId && opts.extractor ? `${opts.extractor}:${opts.videoId}` : null,
       formatId: opts.formatId,
       formatString: opts.formatString,
       ytdlpState: info.ytdlpState
@@ -1198,6 +1293,117 @@ export class QueueManager extends EventEmitter {
     }
   }
 
+  /**
+   * Phase 7 (v1.0): Smart IPC — categorize a download into a folder.
+   * Returns the category + the full folder path. Rules only; the local
+   * model is NOT consulted here (the dialog must stay fast) — it runs at
+   * add time, only for "Others" results.
+   */
+  smartCategorize(input: {
+    filename: string
+    kind?: 'video' | 'audio' | 'file'
+    site?: string | null
+    duration?: number | null
+    ytCategory?: string | null
+  }): { category: Category; folder: string } {
+    const s = this.settings.get()
+    const category = categorize({ ...input, overrides: s.organizerOverrides })
+    return { category, folder: organizeDir(s.downloadDir, category, s.organizerFolders) }
+  }
+
+  /** Phase 7: Smart IPC — the smart filename for a title + template. */
+  smartSuggestName(input: {
+    filename: string
+    title?: string | null
+    height?: number | null
+    uploader?: string | null
+  }): { name: string } {
+    const s = this.settings.get()
+    return { name: suggestName({ ...input, template: s.nameTemplate }) }
+  }
+
+  /**
+   * Phase 7: Smart IPC + safety net — duplicate check (DB + disk).
+   * (a) DB: same URL, or same extractor+id+format, among COMPLETED rows;
+   * (b) disk: same name + size in the destination folder.
+   */
+  checkDuplicate(q: {
+    url: string
+    filename: string
+    saveDir: string
+    totalBytes: number | null
+    remoteId?: string | null
+    formatId?: string | null
+  }): DuplicateInfo {
+    const row = this.db.findCompletedDuplicate(q.url, q.remoteId ?? null, q.formatId ?? null)
+    if (row) {
+      return {
+        duplicate: true,
+        kind: row.url === q.url ? 'url' : 'remote',
+        existingId: row.id,
+        existingName: row.filename,
+        existingSize: row.totalBytes > 0 ? row.totalBytes : null,
+        existingCompletedAt: row.completedAt
+      }
+    }
+    const onDisk = findFileDuplicate(q.saveDir, q.filename, q.totalBytes)
+    if (onDisk) {
+      return {
+        duplicate: true,
+        kind: 'file',
+        existingName: onDisk.name,
+        existingSize: onDisk.size,
+        existingCompletedAt: Math.round(onDisk.mtimeMs)
+      }
+    }
+    return { duplicate: false }
+  }
+
+  /** Phase 7: Smart IPC — test the local-model endpoint (Settings > Smart). */
+  async testLocalModel(): Promise<{ ok: boolean; error?: string }> {
+    const s = this.settings.get()
+    const cfg: LocalModelSettings = {
+      enabled: s.localModelEnabled,
+      provider: s.localModelProvider,
+      endpoint: s.localModelEndpoint,
+      model: s.localModelName
+    }
+    return testLocalModel(cfg)
+  }
+
+  /**
+   * Phase 7: the organizer folder for a download. When the rules say
+   * Others AND the local model is enabled, ask it once (5s timeout) —
+   * any failure falls back to Others silently.
+   */
+  private async organizeSaveDir(
+    baseDir: string,
+    filename: string,
+    input: {
+      kind: 'video' | 'audio' | 'file'
+      site?: string | null
+      duration?: number | null
+      ytCategory?: string | null
+      title?: string | null
+    }
+  ): Promise<string> {
+    const s = this.settings.get()
+    let category = categorize({ filename, ...input, overrides: s.organizerOverrides })
+    if (category === 'Others' && s.localModelEnabled) {
+      const modelCat = await askCategory(
+        {
+          enabled: s.localModelEnabled,
+          provider: s.localModelProvider,
+          endpoint: s.localModelEndpoint,
+          model: s.localModelName
+        },
+        input.title ?? filename
+      )
+      if (modelCat) category = modelCat
+    }
+    return organizeDir(baseDir, category, s.organizerFolders)
+  }
+
   private async startDownload(d: DownloadInfo): Promise<void> {
     if (d.engine === 'ytdlp') {
       await this.startYtDlp(d)
@@ -1229,10 +1435,15 @@ export class QueueManager extends EventEmitter {
       }
     }
     const effLimit = this.effectiveLimitKBps(d)
+    // Phase 7: Smart Download — connections from the measured network
+    // class (fast 16 / medium 8 / slow 4). When Smart Download is off,
+    // the Settings value is used as before.
+    const conns = s.smartDownload ? this.adaptive.connections() : s.connectionsPerDownload
+    this.lastAdaptiveConns = conns
     const opts: Record<string, string | string[]> = {
       dir: dirname(d.savePath),
-      'max-connection-per-server': String(s.connectionsPerDownload),
-      split: String(s.connectionsPerDownload),
+      'max-connection-per-server': String(conns),
+      split: String(conns),
       continue: 'true',
       'allow-overwrite': 'false',
       'auto-file-renaming': 'false',
@@ -1306,7 +1517,11 @@ export class QueueManager extends EventEmitter {
       userAgent: state?.userAgent ?? null,
       referer: state?.referer ?? null,
       // Phase 7: yt-dlp gets --limit-rate at start.
-      speedLimitKBps: this.effectiveLimitKBps(d)
+      speedLimitKBps: this.effectiveLimitKBps(d),
+      // Phase 7: concurrent fragments from the measured network class.
+      // A resumed download reuses stored lastArgs (old -N) — the new
+      // fragment count applies to the NEXT FRESH download only.
+      fragments: this.settings.get().smartDownload ? this.adaptive.fragments() : undefined
     }
   }
 
@@ -1418,7 +1633,12 @@ export class QueueManager extends EventEmitter {
       savePath,
       filename: name,
       title: info.title,
-      thumbnailUrl: info.thumbnail
+      thumbnailUrl: info.thumbnail,
+      // Phase 7: duplicate identity + smart filename inputs.
+      videoId: info.videoId,
+      extractor: info.extractor,
+      height: kind === 'video' ? Number(height) : null,
+      uploader: info.uploader
     })
   }
 
@@ -1483,6 +1703,8 @@ export class QueueManager extends EventEmitter {
         if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
         d.speedBps = p.speedBps
         d.etaSeconds = p.etaSeconds
+        // Phase 7: feed the adaptive sampler (yt-dlp speeds).
+        if (p.speedBps > 0) this.adaptive.sample(p.speedBps)
         if (p.status === 'finished') {
           finishedCount++
           if (d.status === 'downloading') {
@@ -1612,6 +1834,8 @@ export class QueueManager extends EventEmitter {
         if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
         d.speedBps = p.speedBps
         d.etaSeconds = p.etaSeconds
+        // Phase 7: feed the adaptive sampler (yt-dlp speeds).
+        if (p.speedBps > 0) this.adaptive.sample(p.speedBps)
         if (p.status === 'finished') {
           if (d.status === 'downloading') {
             // All bytes are in — yt-dlp is doing the final rename.
@@ -1695,6 +1919,8 @@ export class QueueManager extends EventEmitter {
         if (total > 0) d.totalBytes = total
         if (total > 0 || done > 0) d.doneBytes = done
         d.speedBps = speed
+        // Phase 7: feed the adaptive sampler (aria2 speeds, 500ms ticks).
+        if (speed > 0) this.adaptive.sample(speed)
         d.etaSeconds =
           speed > 0 && d.totalBytes > d.doneBytes
             ? Math.round((d.totalBytes - d.doneBytes) / speed)
@@ -1765,6 +1991,30 @@ export class QueueManager extends EventEmitter {
         // Other RPC errors (aria2 mid-restart) — next tick retries.
       }
     }
+    // Phase 7: live connection adjustment — every ~10s, if the measured
+    // class changed, retune the active aria2 downloads. Best-effort:
+    // aria2 may ignore changeOption for a finished/queued gid, and the
+    // next FRESH download always uses the new value.
+    if (this.settings.get().smartDownload) {
+      const now = Date.now()
+      const conns = this.adaptive.connections()
+      if (now - this.lastAdaptiveAt >= 10_000 && conns !== this.lastAdaptiveConns) {
+        this.lastAdaptiveAt = now
+        this.lastAdaptiveConns = conns
+        for (const aentry of [...this.active.values()]) {
+          if (!aentry.gid) continue
+          try {
+            await aria2.changeOption(aentry.gid, {
+              'max-connection-per-server': String(conns),
+              split: String(conns)
+            })
+          } catch {
+            // Best-effort — the next fresh download uses the new value.
+          }
+        }
+        logMain('info', `smartDownload: live connections -> ${conns} (${this.adaptive.classify()})`)
+      }
+    }
     if (![...this.active.values()].some((e) => e.gid)) this.stopPoller()
   }
 
@@ -1824,6 +2074,10 @@ export class QueueManager extends EventEmitter {
       this.fail(d, mapped.code, raw)
       return
     }
+    // Phase 7: Smart Download — network failures feed the classifier.
+    if (mapped.code === 'network' || mapped.code === 'timeout') {
+      this.adaptive.noteFailure()
+    }
     const retries = this.retryCount.get(id) ?? 0
     const maxRetry = this.settings.get().autoRetry
     if (retries < maxRetry) {
@@ -1834,7 +2088,11 @@ export class QueueManager extends EventEmitter {
       this.db.updateDownload(id, { status: 'queued' })
       this.emitStatus(id)
       this.emitToast({ key: 'toast.retrying', params: { n: retries + 1, max: maxRetry } })
-      const delay = RETRY_DELAYS_MS[Math.min(retries, RETRY_DELAYS_MS.length - 1)]
+      // Phase 7: retry gaps stretch when the network is slow/unstable.
+      const delays = this.settings.get().smartDownload
+        ? this.adaptive.retryDelaysMs()
+        : RETRY_DELAYS_MS
+      const delay = delays[Math.min(retries, delays.length - 1)]
       setTimeout(() => void this.pump(), delay)
       return
     }

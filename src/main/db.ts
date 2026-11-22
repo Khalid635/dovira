@@ -297,6 +297,53 @@ export class DoviraDb {
     return row ? rowToInfo(row) : null
   }
 
+  /**
+   * Phase 7 (v1.0): duplicate check — a COMPLETED row with the same URL,
+   * or the same extractor+video-id AND format. Live rows are excluded:
+   * they resume instead of duplicating. remote_id/format_id NULLs never
+   * match (SQL NULL = NULL is false, and the IS NOT NULL guards make
+   * that explicit).
+   */
+  findCompletedDuplicate(
+    url: string,
+    remoteId: string | null,
+    formatId: string | null
+  ): {
+    id: string
+    url: string
+    filename: string
+    savePath: string
+    totalBytes: number
+    completedAt: number | null
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, url, filename, save_path, total_bytes, completed_at FROM downloads
+         WHERE status = 'completed'
+           AND (url = ? OR (remote_id = ? AND remote_id IS NOT NULL AND format_id = ? AND format_id IS NOT NULL))
+         ORDER BY completed_at DESC LIMIT 1`
+      )
+      .get(url, remoteId, formatId) as unknown as
+      | {
+          id: string
+          url: string
+          filename: string
+          save_path: string
+          total_bytes: number
+          completed_at: number | null
+        }
+      | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      url: row.url,
+      filename: row.filename,
+      savePath: row.save_path,
+      totalBytes: row.total_bytes,
+      completedAt: row.completed_at
+    }
+  }
+
   listDownloads(): DownloadInfo[] {
     const rows = this.db
       .prepare('SELECT * FROM downloads ORDER BY created_at DESC')

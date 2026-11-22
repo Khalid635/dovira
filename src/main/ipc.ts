@@ -111,6 +111,66 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return queue.addWithOptions(opts as AddOptions)
   })
+  // Phase 7 (v1.0): Smart features — main re-validates every input
+  // (settings are the source of truth for folders/template/switches).
+  ipcMain.handle('dovira:smart:categorize', (_e, input: unknown) => {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      return { category: 'Others', folder: settings.get().downloadDir }
+    }
+    const i = input as {
+      filename?: unknown
+      kind?: unknown
+      site?: unknown
+      duration?: unknown
+      ytCategory?: unknown
+    }
+    return queue.smartCategorize({
+      filename: typeof i.filename === 'string' ? i.filename : 'download',
+      kind: i.kind === 'video' || i.kind === 'audio' || i.kind === 'file' ? i.kind : undefined,
+      site: typeof i.site === 'string' ? i.site : null,
+      duration: typeof i.duration === 'number' ? i.duration : null,
+      ytCategory: typeof i.ytCategory === 'string' ? i.ytCategory : null
+    })
+  })
+  ipcMain.handle('dovira:smart:suggestName', (_e, input: unknown) => {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      return { name: 'download' }
+    }
+    const i = input as {
+      filename?: unknown
+      title?: unknown
+      height?: unknown
+      uploader?: unknown
+    }
+    return queue.smartSuggestName({
+      filename: typeof i.filename === 'string' ? i.filename : 'download',
+      title: typeof i.title === 'string' ? i.title : null,
+      height: typeof i.height === 'number' ? i.height : null,
+      uploader: typeof i.uploader === 'string' ? i.uploader : null
+    })
+  })
+  ipcMain.handle('dovira:smart:checkDuplicate', (_e, input: unknown) => {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      return { duplicate: false }
+    }
+    const i = input as {
+      url?: unknown
+      filename?: unknown
+      saveDir?: unknown
+      totalBytes?: unknown
+      remoteId?: unknown
+      formatId?: unknown
+    }
+    return queue.checkDuplicate({
+      url: typeof i.url === 'string' ? i.url : '',
+      filename: typeof i.filename === 'string' ? i.filename : '',
+      saveDir: typeof i.saveDir === 'string' ? i.saveDir : settings.get().downloadDir,
+      totalBytes: typeof i.totalBytes === 'number' ? i.totalBytes : null,
+      remoteId: typeof i.remoteId === 'string' ? i.remoteId : null,
+      formatId: typeof i.formatId === 'string' ? i.formatId : null
+    })
+  })
+  ipcMain.handle('dovira:smart:testLocalModel', () => queue.testLocalModel())
   const engineSpecs = (): EngineSpec[] => [
     { name: 'aria2', path: deps.aria2Binary, getVersion: getAria2Version },
     { name: 'yt-dlp', path: deps.ytDlpBinary, getVersion: getYtDlpVersion },
