@@ -2,6 +2,14 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [1.3.1] - 2026-11-24
+
+### Fixed
+
+- Instant Add dialog: the dialog now opens immediately (~13ms) with the video and audio tabs shown at once; formats load in the background instead of blocking on yt-dlp extraction (~5-10s wait gone). The dialog now also opens correctly from the extension's floating button, which used to open nothing.
+- Facebook Reels: the floating Download button now appears on Reels videos — video detection works through overlays.
+- Fetch cache: clicking the same video a second time is instant (~10ms) instead of re-extracting (~10s).
+
 ## [1.3.0] - 2026-11-23
 
 ### Added

@@ -6,7 +6,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux �
 
 ## Status
 
-**v1.3.0 — Phases 0–7 + guided setup + next-level features (done).** Everything in the master plan through v1.3 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
+**v1.3.1 — Phases 0–7 + guided setup + next-level features + instant Add dialog (done).** Everything in the master plan through v1.3.1 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
 
 ## Screenshots
 
@@ -51,7 +51,7 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
 
 Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
 
-## Limitations (v1.3.0)
+## Limitations (v1.3.1)
 
 - Login-only videos need cookies — set them in Settings > Browser & Cookies (the app says so instead of failing silently).
 - DRM-protected sites (Netflix, Prime Video, Disney+) can never be supported.
