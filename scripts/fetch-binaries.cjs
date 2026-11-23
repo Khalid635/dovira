@@ -43,9 +43,6 @@
  *   with a source notice; it does not change DOVIRA's own MIT license.
  *   Neither evermeet nor BtbN publishes a checksum file for these
  *   assets, so the version check + GPL detection is the verification.
- *   evermeet ships ffmpeg and ffprobe as SEPARATE single-binary zips
- *   (ffmpeg-9.1.zip has no ffprobe inside - CI run 44979642131 failed
- *   on exactly that), so macOS fetches ffprobe as its own entry.
  *   BtbN prints `ffmpeg version n9.0.2-...` (an 'n' prefix + rolling
  *   build suffix), so the Linux version check allows that prefix.
  * - deno: the release's .sha256sum file is downloaded and compared.
@@ -113,8 +110,7 @@ const BINARIES_BY_PLATFORM = {
       version: '2026.10.26',
       kind: 'exe',
       url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe',
-      checksumUrl:
-        'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
       checksumFile: 'yt-dlp.exe',
       file: 'yt-dlp.exe',
       versionCheck: /2026\.10\.26/
@@ -125,7 +121,6 @@ const BINARIES_BY_PLATFORM = {
       kind: 'zip',
       url: 'https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip',
       file: 'ffmpeg.exe',
-      extraFiles: ['ffprobe.exe'],
       zipSubdir: 'ffmpeg-9.0.2-essentials_build',
       binSubdir: 'bin',
       versionArgs: ['-version'],
@@ -150,8 +145,7 @@ const BINARIES_BY_PLATFORM = {
       version: '2026.10.26',
       kind: 'exe',
       url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_macos',
-      checksumUrl:
-        'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
       checksumFile: 'yt-dlp_macos',
       file: 'yt-dlp_macos',
       versionCheck: /2026\.10\.26/
@@ -163,22 +157,10 @@ const BINARIES_BY_PLATFORM = {
       // evermeet publishes no checksum file (only GPG .sig files) - the
       // version check + GPL detection below is the verification. Intel
       // x86_64 only; Apple Silicon runs it through Rosetta 2.
-      // evermeet's ffmpeg zip holds ONLY ffmpeg - ffprobe is a separate
-      // zip (see the ffprobe entry below).
       url: 'https://evermeet.cx/ffmpeg/ffmpeg-9.1.zip',
       file: 'ffmpeg',
       versionArgs: ['-version'],
       versionCheck: /ffmpeg version n?9\.1/
-    },
-    {
-      name: 'ffprobe',
-      version: '9.1',
-      kind: 'zip',
-      // Separate evermeet zip - ffmpeg-9.1.zip contains no ffprobe.
-      url: 'https://evermeet.cx/ffmpeg/ffprobe-9.1.zip',
-      file: 'ffprobe',
-      versionArgs: ['-version'],
-      versionCheck: /ffprobe version n?9\.1/
     },
     {
       name: 'deno',
@@ -198,8 +180,7 @@ const BINARIES_BY_PLATFORM = {
       version: '2026.10.26',
       kind: 'exe',
       url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_linux',
-      checksumUrl:
-        'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
       checksumFile: 'yt-dlp_linux',
       file: 'yt-dlp_linux',
       versionCheck: /2026\.10\.26/
@@ -215,7 +196,6 @@ const BINARIES_BY_PLATFORM = {
       // 'n' prefix and any patch suffix.
       url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz',
       file: 'ffmpeg',
-      extraFiles: ['ffprobe'],
       zipSubdir: 'ffmpeg-n9.0-latest-linux64-gpl-9.0',
       binSubdir: 'bin',
       versionArgs: ['-version'],
@@ -319,7 +299,10 @@ async function verifyChecksum(spec, downloadedPath) {
     } else {
       // BSD format: "SHA256 (filename) = <hash>"
       const m = sums.match(
-        new RegExp(`^SHA256\\s*\\(${escapeRegExp(spec.checksumFile)}\\)\\s*=\\s*([0-9a-fA-F]+)`, 'm')
+        new RegExp(
+          `^SHA256\\s*\\(${escapeRegExp(spec.checksumFile)}\\)\\s*=\\s*([0-9a-fA-F]+)`,
+          'm'
+        )
       )
       if (!m) throw new Error(`${spec.name}: ${spec.checksumFile} missing from checksum file`)
       expected = m[1].toLowerCase()
@@ -537,10 +520,9 @@ async function main() {
     if (existsSync(target)) {
       try {
         makeExecutable(target)
-        const args = spec.name === 'ffmpeg' || spec.name === 'ffprobe' ? ['-version'] : ['--version']
+        const args = spec.name === 'ffmpeg' ? ['-version'] : ['--version']
         const { stdout } = await execAsync(target, args)
         if (spec.versionCheck.test(stdout)) {
-          // ffmpeg also needs ffprobe next to it.
           const extraOk = (spec.extraFiles ?? []).every((f) => existsSync(join(BIN_DIR, f)))
           if (extraOk) {
             console.log(`${spec.name} ${spec.version} already present - skipping.`)

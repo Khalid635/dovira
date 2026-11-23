@@ -13,20 +13,19 @@ The app runs a Local API on **127.0.0.1 only** (never on the network). Every req
 
 What the extension sends per link: the URL, the page's cookies for that URL (Netscape format), the browser's User-Agent, and the page URL as Referer. Cookies are used for that one download only and are never written to any log.
 
-## Pairing (2 minutes)
+## Pairing (one click)
 
-1. Open the DOVIRA app → **Settings → Setup & diagnostics** — the guided extension install there walks you through pairing (copy folder path, load unpacked, copy token) and shows the live connection status.
-2. Copy the **pairing token** (Show → Copy).
-3. Open the extension's **Options** page and paste the token. Port is 17530 by default — change it only if the app reports a different port in Settings.
-4. Click **Test connection** — it should say "Connected to the DOVIRA app".
+1. Open the DOVIRA app → **Settings → Setup & diagnostics** and click **Pair extension**. It opens the extension's Options page in your browser with the token already filled in — the page saves it and shows "Paired". No copy-paste.
+2. Manual fallback: copy the **pairing token** (Show → Copy) in the app, open the extension's **Options** page and paste it. Port is 17530 by default — change it only if the app reports a different port in Settings.
+3. Click **Test connection** — it should say "Connected to the DOVIRA app".
 
-If the token ever leaks, press **Regenerate token** in the app and paste the new one into the extension options — the old token stops working immediately.
+If the token ever leaks, press **Regenerate token** in the app and pair again — the old token stops working immediately.
 
 ## Features
 
 - **Right-click menu** — "Download with DOVIRA" on links, and "Download this page with DOVIRA" on pages/videos.
 - **Toolbar popup** — lists the current page's links (max 50) with a "Send to app" button per link, plus the app-connected status.
-- **Floating download button** — on any page with a `<video>` element (YouTube etc.), a small button appears at the bottom-right. Click it to send that page's video to the app. Dismissible with the × (hidden for the rest of the tab session). It never changes the page layout — one fixed-position element, nothing else. Turn it on in the app: **Settings → Setup & diagnostics** (off by default); a page already open needs a reload after you turn it on.
+- **Floating download button** — hover any `<video>` on a page (YouTube etc.) and a small "Download" button appears floating over its top-right corner, IDM-style. Click it to send that video to the app (on YouTube the page URL is sent — yt-dlp resolves the video from it). Tiny videos and ads are skipped. It never changes the page layout — one shared fixed-position element, nothing else — and hides 250ms after the mouse leaves so video controls stay usable. Turn it on/off in the app: **Settings → Setup & diagnostics** (on by default); a page already open needs a reload after you change it. If the extension isn't paired yet, clicking shows "Pair DOVIRA" instead — click again to open the Options page and pair.
 - **Intercept downloads (optional, OFF by default)** — in the app (**Settings → Setup & diagnostics**), turn on "Send browser downloads to DOVIRA instead". Every download the browser starts is then cancelled and sent to the app. Both switches live in the app and sync to the extension automatically — they are not set in the extension options page.
 - **Playlist links** — the extension refuses playlist URLs with a clear message; picking entries needs the app's Add dialog.
 
@@ -41,6 +40,8 @@ npm run build:extension   # compiles TypeScript -> extension/dist
 ```
 
 Then load `extension/dist` as an unpacked extension (see below). The folder is also shipped inside the installed app at `<install dir>\resources\extension` — load that folder unpacked if you installed DOVIRA from the setup file.
+
+> **Load the BUILT folder, never the source folder.** `extension/` itself is the TypeScript source — its `manifest.json` references `content.js`, `background.js`, `popup.html` and `options.html`, but those built files only exist in `extension/dist/` (and in the installed app's `resources\extension\`). Loading the source folder fails with "Failed to load extension — Could not load javascript 'content.js' for script. Could not load manifest." If you see that error, you picked the wrong folder: pick `extension/dist` (or `resources\extension` in the installed app) instead.
 
 ### Firefox (recommended first)
 

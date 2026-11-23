@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.default.1.10.0.schema.json
+PackageIdentifier: Khalid635.DOVIRA
+PackageVersion: 1.2.0
+PackageLocale: en-US
+Publisher: Khalid635
+PublisherUrl: https://github.com/Khalid635
+PublisherSupportUrl: https://github.com/Khalid635/dovira/issues
+PackageName: DOVIRA
+PackageUrl: https://github.com/Khalid635/dovira
+License: MIT
+LicenseUrl: https://github.com/Khalid635/dovira/blob/main/LICENSE
+ShortDescription: AI download manager for Windows — download smarter, go further.
+Description: |-
+  DOVIRA is an open-source AI download manager (IDM-like) for Windows: video/audio downloads via yt-dlp, fast plain-file downloads via aria2, a browser extension with one-click pairing, a rule-based AI assistant that answers in Bangla and English, smart queue, live-stream recording, channel subscriptions, and in-app preview. Fully local — no account, no data leaves the machine.
+Moniker: dovira
+Tags:
+  - download-manager
+  - downloader
+  - youtube-downloader
+  - video-downloader
+  - aria2
+  - yt-dlp
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

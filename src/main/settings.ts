@@ -67,8 +67,11 @@ export const DEFAULT_SETTINGS: Settings = {
   assistantLocalModel: false,
   // v1.2.0: guided in-app setup — first-run wizard, extension section, diagnostics.
   setupCompleted: false,
-  extensionFloatingButton: false,
-  extensionIntercept: false
+  extensionFloatingButton: true,
+  extensionIntercept: false,
+  // Next-level: AI auto quality pick (default ON) + auto subtitles (default OFF).
+  autoQuality: true,
+  autoSubtitles: false
 }
 
 const COOKIE_BROWSERS = ['none', 'chrome', 'edge', 'firefox', 'brave'] as const
@@ -90,7 +93,9 @@ function normalizeSettings(next: Settings): Settings {
   next.maxConcurrent = clampInt(next.maxConcurrent, 3, 1, 5)
   next.speedLimitKBps = clampInt(next.speedLimitKBps, 0, 0, 1_000_000)
   next.autoRetry = clampInt(next.autoRetry, 3, 0, 10)
-  next.connectionsPerDownload = clampInt(next.connectionsPerDownload, 8, 1, 16)
+  // Next-level: the manual cap now goes to 32 (was 16) — the new
+  // adaptive fast class. Smart Download still overrides it when on.
+  next.connectionsPerDownload = clampInt(next.connectionsPerDownload, 8, 1, 32)
   if (next.language !== 'en' && next.language !== 'bn') next.language = 'bn'
   if (next.theme !== 'dark' && next.theme !== 'light' && next.theme !== 'system') {
     next.theme = 'light'
@@ -179,10 +184,15 @@ function normalizeSettings(next: Settings): Settings {
   // AI Assistant (post-v1.0, v1.1.0).
   next.assistantEnabled = next.assistantEnabled === true
   next.assistantLocalModel = next.assistantLocalModel === true
-  // v1.2.0: guided setup.
+  // v1.2.0: guided setup. The floating button defaults ON (IDM-style,
+  // next-level) — only an explicit false turns it off, so a missing key
+  // (fresh install, or a profile from before the toggle existed) is ON.
   next.setupCompleted = next.setupCompleted === true
-  next.extensionFloatingButton = next.extensionFloatingButton === true
+  next.extensionFloatingButton = next.extensionFloatingButton !== false
   next.extensionIntercept = next.extensionIntercept === true
+  // Next-level: AI auto quality / subtitles.
+  next.autoQuality = next.autoQuality !== false
+  next.autoSubtitles = next.autoSubtitles === true
   return next
 }
 
@@ -239,8 +249,12 @@ function clampInt(v: unknown, fallback: number, min: number, max: number): numbe
 
 export class SettingsManager {
   private cache: Settings
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private db: DoviraDb
 
-  constructor(private db: DoviraDb) {
+  constructor(db: DoviraDb) {
+    this.db = db
     const next: Settings = { ...DEFAULT_SETTINGS }
     for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
       const raw = db.getSetting(key)

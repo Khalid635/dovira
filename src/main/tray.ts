@@ -9,13 +9,24 @@ import type { QueueManager } from './queue'
  */
 export class TrayManager {
   private tray: Tray | null = null
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private getWindow: () => BrowserWindow | null
+  private queue: QueueManager
+  private log: (line: string) => void
+  private onQuitRequested: () => void
 
   constructor(
-    private getWindow: () => BrowserWindow | null,
-    private queue: QueueManager,
-    private log: (line: string) => void,
-    private onQuitRequested: () => void
-  ) {}
+    getWindow: () => BrowserWindow | null,
+    queue: QueueManager,
+    log: (line: string) => void,
+    onQuitRequested: () => void
+  ) {
+    this.getWindow = getWindow
+    this.queue = queue
+    this.log = log
+    this.onQuitRequested = onQuitRequested
+  }
 
   create(iconPath: string): void {
     try {

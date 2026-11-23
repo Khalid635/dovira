@@ -15,8 +15,16 @@
  * buildModelPrompt() — download metadata only, no file paths, no URLs.
  */
 import type { DownloadInfo, Settings } from '../types'
+import {
+  detectCommand,
+  extractUrls,
+  hasDownloadVerb,
+  normalizeCommand,
+  type AssistantCommand
+} from './assistantCommands'
 
-export type AssistantIntent = 'status' | 'failed' | 'find' | 'howto' | 'greeting' | 'fallback'
+export type AssistantIntent =
+  'status' | 'failed' | 'find' | 'howto' | 'greeting' | 'fallback' | 'command'
 
 export type AssistantSource = 'rules' | 'model'
 
@@ -57,6 +65,13 @@ export interface AssistantAnswer {
   lines: AssistantLine[]
   /** Local-model path only: raw model text, shown as-is (not translated). */
   modelText?: string
+  /**
+   * Next-level: a command the message asked for (download / pause /
+   * resume / cancel / retry / move-to-top). Main executes it in
+   * askAssistant and replaces `lines` with the outcome; the renderer
+   * only ever renders the lines.
+   */
+  action?: AssistantCommand
 }
 
 export interface DetectedIntent {
@@ -595,6 +610,34 @@ function answerHowto(det: DetectedIntent): AssistantLine[] {
 
 /** Rules-only answer. Lines are i18n keys; the renderer translates them. */
 export function answerQuestion(snap: AssistantSnapshot, rawQuestion: string): AssistantAnswer {
+  // Next-level: commands first — a message that asks to DO something
+  // never reaches the question intents or the local model. Questions
+  // (any question word) are vetoed inside detectCommand, so "why did
+  // the download fail?" stays a question.
+  const cmd = detectCommand(rawQuestion, snap.downloads)
+  if (cmd.command) {
+    return {
+      intent: 'command',
+      source: 'rules',
+      lines: [{ key: 'assistant.commandStarting' }],
+      action: cmd.command
+    }
+  }
+  if (cmd.unmatchedTerm) {
+    return {
+      intent: 'command',
+      source: 'rules',
+      lines: [{ key: 'assistant.commandNotFound', params: { term: cmd.unmatchedTerm } }]
+    }
+  }
+  // A download verb with no link ("download this" and nothing pasted).
+  if (hasDownloadVerb(normalizeCommand(rawQuestion)) && extractUrls(rawQuestion).length === 0) {
+    return {
+      intent: 'command',
+      source: 'rules',
+      lines: [{ key: 'assistant.commandNeedLink' }]
+    }
+  }
   const det = detectIntent(rawQuestion)
   switch (det.intent) {
     case 'status':

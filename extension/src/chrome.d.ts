@@ -64,6 +64,11 @@ declare global {
       onInstalled: { addListener: (cb: (details: { reason: string }) => void) => void }
       // v1.2.0: check in with the app right after the browser starts.
       onStartup: { addListener: (cb: () => void) => void }
+      // Next-level: one-click pairing — the app opens the Options page
+      // with the token in the URL; the background reports this URL to
+      // the app on its status ping so the app knows where to open.
+      getURL: (path: string) => string
+      openOptionsPage: () => Promise<void>
     }
     alarms: {
       create: (name: string, info: { periodInMinutes: number }) => void

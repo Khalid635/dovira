@@ -13,11 +13,14 @@ import {
   IconFolder,
   IconGauge,
   IconPause,
+  IconPin,
   IconPlay,
   IconRetry,
+  IconStop,
   IconTrash,
   IconVideo
 } from './icons'
+import PreviewPlayer from './PreviewPlayer'
 
 // Stable empty speed history — the selector below MUST return the same
 // reference when a download has no samples yet. `?? []` allocates a new
@@ -102,6 +105,22 @@ export default function DownloadCard({
   const remove = useStore((s) => s.remove)
   const retry = useStore((s) => s.retry)
   const moveToTop = useStore((s) => s.moveToTop)
+  // Next-level: pin / stop-recording / preview.
+  const togglePin = useStore((s) => s.togglePin)
+  const stopRecording = useStore((s) => s.stopRecording)
+  const getPreviewUrl = useStore((s) => s.previewUrl)
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  // Next-level: a live-stream recording is a yt-dlp row whose state
+  // has liveRecord set — it gets a Stop button (keep the .ts file)
+  // and a red REC badge instead of the normal Pause.
+  const isLiveRecord = (() => {
+    try {
+      return (JSON.parse(d.ytdlpState ?? '{}') as { liveRecord?: boolean }).liveRecord === true
+    } catch {
+      return false
+    }
+  })()
+  const isPreviewable = d.status === 'completed' && (d.kind === 'video' || d.kind === 'audio')
   // Phase 3: speed samples for the expanded card's graph.
   const samples = useStore((s) => s.speedHistory[d.id] ?? EMPTY_SPEED_SAMPLES)
   const [expanded, setExpanded] = useState(false)
@@ -196,6 +215,14 @@ export default function DownloadCard({
         </div>
         <div>
           <span className={`badge ${STATUS_BADGE[d.status] ?? ''}`}>{t(statusKey)}</span>
+          {d.pinned && (
+            <span className="badge badge-pinned ml-1" title={t('card.pinned')}>
+              <IconPin size={11} />
+            </span>
+          )}
+          {isLiveRecord && (d.status === 'downloading' || d.status === 'processing') && (
+            <span className="badge badge-rec ml-1">● {t('card.recording')}</span>
+          )}
         </div>
         <div className="text-right text-[12px] tabular-nums text-[var(--muted)]">
           {d.status === 'downloading' ? (
@@ -221,9 +248,23 @@ export default function DownloadCard({
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           {d.status === 'downloading' && (
             <>
-              <button className="icon-btn" title={t('card.pause')} onClick={() => void pause(d.id)}>
-                <IconPause size={15} />
-              </button>
+              {isLiveRecord ? (
+                <button
+                  className="icon-btn icon-btn-danger"
+                  title={t('card.stopRecording')}
+                  onClick={() => void stopRecording(d.id)}
+                >
+                  <IconStop size={15} />
+                </button>
+              ) : (
+                <button
+                  className="icon-btn"
+                  title={t('card.pause')}
+                  onClick={() => void pause(d.id)}
+                >
+                  <IconPause size={15} />
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title={t('card.cancel')}
@@ -233,6 +274,15 @@ export default function DownloadCard({
               </button>
             </>
           )}
+          {d.status === 'processing' && isLiveRecord && (
+            <button
+              className="icon-btn icon-btn-danger"
+              title={t('card.stopRecording')}
+              onClick={() => void stopRecording(d.id)}
+            >
+              <IconStop size={15} />
+            </button>
+          )}
           {d.status === 'paused' && (
             <>
               <button
@@ -241,6 +291,13 @@ export default function DownloadCard({
                 onClick={() => void resume(d.id)}
               >
                 <IconPlay size={15} />
+              </button>
+              <button
+                className={`icon-btn ${d.pinned ? 'icon-btn-accent' : ''}`}
+                title={d.pinned ? t('card.unpin') : t('card.pin')}
+                onClick={() => void togglePin(d.id)}
+              >
+                <IconPin size={15} />
               </button>
               {queuePosition !== undefined && queuePosition > 1 && (
                 <button
@@ -262,6 +319,13 @@ export default function DownloadCard({
           )}
           {d.status === 'queued' && (
             <>
+              <button
+                className={`icon-btn ${d.pinned ? 'icon-btn-accent' : ''}`}
+                title={d.pinned ? t('card.unpin') : t('card.pin')}
+                onClick={() => void togglePin(d.id)}
+              >
+                <IconPin size={15} />
+              </button>
               {queuePosition !== undefined && queuePosition > 1 && (
                 <button
                   className="icon-btn"
@@ -300,6 +364,19 @@ export default function DownloadCard({
           )}
           {d.status === 'completed' && (
             <>
+              {isPreviewable && (
+                <button
+                  className="icon-btn icon-btn-accent"
+                  title={t('preview.title')}
+                  onClick={() => {
+                    void getPreviewUrl(d.id).then((url) => {
+                      if (url) setPreviewSrc(url)
+                    })
+                  }}
+                >
+                  <IconPlay size={15} />
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title={t('card.open')}
@@ -475,6 +552,14 @@ export default function DownloadCard({
             </div>
           )}
         </div>
+      )}
+      {previewSrc && (
+        <PreviewPlayer
+          src={previewSrc}
+          kind={d.kind}
+          title={d.title ?? d.filename}
+          onClose={() => setPreviewSrc(null)}
+        />
       )}
     </div>
   )

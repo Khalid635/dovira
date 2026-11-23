@@ -48,6 +48,11 @@ export interface DownloadInfo {
   /** Phase 3: queue position (lower = starts first). Display order is unchanged. */
   sortOrder: number
   /**
+   * Next-level: user-pinned — pinned rows start before every unpinned
+   * one (pump sorts pinned first). Persisted (DB migration v5).
+   */
+  pinned: boolean
+  /**
    * Phase 7: per-download speed limit in KB/s. 0 = use the global
    * settings.speedLimitKBps. Persisted (DB migration v4).
    */
@@ -135,10 +140,14 @@ export interface Settings {
   assistantLocalModel: boolean
   /** v1.2.0: first-run setup wizard completed. False = the wizard shows on launch. */
   setupCompleted: boolean
-  /** v1.2.0: browser extension floating download button (default OFF). */
+  /** v1.2.0: browser extension floating download button (default ON). */
   extensionFloatingButton: boolean
   /** v1.2.0: browser extension intercepts browser downloads (default OFF). */
   extensionIntercept: boolean
+  /** Next-level: AI auto quality pick — best quality up to the default cap (default ON). */
+  autoQuality: boolean
+  /** Next-level: AI auto subtitles pick — best available subtitles (default OFF). */
+  autoSubtitles: boolean
 }
 
 /** Phase 6: app auto-update state, shown in Settings > App updates. */
@@ -330,6 +339,8 @@ export interface AddOptions {
   autoSubs?: boolean
   /** Phase 4: download only the thumbnail (.jpg), no media. */
   thumbnailOnly?: boolean
+  /** Next-level: live-stream recording — save the raw stream as .ts (no merge, no clip). */
+  liveRecord?: boolean
   /** Phase 4: skip via --download-archive when the video was downloaded before. */
   useArchive?: boolean
   /** Phase 5: per-link network overrides from the browser extension. */
@@ -393,6 +404,13 @@ export interface ExtensionApiStatus {
   token: string
   /** v1.2.0: epoch ms of the last request from the extension (null = never seen). */
   extensionSeenAt: number | null
+  /**
+   * Next-level: the extension's own Options page URL, as reported by the
+   * extension on its status ping (chrome-extension://…/options.html or
+   * moz-extension://…/options.html). Null until the extension has
+   * checked in — the one-click Pair button needs it.
+   */
+  extensionOptionsUrl: string | null
 }
 
 /**
@@ -414,4 +432,28 @@ export interface DiagnosticCheck {
 export interface DiagnosticsResult {
   checks: DiagnosticCheck[]
   ranAt: number
+}
+
+/** Next-level: one video the subscription checker found (not yet downloaded). */
+export interface SubscriptionVideo {
+  id: string
+  title: string
+  url: string
+  thumbnail: string | null
+  duration: number | null
+}
+
+/** Next-level: a subscribed channel/playlist (DB table `subscriptions`). */
+export interface Subscription {
+  id: string
+  url: string
+  title: string
+  uploader: string | null
+  /** yt-dlp id of the newest video seen at subscribe time (baseline). */
+  lastVideoId: string | null
+  /** Epoch ms of the last check (null = never checked). */
+  lastCheckedAt: number | null
+  createdAt: number
+  /** New videos waiting for the user (downloaded via consume). */
+  pending: SubscriptionVideo[]
 }

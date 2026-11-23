@@ -60,14 +60,20 @@ export class AdaptiveNet {
     return 'slow'
   }
 
-  /** aria2 connections per server (-x) and split (-s). */
+  /**
+   * aria2 connections per server (-x) and split (-s). Next-level: the
+   * fast class goes to 32 (was 16) — servers that allow it download
+   * noticeably faster; medium 16, slow 8, unstable 4 (few connections
+   * survive a flaky line better than many).
+   */
   connections(): number {
     switch (this.classify()) {
       case 'fast':
-        return 16
+        return 32
       case 'medium':
-        return 8
+        return 16
       case 'slow':
+        return 8
       case 'unstable':
         return 4
     }

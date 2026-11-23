@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { chmodSync, existsSync, statfsSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, statfsSync } from 'node:fs'
 
 export function getDefaultDownloadDir(): string {
   return join(homedir(), 'Downloads', 'DOVIRA')
@@ -28,21 +28,18 @@ export const ENGINE_FILES_BY_PLATFORM: Record<DoviraPlatform, Record<string, str
     aria2: 'aria2c.exe',
     'yt-dlp': 'yt-dlp.exe',
     ffmpeg: 'ffmpeg.exe',
-    ffprobe: 'ffprobe.exe',
     deno: 'deno.exe'
   },
   mac: {
     aria2: 'aria2c',
     'yt-dlp': 'yt-dlp_macos',
     ffmpeg: 'ffmpeg',
-    ffprobe: 'ffprobe',
     deno: 'deno'
   },
   linux: {
     aria2: 'aria2c',
     'yt-dlp': 'yt-dlp_linux',
     ffmpeg: 'ffmpeg',
-    ffprobe: 'ffprobe',
     deno: 'deno'
   }
 }
@@ -128,14 +125,53 @@ export function diskFreeBytes(dir: string): number | null {
 }
 
 /**
+ * Is this folder actually loadable as an unpacked extension? A folder is
+ * loadable only when its manifest.json parses AND every file the
+ * manifest references (service worker, content scripts, popup, options
+ * page) exists next to it.
+ *
+ * This is the guard for the 2026-11-23 trap: the repo's extension/
+ * SOURCE folder has a manifest.json that references content.js,
+ * background.js, popup.html and options.html at the folder root — but
+ * those built files only exist in extension/dist/. Loading extension/
+ * itself fails with Brave's "Could not load javascript 'content.js'
+ * for script. Could not load manifest." A folder that fails this
+ * check is never offered to the user.
+ */
+export function isLoadableExtensionDir(dir: string): boolean {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf-8')) as {
+      background?: { service_worker?: string }
+      content_scripts?: { js?: string[] }[]
+      action?: { default_popup?: string }
+      options_page?: string
+    }
+    const files = new Set<string>(['manifest.json'])
+    if (manifest.background?.service_worker) files.add(manifest.background.service_worker)
+    for (const cs of manifest.content_scripts ?? []) {
+      for (const f of cs.js ?? []) files.add(f)
+    }
+    if (manifest.action?.default_popup) files.add(manifest.action.default_popup)
+    if (manifest.options_page) files.add(manifest.options_page)
+    return [...files].every((f) => existsSync(join(dir, f)))
+  } catch {
+    return false
+  }
+}
+
+/**
  * v1.2.0: the built browser extension folder the user loads unpacked.
  * Dev: <project>/extension/dist. Packaged: <resources>/extension
- * (electron-builder extraResources). Null when neither exists.
+ * (electron-builder extraResources). Null when neither exists — or
+ * when a candidate exists but is not actually loadable (see
+ * isLoadableExtensionDir). The source folder extension/ is NEVER
+ * returned: its manifest references files that only exist after the
+ * build, in extension/dist/.
  */
 export function getExtensionDir(appPath: string, resourcesPath: string): string | null {
   const candidates = [join(appPath, 'extension', 'dist'), join(resourcesPath, 'extension')]
   for (const c of candidates) {
-    if (existsSync(c)) return c
+    if (existsSync(c) && isLoadableExtensionDir(c)) return c
   }
   return null
 }

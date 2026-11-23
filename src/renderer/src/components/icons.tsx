@@ -300,3 +300,32 @@ export function IconChat(props: IconProps): React.JSX.Element {
     </Svg>
   )
 }
+
+// Next-level: pin (queue priority) — a thumbtack.
+export function IconPin(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M9.5 2.5 13.5 6.5 10 7l-1 3.5-1 3.5L6.5 11l-3.5 1L4 8.5 7.5 7 8 3.5l1.5-1Z" />
+      <path d="M6 6l4 4" />
+    </Svg>
+  )
+}
+
+// Next-level: stop (live-stream recording) — a filled square.
+export function IconStop(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+// Next-level: channel subscriptions (sidebar).
+export function IconBell(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props}>
+      <path d="M8 2a4.5 4.5 0 0 1 4.5 4.5c0 3 .8 4 1.2 4.7a.5.5 0 0 1-.4.8H2.7a.5.5 0 0 1-.4-.8c.4-.7 1.2-1.7 1.2-4.7A4.5 4.5 0 0 1 8 2Z" />
+      <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" />
+    </Svg>
+  )
+}

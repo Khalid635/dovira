@@ -14,6 +14,7 @@ import { TrayManager } from './tray'
 import { ClipboardWatcher } from './clipboard'
 import { registerIpc } from './ipc'
 import { LocalApiServer } from './localApi'
+import { SubscriptionManager } from './smart/subscriptions'
 import {
   findBinary,
   ensureExecutable,
@@ -50,7 +51,7 @@ let quitting = false
  * styles self + inline, images self/data/https, connections self-only.
  */
 const RENDERER_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'none'"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' http://127.0.0.1:*; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'none'"
 
 /**
  * Phase 3: apply the settings that live outside the renderer — launch at
@@ -296,7 +297,6 @@ app.whenReady().then(() => {
   const engineBinaries: { name: string; path: string | null }[] = [
     { name: 'yt-dlp', path: ytDlpBinary },
     { name: 'ffmpeg', path: ffmpegBinary },
-    { name: 'ffprobe', path: findBinary('ffprobe', appPath, resourcesPath) },
     { name: 'deno', path: denoBinary }
   ]
   if (aria2Binary) engineBinaries.unshift({ name: 'aria2', path: aria2Binary })
@@ -344,6 +344,15 @@ app.whenReady().then(() => {
     }
   })
   queue = new QueueManager(db, settings, aria2, ytdlp)
+
+  // Next-level: channel subscriptions — local polling, no server.
+  // The manager is passed to registerIpc; the polling loop below it
+  // (60s after startup, then every 6h) emits an event when new videos
+  // are found so the renderer refreshes the list + toasts.
+  const subscriptions = new SubscriptionManager({
+    db,
+    fetchPlaylist: (url: string) => ytdlp.fetchPlaylist(url)
+  })
 
   // Phase 3: scheduler — countdown events go to every window.
   scheduler = new SchedulerManager(queue, settings, {
@@ -418,8 +427,30 @@ app.whenReady().then(() => {
     scheduler,
     localApi,
     updater,
+    subscriptions,
     onSettingsChanged: (s) => applyRuntimeSettings(s)
   })
+
+  // Next-level: subscription polling — first check 60s after startup,
+  // then every 6 hours. New videos → the renderer refreshes + toasts.
+  const emitSubsUpdated = (): void => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send('dovira:subscriptions:updated')
+    }
+  }
+  setTimeout(() => {
+    void subscriptions.checkAll().then((r) => {
+      if (r.found > 0) emitSubsUpdated()
+    })
+  }, 60_000)
+  setInterval(
+    () => {
+      void subscriptions.checkAll().then((r) => {
+        if (r.found > 0) emitSubsUpdated()
+      })
+    },
+    6 * 60 * 60 * 1000
+  )
 
   logMain('info', 'window created')
   // Phase 7: pre-warm yt-dlp — the first fetchInfo after a cold start pays

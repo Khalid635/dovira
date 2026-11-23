@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
 import type { ExtensionApiStatus, SchedulerStatus, Settings } from '../../../main/types'
+import { AVAILABLE_LOCALES, type Language } from '../i18n'
 import { IconCheck } from './icons'
 import { presetIdForTemplate, presetTemplate, type NamePresetId } from '../util/namePresets'
 import ExtensionSetup from './ExtensionSetup'
@@ -141,7 +142,9 @@ export default function SettingsPage(): React.JSX.Element {
   const regenerateToken = async (): Promise<void> => {
     const token = await window.dovira.regenerateExtensionToken()
     setExtStatus((prev) =>
-      prev ? { ...prev, token } : { running: false, port: null, token, extensionSeenAt: null }
+      prev
+        ? { ...prev, token }
+        : { running: false, port: null, token, extensionSeenAt: null, extensionOptionsUrl: null }
     )
   }
 
@@ -331,13 +334,13 @@ export default function SettingsPage(): React.JSX.Element {
           <div className="settings-field">
             <label className="block">
               <span className="mb-1 block text-[13px] text-[var(--muted)]">
-                {t('settings.connections')} (1–16)
+                {t('settings.connections')} (1–32)
               </span>
               <input
                 className="input w-32"
                 type="number"
                 min={1}
-                max={16}
+                max={32}
                 value={settings.connectionsPerDownload}
                 onChange={(e) => set({ connectionsPerDownload: Number(e.target.value) })}
               />
@@ -461,10 +464,13 @@ export default function SettingsPage(): React.JSX.Element {
               <select
                 className="input w-48"
                 value={settings.language}
-                onChange={(e) => set({ language: e.target.value as 'en' | 'bn' })}
+                onChange={(e) => set({ language: e.target.value as Language })}
               >
-                <option value="bn">বাংলা</option>
-                <option value="en">English</option>
+                {AVAILABLE_LOCALES.map((loc) => (
+                  <option key={loc.code} value={loc.code}>
+                    {loc.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -712,6 +718,39 @@ export default function SettingsPage(): React.JSX.Element {
             </label>
           </div>
 
+          {/* Next-level: AI auto quality + auto subtitles (feature 2). */}
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.autoQuality')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.autoQuality}
+                  onChange={(e) => set({ autoQuality: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.autoQualityHint')}</p>
+          </div>
+
+          <div className="settings-field">
+            <label className="flex cursor-pointer items-center justify-between gap-2 text-[13px]">
+              <span>{t('settings.autoSubtitles')}</span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.autoSubtitles}
+                  onChange={(e) => set({ autoSubtitles: e.target.checked })}
+                />
+                <span className="switch-track" />
+              </span>
+            </label>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
+              {t('settings.autoSubtitlesHint')}
+            </p>
+          </div>
+
           <div className="settings-field">
             <label className="block">
               <span className="mb-1 block text-[13px] text-[var(--muted)]">
@@ -896,9 +935,7 @@ export default function SettingsPage(): React.JSX.Element {
                   <option value="custom">{t('settings.namePresetCustom')}</option>
                 </select>
               </label>
-              <p className="mt-1 text-[12px] text-[var(--muted)]">
-                {t('settings.namePresetHint')}
-              </p>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.namePresetHint')}</p>
               <label className="mt-3 block">
                 <span className="mb-1 block text-[13px] text-[var(--muted)]">
                   {t('settings.nameTemplate')}

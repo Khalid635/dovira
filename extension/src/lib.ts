@@ -82,3 +82,68 @@ export function apiErrorMessage(err: unknown): 'app-not-running' | 'unauthorized
   }
   return 'failed'
 }
+
+// --- IDM-style floating button (next-level) ---------------------------
+// Pure helpers for the hover-over-video button. content.ts carries its
+// own copies (MV3 content scripts cannot import ES modules) — this
+// file is the source of truth, keep them in sync.
+
+/** Ignore videos smaller than a real player / ad slot. */
+export const MIN_VIDEO_WIDTH = 200
+export const MIN_VIDEO_HEIGHT = 120
+/** Ignore clips shorter than this (when the duration is known). */
+export const MIN_VIDEO_DURATION_SECONDS = 3
+
+const MEDIA_EXTENSIONS = new Set([
+  'mp4',
+  'm4v',
+  'webm',
+  'mov',
+  'mkv',
+  'avi',
+  'mp3',
+  'm4a',
+  'ogg',
+  'ogv',
+  'wav',
+  'flac'
+])
+
+function isRealMediaUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+    const ext = u.pathname.split('.').pop()?.toLowerCase() ?? ''
+    return MEDIA_EXTENSIONS.has(ext)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Which URL to send for a hovered video. A real http(s) media URL
+ * (direct <video src> or <source>) goes as-is; anything else — blob:
+ * URLs on YouTube etc., data: URLs, no src at all — falls back to the
+ * PAGE URL, which yt-dlp resolves.
+ */
+export function pickVideoDownloadUrl(srcs: (string | null | undefined)[], pageUrl: string): string {
+  for (const src of srcs) {
+    if (src && isRealMediaUrl(src)) return src
+  }
+  return pageUrl
+}
+
+/**
+ * A video is worth a floating button when it is big enough to be a
+ * real player and, when its duration is known, not a few-second clip.
+ * Live streams (NaN / Infinity duration) are never skipped.
+ */
+export function isDownloadableVideo(input: {
+  width: number
+  height: number
+  duration: number
+}): boolean {
+  if (input.width < MIN_VIDEO_WIDTH || input.height < MIN_VIDEO_HEIGHT) return false
+  if (Number.isFinite(input.duration) && input.duration < MIN_VIDEO_DURATION_SECONDS) return false
+  return true
+}

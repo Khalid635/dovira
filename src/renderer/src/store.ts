@@ -12,6 +12,8 @@ import type {
   SchedulerCountdown,
   Settings,
   StatusEvent,
+  Subscription,
+  SubscriptionVideo,
   ToastEvent,
   VideoInfo
 } from '../../main/types'
@@ -19,7 +21,7 @@ import { t, type Language } from './i18n'
 import { buildMediaOptions, defaultHeightFor, looksLikeUrl } from './util/quickAdd'
 
 export type Filter = 'all' | 'downloading' | 'queued' | 'completed' | 'video' | 'audio' | 'files'
-export type View = 'home' | 'history' | 'settings' | 'assistant'
+export type View = 'home' | 'history' | 'settings' | 'assistant' | 'subscriptions'
 
 export interface Toast {
   key: string
@@ -52,6 +54,12 @@ interface Store {
   cancel: (id: string) => Promise<void>
   remove: (id: string, deleteFile: boolean) => Promise<void>
   retry: (id: string) => Promise<void>
+  // Next-level: pin to the top of the queue (persisted).
+  togglePin: (id: string) => Promise<void>
+  // Next-level: stop a live-stream recording and KEEP the .ts file.
+  stopRecording: (id: string) => Promise<void>
+  // Next-level: preview URL for a completed video/audio row.
+  previewUrl: (id: string) => Promise<string | null>
   setFilter: (f: Filter) => void
   setView: (v: View) => void
   updateSettings: (patch: Partial<Settings>) => Promise<void>
@@ -126,6 +134,15 @@ interface Store {
   wizardOpen: boolean
   openWizard: () => void
   closeWizard: () => void
+  // Next-level: channel subscriptions (local polling).
+  subscriptions: Subscription[]
+  subscriptionsLoading: boolean
+  loadSubscriptions: () => Promise<void>
+  addSubscription: (url: string) => Promise<{ ok: boolean; error?: string }>
+  removeSubscription: (id: string) => Promise<void>
+  checkSubscriptions: () => Promise<void>
+  checkSubscription: (id: string) => Promise<void>
+  downloadSubscriptionVideo: (subId: string, video: SubscriptionVideo) => Promise<void>
 }
 
 // Event listeners + the 5s refresh interval are attached once per renderer
@@ -157,6 +174,8 @@ export const useStore = create<Store>()((set, get) => ({
   quickPasteBusy: false,
   engines: [],
   enginesLoading: false,
+  subscriptions: [],
+  subscriptionsLoading: false,
   appUpdate: { state: 'idle', version: null, progress: null, error: null },
   speedHistory: {},
   networkClass: null,
@@ -182,12 +201,14 @@ export const useStore = create<Store>()((set, get) => ({
     let timedOut = false
     const cancelled = { current: false }
     const load = async (): Promise<void> => {
-      const [settingsRes, downloadsRes, appInfoRes, appUpdateRes] = await Promise.allSettled([
-        window.dovira.getSettings(),
-        window.dovira.listDownloads(),
-        window.dovira.getAppInfo(),
-        window.dovira.getAppUpdateState()
-      ])
+      const [settingsRes, downloadsRes, appInfoRes, appUpdateRes, subsRes] =
+        await Promise.allSettled([
+          window.dovira.getSettings(),
+          window.dovira.listDownloads(),
+          window.dovira.getAppInfo(),
+          window.dovira.getAppUpdateState(),
+          window.dovira.listSubscriptions()
+        ])
       // A timed-out attempt must not overwrite the timeout error later.
       if (cancelled.current) return
       const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null
@@ -197,6 +218,7 @@ export const useStore = create<Store>()((set, get) => ({
         appUpdateRes.status === 'fulfilled'
           ? appUpdateRes.value
           : { state: 'idle', version: null, progress: null, error: null }
+      const subscriptions = subsRes.status === 'fulfilled' ? subsRes.value : []
       const failed =
         settingsRes.status === 'rejected' ||
         downloadsRes.status === 'rejected' ||
@@ -206,6 +228,7 @@ export const useStore = create<Store>()((set, get) => ({
         downloads,
         appInfo,
         appUpdate,
+        subscriptions,
         language: settings?.language ?? 'bn',
         loaded: true,
         initError: failed ? 'init' : null
@@ -308,6 +331,12 @@ export const useStore = create<Store>()((set, get) => ({
     window.dovira.onAppUpdateState((s: AppUpdateState) => {
       set({ appUpdate: s })
     })
+    // Next-level: a background subscription check found new videos —
+    // refresh the list and tell the user.
+    window.dovira.onSubscriptionsUpdated(() => {
+      void get().loadSubscriptions()
+      get().showToast('subs.checked')
+    })
 
     // Status bar numbers (disk free) refresh every 5s.
     setInterval(() => {
@@ -353,6 +382,21 @@ export const useStore = create<Store>()((set, get) => ({
   },
   retry: async (id: string) => {
     await window.dovira.retryDownload(id)
+  },
+  togglePin: async (id: string) => {
+    await window.dovira.togglePin(id)
+    await get().refresh()
+  },
+  stopRecording: async (id: string) => {
+    await window.dovira.stopRecording(id)
+    await get().refresh()
+  },
+  previewUrl: async (id: string) => {
+    try {
+      return await window.dovira.previewUrl(id)
+    } catch {
+      return null
+    }
   },
 
   setFilter: (filter) => set({ filter }),
@@ -441,7 +485,7 @@ export const useStore = create<Store>()((set, get) => ({
   quickPasteDownload: async () => {
     if (get().quickPasteBusy || !get().settings) return
     set({ quickPasteBusy: true })
-    let url = ''
+    let url: string
     try {
       url = (await navigator.clipboard.readText()).trim()
     } catch {
@@ -461,11 +505,7 @@ export const useStore = create<Store>()((set, get) => ({
         current.openDialog(url)
         return
       }
-      if (
-        res.playlist ||
-        res.torrent ||
-        (res.info?.mediaItems && res.info.mediaItems.length > 1)
-      ) {
+      if (res.playlist || res.torrent || (res.info?.mediaItems && res.info.mediaItems.length > 1)) {
         current.openDialog(url)
         return
       }
@@ -482,11 +522,18 @@ export const useStore = create<Store>()((set, get) => ({
         return
       }
       if (res.info) {
+        // Next-level: AI auto quality — ON = the best available height
+        // at or below the Settings cap (defaultHeightFor); OFF = the
+        // Settings cap verbatim, as before.
+        const settings = current.settings
+        const height = settings?.autoQuality
+          ? defaultHeightFor(res.info, settings)
+          : Number(settings?.defaultVideoQuality ?? '1080')
         const addRes = await current.addWithOptions(
           buildMediaOptions({
             info: res.info,
             settings: current.settings,
-            height: defaultHeightFor(res.info, current.settings),
+            height,
             bitrate: current.settings?.defaultAudioBitrate ?? '192',
             saveDir: current.settings?.downloadDir ?? ''
           })
@@ -514,6 +561,73 @@ export const useStore = create<Store>()((set, get) => ({
 
   openWizard: () => set({ wizardOpen: true }),
   closeWizard: () => set({ wizardOpen: false }),
+
+  // Next-level: channel subscriptions.
+  loadSubscriptions: async () => {
+    try {
+      const subscriptions = await window.dovira.listSubscriptions()
+      set({ subscriptions })
+    } catch {
+      // Keep the current list on a transient failure.
+    }
+  },
+  addSubscription: async (url) => {
+    const res = await window.dovira.addSubscription(url)
+    if (res.ok) {
+      await get().loadSubscriptions()
+      get().showToast('subs.added')
+    }
+    return res
+  },
+  removeSubscription: async (id) => {
+    await window.dovira.removeSubscription(id)
+    await get().loadSubscriptions()
+  },
+  checkSubscriptions: async () => {
+    set({ subscriptionsLoading: true })
+    try {
+      await window.dovira.checkSubscriptions()
+      await get().loadSubscriptions()
+      get().showToast('subs.checked')
+    } finally {
+      set({ subscriptionsLoading: false })
+    }
+  },
+  checkSubscription: async (id) => {
+    set({ subscriptionsLoading: true })
+    try {
+      await window.dovira.checkSubscription(id)
+      await get().loadSubscriptions()
+    } finally {
+      set({ subscriptionsLoading: false })
+    }
+  },
+  downloadSubscriptionVideo: async (subId, video) => {
+    // The check only fetches titles — fetch fresh info first, so the
+    // quality + subtitle auto-pick applies exactly like a pasted link.
+    const res = await window.dovira.fetchInfo(video.url)
+    if (!res.ok || !res.info) {
+      get().showToast('toast.infoFailed')
+      return
+    }
+    const settings = get().settings
+    const height = settings?.autoQuality
+      ? defaultHeightFor(res.info, settings)
+      : Number(settings?.defaultVideoQuality ?? '1080')
+    const addRes = await get().addWithOptions(
+      buildMediaOptions({
+        info: res.info,
+        settings,
+        height,
+        bitrate: settings?.defaultAudioBitrate ?? '192',
+        saveDir: settings?.downloadDir ?? ''
+      })
+    )
+    if (addRes.ok) {
+      await window.dovira.consumeSubscriptionVideo(subId, video.id)
+      await get().loadSubscriptions()
+    }
+  },
 
   setDownloadSpeedLimit: async (id, kbps) => {
     try {

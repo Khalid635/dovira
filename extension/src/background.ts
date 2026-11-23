@@ -84,13 +84,20 @@ async function notify(title: string, message: string): Promise<void> {
 /**
  * v1.2.0: one ping against the app's /status. Shared by the periodic
  * alarm, startup, install, and the popup/options "Test connection".
+ * Next-level: the ping also reports this extension's Options page URL
+ * (X-Dovira-Options-Url) so the app's one-click "Pair extension"
+ * button knows exactly which chrome-extension:// (or moz-extension://)
+ * page to open with the token.
  */
 async function pingApp(): Promise<{ ok: boolean; error?: string }> {
   const settings = await loadSettings()
   if (!settings.token) return { ok: false, error: 'unauthorized' }
   try {
     const res = await fetch(`http://127.0.0.1:${settings.port}/status`, {
-      headers: { Authorization: `Bearer ${settings.token}` }
+      headers: {
+        Authorization: `Bearer ${settings.token}`,
+        'X-Dovira-Options-Url': chrome.runtime.getURL('options.html')
+      }
     })
     return {
       ok: res.ok,

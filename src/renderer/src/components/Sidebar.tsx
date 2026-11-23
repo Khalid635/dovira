@@ -5,6 +5,7 @@ import type { DownloadInfo } from '../../../main/types'
 import {
   IconAll,
   IconAudio,
+  IconBell,
   IconChat,
   IconCheckCircle,
   IconClock,
@@ -89,6 +90,10 @@ export default function Sidebar(): React.JSX.Element {
       count: countFor(downloads, 'completed')
     }
   ]
+
+  // Next-level: subscriptions — total pending videos across channels.
+  const subscriptions = useStore((s) => s.subscriptions)
+  const pendingCount = subscriptions.reduce((n, s) => n + s.pending.length, 0)
 
   const mediaItems: NavItem[] = [
     {
@@ -183,6 +188,18 @@ export default function Sidebar(): React.JSX.Element {
         >
           <IconChat size={15} />
           <span className="flex-1 text-left">{t('sidebar.assistant')}</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'subscriptions' ? 'nav-item-active' : ''}`}
+          onClick={() => setView('subscriptions')}
+        >
+          <IconBell size={15} />
+          <span className="flex-1 text-left">{t('sidebar.subscriptions')}</span>
+          {pendingCount > 0 && (
+            <span className="sidebar-count rounded-full bg-[var(--sidebar-count-bg)] px-2 py-0.5 text-[11px] tabular-nums text-[var(--sidebar-muted)]">
+              {pendingCount}
+            </span>
+          )}
         </button>
       </nav>
 

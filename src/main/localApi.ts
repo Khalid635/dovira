@@ -1,7 +1,14 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { app } from 'electron'
 import { safeStorage } from 'electron'
 import { loadExtensionToken, storeExtensionToken, type TokenCrypto } from './tokenStore'
@@ -9,6 +16,7 @@ import type { QueueManager } from './queue'
 import type { SettingsManager } from './settings'
 import type { ExtensionApiStatus } from './types'
 import { logMain } from './logger'
+import { isValidExtensionOptionsUrl } from './util/extensionOptions.ts'
 
 /**
  * Phase 5 — Local API for the browser extension (plan §9).
@@ -104,6 +112,30 @@ interface DownloadRequest {
   cookies?: unknown
   userAgent?: unknown
   referer?: unknown
+  /** Next-level: mirror URLs for a plain-file download (max 5, http(s) only). */
+  mirrors?: unknown
+}
+
+/**
+ * Next-level: media types the in-app preview player can play.
+ * Anything else is 415 — the player never serves an arbitrary file.
+ */
+const PREVIEW_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.flac': 'audio/flac'
+}
+
+export function mimeForPreview(savePath: string): string | null {
+  return PREVIEW_MIME[extname(savePath).toLowerCase()] ?? null
 }
 
 export class LocalApiServer {
@@ -112,12 +144,25 @@ export class LocalApiServer {
   private token = ''
   /** v1.2.0: epoch ms of the last request from the extension (null = never seen). */
   private lastExtensionSeenAt: number | null = null
+  /**
+   * Next-level: the extension's own Options page URL, as reported by
+   * the extension on its status ping (chrome-extension://…/options.html
+   * or moz-extension://…/options.html). Null until the extension has
+   * checked in — the one-click Pair button needs it.
+   */
+  private lastExtensionOptionsUrl: string | null = null
 
-  constructor(
-    private settings: SettingsManager,
-    private queue: QueueManager,
-    private userData: string
-  ) {}
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private settings: SettingsManager
+  private queue: QueueManager
+  private userData: string
+
+  constructor(settings: SettingsManager, queue: QueueManager, userData: string) {
+    this.settings = settings
+    this.queue = queue
+    this.userData = userData
+  }
 
   /** safeStorage adapter for tokenStore (DPAPI on Windows). */
   private tokenCrypto(): TokenCrypto {
@@ -213,7 +258,8 @@ export class LocalApiServer {
       running: this.isRunning(),
       port: this.port,
       token: this.token,
-      extensionSeenAt: this.lastExtensionSeenAt
+      extensionSeenAt: this.lastExtensionSeenAt,
+      extensionOptionsUrl: this.lastExtensionOptionsUrl
     }
   }
 
@@ -235,6 +281,11 @@ export class LocalApiServer {
     const header = req.headers['authorization']
     if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false
     const presented = header.slice('Bearer '.length).trim()
+    return this.tokenMatches(presented)
+  }
+
+  /** Constant-time token comparison (shared by Bearer auth and /preview's query token). */
+  private tokenMatches(presented: string): boolean {
     if (!presented || !this.token) return false
     const a = Buffer.from(sha256Hex(presented), 'utf-8')
     const b = Buffer.from(sha256Hex(this.token), 'utf-8')
@@ -261,8 +312,17 @@ export class LocalApiServer {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const path = (req.url ?? '/').split('?')[0]
+    const rawUrl = req.url ?? '/'
+    const path = rawUrl.split('?')[0]
     const method = req.method ?? 'GET'
+    // Next-level: /preview runs BEFORE the Origin check — a <video> /
+    // <audio> element cannot send an Authorization header, and the
+    // renderer sends Origin: null. The token travels in the query
+    // string instead (constant-time compared, same as Bearer auth).
+    if (method === 'GET' && path === '/preview') {
+      await this.handlePreview(req, res)
+      return
+    }
     if (!this.isAllowedOrigin(req)) {
       logMain('warn', `local-api: rejected ${method} ${path} — web-page origin`)
       this.send(res, 403, { ok: false, error: 'forbidden-origin' })
@@ -273,15 +333,20 @@ export class LocalApiServer {
       this.send(res, 401, { ok: false, error: 'unauthorized' })
       return
     }
-    // v1.2.0: remember the last time the extension talked to us — the
-    // app's Extension section shows "connected" from this timestamp.
-    // Only extension origins count (a curl probe must not fake it).
-    const origin = req.headers['origin']
-    if (
-      typeof origin === 'string' &&
-      (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))
-    ) {
-      this.lastExtensionSeenAt = Date.now()
+    // v1.2.0 (fixed next-level): remember the last time the extension
+    // talked to us — the app's Extension section shows "connected"
+    // from this timestamp. Any AUTHORIZED request counts: the Bearer
+    // token already proves the caller is the paired extension, and a
+    // Manifest V3 service worker's fetch sends NO Origin header at
+    // all — gating on an extension Origin meant the check-in could
+    // never fire (verified live 2026-11-23: /status 200, seenAt stayed
+    // null). The options URL itself is still validated (extension
+    // scheme + /options.html suffix) and the Pair button validates it
+    // again before opening.
+    this.lastExtensionSeenAt = Date.now()
+    const optionsUrl = req.headers['x-dovira-options-url']
+    if (typeof optionsUrl === 'string' && isValidExtensionOptionsUrl(optionsUrl)) {
+      this.lastExtensionOptionsUrl = optionsUrl
     }
     if (method === 'GET' && path === '/extension-settings') {
       // v1.2.0: the extension syncs its behaviour switches from the app
@@ -314,6 +379,79 @@ export class LocalApiServer {
       return
     }
     this.send(res, 404, { ok: false, error: 'not-found' })
+  }
+
+  /**
+   * Next-level: stream a COMPLETED video/audio file for the in-app
+   * preview player, with HTTP Range support (206) so seeking works.
+   * Auth is the pairing token in the query string (?token=…), compared
+   * in constant time. Only a completed video/audio row from the DB is
+   * ever served — arbitrary paths are never served, and only playable
+   * media types (see mimeForPreview). A malformed or unsatisfiable
+   * Range is 416 with Content-Range: bytes * /<size>.
+   */
+  private async handlePreview(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const query = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+    const token = query.get('token') ?? ''
+    if (!this.tokenMatches(token)) {
+      this.send(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
+    const id = query.get('id') ?? ''
+    const d = id ? this.queue.get(id) : undefined
+    if (!d || d.status !== 'completed' || (d.kind !== 'video' && d.kind !== 'audio')) {
+      this.send(res, 404, { ok: false, error: 'not-found' })
+      return
+    }
+    const mime = mimeForPreview(d.savePath)
+    if (!mime) {
+      this.send(res, 415, { ok: false, error: 'unsupported-media' })
+      return
+    }
+    let size: number
+    try {
+      size = statSync(d.savePath).size
+    } catch {
+      this.send(res, 404, { ok: false, error: 'not-found' })
+      return
+    }
+    const range = req.headers['range']
+    if (typeof range === 'string' && range.startsWith('bytes=')) {
+      const m = range.slice('bytes='.length).match(/^(\d*)-(\d*)$/)
+      if (!m) {
+        res.writeHead(416, { 'Content-Range': `bytes */${size}` })
+        res.end()
+        return
+      }
+      const start = m[1] === '' ? size - Number(m[2] || 0) : Number(m[1])
+      let end = m[2] === '' ? size - 1 : Number(m[2])
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start < 0 ||
+        end < start ||
+        start >= size
+      ) {
+        res.writeHead(416, { 'Content-Range': `bytes */${size}` })
+        res.end()
+        return
+      }
+      end = Math.min(end, size - 1)
+      res.writeHead(206, {
+        'Content-Type': mime,
+        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': end - start + 1
+      })
+      createReadStream(d.savePath, { start, end }).pipe(res)
+      return
+    }
+    res.writeHead(200, {
+      'Content-Type': mime,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': size
+    })
+    createReadStream(d.savePath).pipe(res)
   }
 
   private async handleAddDownload(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -368,6 +506,22 @@ export class LocalApiServer {
       body.cookies.length <= MAX_COOKIES_BYTES
         ? body.cookies
         : null
+    // Next-level: mirrors — an array of strings, max 5, http(s) only.
+    // Anything else is silently dropped (never an error: the main URL
+    // still downloads fine without mirrors).
+    const mirrors: string[] = Array.isArray(body.mirrors)
+      ? (body.mirrors as unknown[])
+          .filter((m): m is string => typeof m === 'string')
+          .filter((m) => {
+            try {
+              const u = new URL(m)
+              return u.protocol === 'http:' || u.protocol === 'https:'
+            } catch {
+              return false
+            }
+          })
+          .slice(0, 5)
+      : []
 
     // Per-link cookies: written to a temp Netscape file the download
     // references. The queue deletes it when the download completes or
@@ -394,7 +548,8 @@ export class LocalApiServer {
         cookiesFile,
         userAgent,
         referer,
-        headers
+        headers,
+        mirrors: mirrors.length > 0 ? mirrors : undefined
       })
       if (!result.ok) {
         if (cookiesFile && existsSync(cookiesFile)) {

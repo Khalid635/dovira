@@ -1,10 +1,10 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { logMain } from '../logger'
-import { parseMediaItems, type YtDlpMediaItem } from '../util/mediaItems'
+import { logMain } from '../logger.ts'
+import { parseMediaItems, type YtDlpMediaItem } from '../util/mediaItems.ts'
 
-export type { YtDlpMediaItem } from '../util/mediaItems'
+export type { YtDlpMediaItem } from '../util/mediaItems.ts'
 
 export interface YtDlpFormat {
   id: string
@@ -37,8 +37,6 @@ export interface YtDlpInfo {
   /** Cobalt-inspired multi-media picker: >1 when the URL is a multi-media post. */
   mediaItems: YtDlpMediaItem[]
 }
-
-
 
 /** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
 export interface PlaylistEntry {
@@ -97,6 +95,8 @@ export interface YtDlpDownloadOpts {
   speedLimitKBps?: number
   /** Phase 7: concurrent fragments (-N) — Smart Download, when > 1. */
   fragments?: number
+  /** Next-level: live-stream recording — raw .ts stream, no merge. */
+  liveRecord?: boolean
 }
 
 /**
@@ -118,11 +118,13 @@ export interface YtDlpDownloadCallbacks {
 }
 
 export class YtDlpError extends Error {
-  constructor(
-    public code: string,
-    message: string
-  ) {
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  code: string
+
+  constructor(code: string, message: string) {
     super(message)
+    this.code = code
     this.name = 'YtDlpError'
   }
 }
@@ -284,29 +286,72 @@ function ytdlpFormatTemps(savePath: string): string[] {
   return out
 }
 
-async function probeKind(
-  ffprobe: string,
-  file: string
-): Promise<'video' | 'audio' | 'both' | null> {
+/**
+ * Next-level: probe a media file with `ffmpeg -i` (ffprobe is no
+ * longer bundled — it cost 105 MB in the installer). ffmpeg prints
+ * the stream list + duration to stderr and exits non-zero without an
+ * output file, so the runner resolves with the output either way.
+ */
+export interface FfmpegProbe {
+  hasVideo: boolean
+  hasAudio: boolean
+  /** Seconds, null when ffmpeg reports no duration (N/A). */
+  duration: number | null
+}
+
+/** Parse `ffmpeg -i` output: Stream lines + the Duration line. */
+export function parseFfmpegProbe(output: string): FfmpegProbe {
+  let hasVideo = false
+  let hasAudio = false
+  for (const line of output.split(/\r?\n/)) {
+    if (/Stream #\d+:\d+.*: Video:/.test(line)) hasVideo = true
+    if (/Stream #\d+:\d+.*: Audio:/.test(line)) hasAudio = true
+  }
+  const m = output.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/)
+  let duration: number | null = null
+  if (m) {
+    const d = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])
+    if (Number.isFinite(d)) duration = d
+  }
+  return { hasVideo, hasAudio, duration }
+}
+
+export async function runFfmpegInfo(ffmpeg: string, file: string): Promise<FfmpegProbe | null> {
   try {
-    const { stdout } = await runTool(
-      ffprobe,
-      ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file],
-      30_000
-    )
-    const types = stdout
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    const hasVideo = types.includes('video')
-    const hasAudio = types.includes('audio')
-    if (hasVideo && hasAudio) return 'both'
-    if (hasVideo) return 'video'
-    if (hasAudio) return 'audio'
-    return null
+    const output = await new Promise<string>((resolve) => {
+      execFile(
+        ffmpeg,
+        ['-hide_banner', '-i', file],
+        { timeout: 30_000 },
+        (_err, stdout, stderr) => {
+          resolve(`${stdout.toString()}\n${stderr.toString()}`)
+        }
+      )
+    })
+    const probe = parseFfmpegProbe(output)
+    if (!probe.hasVideo && !probe.hasAudio && probe.duration === null) return null
+    return probe
   } catch {
     return null
   }
+}
+
+/** Stream kinds of a file, ffmpeg-only (replaces ffprobe's probeKind). */
+export async function probeFile(
+  ffmpeg: string,
+  file: string
+): Promise<'video' | 'audio' | 'both' | null> {
+  const probe = await runFfmpegInfo(ffmpeg, file)
+  if (!probe) return null
+  if (probe.hasVideo && probe.hasAudio) return 'both'
+  if (probe.hasVideo) return 'video'
+  if (probe.hasAudio) return 'audio'
+  return null
+}
+
+/** ffmpeg binary name for the platform (the old code hardcoded .exe). */
+function ffmpegBinary(ffmpegDir: string): string {
+  return join(ffmpegDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
 }
 
 /**
@@ -324,9 +369,8 @@ export async function recoverYtDlpRename(
   kind: 'video' | 'audio',
   audioBitrate: string
 ): Promise<boolean> {
-  const ffmpeg = join(ffmpegDir, 'ffmpeg.exe')
-  const ffprobe = join(ffmpegDir, 'ffprobe.exe')
-  if (!existsSync(ffmpeg) || !existsSync(ffprobe)) return false
+  const ffmpeg = ffmpegBinary(ffmpegDir)
+  if (!existsSync(ffmpeg)) return false
   const temps = ytdlpFormatTemps(savePath)
   if (temps.length === 0) return false
   // 1. Rename any .part files to their final names, with patient retries —
@@ -348,13 +392,13 @@ export async function recoverYtDlpRename(
     }
     finals.push(final)
   }
-  // 2. Classify the format files by their streams.
+  // 2. Classify the format files by their streams (ffmpeg -i).
   const videos: string[] = []
   const audios: string[] = []
   let combined: string | null = null
   for (const f of [...new Set(finals)]) {
     if (!existsSync(f)) return false
-    const k = await probeKind(ffprobe, f)
+    const k = await probeFile(ffmpeg, f)
     if (k === 'video') videos.push(f)
     else if (k === 'audio') audios.push(f)
     else if (k === 'both') combined = f
@@ -402,17 +446,8 @@ export async function recoverYtDlpRename(
     return false
   }
   // 4. Verify the output is a real media file, then clean up the temps.
-  try {
-    const { stdout } = await runTool(
-      ffprobe,
-      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', savePath],
-      30_000
-    )
-    const dur = parseFloat(stdout.trim())
-    if (!Number.isFinite(dur) || dur <= 0) return false
-  } catch {
-    return false
-  }
+  const probe = await runFfmpegInfo(ffmpeg, savePath)
+  if (!probe || probe.duration === null || probe.duration <= 0) return false
   for (const f of [...new Set(finals)]) {
     try {
       unlinkSync(f)
@@ -437,17 +472,29 @@ export interface YtDlpNetworkOptions {
 }
 
 export class YtDlpManager {
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private binaryPath: string
+  private ffmpegDir: string
+  private denoPath: string | null
+  private getNetwork?: () => YtDlpNetworkOptions
+
   constructor(
-    private binaryPath: string,
-    private ffmpegDir: string,
-    private denoPath: string | null,
+    binaryPath: string,
+    ffmpegDir: string,
+    denoPath: string | null,
     /**
      * Phase 3: read live from Settings at call time (cookies + proxy).
      * The getter is called on every baseArgs() so a settings change takes
      * effect on the next fetchInfo/download without restarting the app.
      */
-    private getNetwork?: () => YtDlpNetworkOptions
-  ) {}
+    getNetwork?: () => YtDlpNetworkOptions
+  ) {
+    this.binaryPath = binaryPath
+    this.ffmpegDir = ffmpegDir
+    this.denoPath = denoPath
+    this.getNetwork = getNetwork
+  }
 
   /**
    * Phase 4: cookies + proxy only, reused everywhere. Split out of
@@ -757,6 +804,12 @@ export class YtDlpManager {
     if (opts.fragments && opts.fragments > 1 && !opts.thumbnailOnly) {
       args.push('-N', String(opts.fragments))
     }
+    // Next-level: live-stream recording — save the raw HLS/DASH stream
+    // as .ts (playable even when stopped mid-stream: no moov atom to
+    // finish). The .ts filename comes from the Add dialog.
+    if (opts.liveRecord) {
+      args.push('--hls-use-mpegts')
+    }
     args.push('-o', opts.savePath, '--', opts.url)
     return args
   }
@@ -848,11 +901,17 @@ export class YtDlpDownload {
   private proc: ChildProcess | null = null
   private stderrTail: string[] = []
 
-  constructor(
-    private binaryPath: string,
-    private args: string[],
-    private cb: YtDlpDownloadCallbacks
-  ) {}
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private binaryPath: string
+  private args: string[]
+  private cb: YtDlpDownloadCallbacks
+
+  constructor(binaryPath: string, args: string[], cb: YtDlpDownloadCallbacks) {
+    this.binaryPath = binaryPath
+    this.args = args
+    this.cb = cb
+  }
 
   getStderr(): string {
     return this.stderrTail.join('\n')

@@ -44,6 +44,10 @@ See README.md for the full build commands (`build:win`, `build:mac`, `build:linu
 
 Look for issues labelled [`good first issue`](https://github.com/Khalid635/dovira/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — they are small, well-scoped tasks, and a good way to learn the codebase. If you get stuck, ask in the issue; there are no silly questions.
 
+## Translating DOVIRA
+
+To add a new language, see [`docs/translations.md`](docs/translations.md): one dictionary file (`src/renderer/src/i18n/<code>.json`), one `Language` union code and one `AVAILABLE_LOCALES` line. Human translation only — no machine-translated locales.
+
 ## Reporting bugs
 
 Use the bug report template (`.github/ISSUE_TEMPLATE/bug_report.md`): what happened, what you expected, steps to reproduce, your OS + DOVIRA version, and the log file if you can (`%APPDATA%\dovira\dovira.log` on Windows, `~/Library/Logs/dovira/dovira.log` on macOS, `~/.config/dovira/dovira.log` on Linux). Never paste tokens, passwords or cookies into an issue.

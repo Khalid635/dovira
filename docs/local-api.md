@@ -87,14 +87,15 @@ curl -X POST -H "Authorization: Bearer $DOVIRA_TOKEN" \
 
 Request body (JSON, max 1 MB):
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `url` | string | Required. `http(s)://…` or `magnet:` — anything else is `unsupported-url`. |
-| `kind` | string | `video` or `audio`; anything else (or omitted) means auto — video when the link has video, audio otherwise. |
-| `quality` | string | e.g. `"1080"`, `"720"`, `"320"`. Max 8 characters; omitted = the app's Settings default. |
-| `cookies` | string | Netscape `cookies.txt` text for this link (max 64 KB). Used for login-walled pages; only cookies matching the URL's host/path are sent. |
-| `userAgent` | string | Sent with the download request. Max 512 characters. |
-| `referer` | string | Must start with `http://` or `https://`. Max 2048 characters. |
+| Field       | Type     | Notes                                                                                                                                                       |
+| ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`       | string   | Required. `http(s)://…` or `magnet:` — anything else is `unsupported-url`.                                                                                  |
+| `kind`      | string   | `video` or `audio`; anything else (or omitted) means auto — video when the link has video, audio otherwise.                                                 |
+| `quality`   | string   | e.g. `"1080"`, `"720"`, `"320"`. Max 8 characters; omitted = the app's Settings default.                                                                    |
+| `cookies`   | string   | Netscape `cookies.txt` text for this link (max 64 KB). Used for login-walled pages; only cookies matching the URL's host/path are sent.                     |
+| `userAgent` | string   | Sent with the download request. Max 512 characters.                                                                                                         |
+| `referer`   | string   | Must start with `http://` or `https://`. Max 2048 characters.                                                                                               |
+| `mirrors`   | string[] | Optional mirror URLs for a plain-file download (max 5, `http(s)` only — anything else is silently dropped). aria2 tries them all; the main URL stays first. |
 
 Notes:
 
@@ -106,6 +107,34 @@ Notes:
 - Cookies are written to a temp file the download references and
   deleted when it finishes (or fails). Cookies and the URL's query
   string are never written to logs — only the host is logged.
+
+### GET /preview
+
+Streams a completed download back to the app's own preview player
+(`<video>` / `<audio>` with seeking). It is the only endpoint that
+runs **before** the Origin check: a media element cannot send an
+`Authorization` header, so the token travels in the query string
+instead (compared in constant time, exactly like the Bearer token).
+
+```bash
+curl "http://127.0.0.1:17530/preview?id=<download-id>&token=$DOVIRA_TOKEN" -o out.mp4
+```
+
+```bash
+# Seeking works — the player sends Range headers, the API answers 206:
+curl -H "Range: bytes=0-1023" "http://127.0.0.1:17530/preview?id=<download-id>&token=$DOVIRA_TOKEN" -o part.bin
+```
+
+- Only a **completed** video/audio row from the app's database is
+  ever served — arbitrary paths are never served, and the file must
+  still exist on disk (`404` otherwise).
+- Only playable media types are served: mp4, webm, mkv, mov, m4v,
+  mp3, m4a, wav, ogg, opus, flac. Anything else is `415`.
+- A malformed or unsatisfiable `Range` is `416` with
+  `Content-Range: bytes */<size>`.
+- Do not put this URL in a browser address bar or a shared link: the
+  token in the query string would land in history. The app's preview
+  player is the only caller.
 
 ### GET /extension-settings
 
@@ -124,20 +153,29 @@ curl -H "Authorization: Bearer $DOVIRA_TOKEN" http://127.0.0.1:17530/extension-s
 
 All errors are JSON: `{ "ok": false, "error": "<code>" }`.
 
-| HTTP | `error` | Meaning |
-| --- | --- | --- |
-| 400 | `invalid-json` | The body is not valid JSON. |
-| 400 | `invalid-url` | `url` is missing or not a URL. |
-| 400 | `unsupported-url` | Not `http(s)://` or `magnet:`. |
-| 400 | `playlist` | Playlist/channel URLs are refused — use the app's Add dialog. |
-| 400 | `duplicate` | Already downloaded (same URL + quality). |
-| 400 | `no-space` | Not enough free disk space. |
-| 400 | `unknown` | The download could not be added (see the app log). |
-| 401 | `unauthorized` | Missing or wrong Bearer token. |
-| 403 | `forbidden-origin` | The request came from a web page. |
-| 404 | `not-found` | No such route. |
-| 413 | `body-too-large` | Body over 1 MB. |
-| 500 | `unknown` | Unexpected server error. |
+| HTTP | `error`             | Meaning                                                         |
+| ---- | ------------------- | --------------------------------------------------------------- |
+| 400  | `invalid-json`      | The body is not valid JSON.                                     |
+| 400  | `invalid-url`       | `url` is missing or not a URL.                                  |
+| 400  | `unsupported-url`   | Not `http(s)://` or `magnet:`.                                  |
+| 400  | `playlist`          | Playlist/channel URLs are refused — use the app's Add dialog.   |
+| 400  | `duplicate`         | Already downloaded (same URL + quality).                        |
+| 400  | `no-space`          | Not enough free disk space.                                     |
+| 400  | `unknown`           | The download could not be added (see the app log).              |
+| 401  | `unauthorized`      | Missing or wrong Bearer token.                                  |
+| 403  | `forbidden-origin`  | The request came from a web page.                               |
+| 404  | `not-found`         | No such route (or, for `/preview`, no such completed download). |
+| 413  | `body-too-large`    | Body over 1 MB.                                                 |
+| 415  | `unsupported-media` | `/preview`: the file is not a playable media type.              |
+| 416  | `invalid-range`     | `/preview`: malformed or unsatisfiable `Range` header.          |
+| 500  | `unknown`           | Unexpected server error.                                        |
+
+The extension also reports its own Options page URL to the app on
+its `/status` ping (`X-Dovira-Options-Url: chrome-extension://…/options.html`
+or `moz-extension://…/options.html`) — that is how the app's one-click
+"Pair extension" button knows which page to open with the token. The
+app only ever stores a value that is an extension origin ending in
+`/options.html`, and re-validates it before opening.
 
 ## Limits
 

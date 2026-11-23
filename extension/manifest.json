@@ -1,4 +1,10 @@
 {
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dovira@khalid635.github.io",
+      "strict_min_version": "109.0"
+    }
+  },
   "action": {
     "default_icon": "icons/icon.png",
     "default_popup": "popup.html",

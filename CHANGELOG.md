@@ -6,6 +6,25 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
 ### Added
 
+- AI Assistant that DOES things: paste a link with "download this" / "ডাউনলোড করো" and the assistant starts the download; "pause / resume / cancel / retry / download next <name>" controls downloads by name. Rule-based only — no API key, nothing leaves the machine; questions (why/how/কেন/কিভাবে…) are never executed as commands.
+- AI auto quality + auto subtitles: when a download starts, the best quality at or below the Settings default and the best subtitles (your language → English → auto-captions) are picked automatically, and the Add dialog pre-checks them. New Settings toggles in Video & audio (auto quality on by default, auto subtitles off).
+- Smart queue: pin a queued/paused download to the top (pin button on the row, pinned badge); pinned rows start first.
+- aria2 adaptive connections: fast connections now use up to 32 connections per server (was 16); medium 16, slow 8, unstable 4. Settings connections limit raised to 32. Plain-file downloads accept mirror URLs via the Local API (`mirrors`, max 5).
+- Live-stream recording: a live stream in the Add dialog shows a Record panel — records to a plain `.ts` file while the stream plays; the download row gets a red REC badge and a Stop button that keeps the recorded file.
+- Channel subscriptions: subscribe to a YouTube channel/playlist URL; the app checks in the background (60s after startup, then every 6h) and lists new videos with Download buttons. New Sidebar section with a pending-count badge.
+- In-app preview player: completed video/audio rows get a Play button that opens a small player (Range/seek supported via the Local API `GET /preview`).
+- Community translations: `docs/translations.md` translator guide + `AVAILABLE_LOCALES` registry — a new locale is one dictionary file + one registry line. No machine-translated locales.
+- Winget manifests (`packaging/winget/`, v1.2.0) and Firefox AMO listing notes (`docs/firefox-amo-notes.md`) — human submission only.
+- One-click pairing: a "Pair extension" button in Settings > Setup & diagnostics opens the extension's Options page with the token pre-filled and auto-saved (manual copy-paste stays as fallback). The extension reports its Options URL to the app on its status ping.
+- IDM-style floating download button: hovering any video shows a small Download button over its top-right corner; click sends the video to the app (page URL on YouTube/blob sources, real media URL otherwise). On by default; tiny videos/ads are skipped; fullscreen supported.
+
+### Fixed
+
+- Browser extension load-path bug: the guided install now points at the BUILT extension folder (`extension\dist` for dev, `resources\extension` in the installed app) and refuses the source folder — loading `extension\` itself used to fail with "Could not load javascript 'content.js'". `extension\README.md` now says so explicitly.
+- Smaller installer: ffprobe is no longer bundled — media probing now uses `ffmpeg -i` instead (saves ~105 MB unpacked). Removed from the binary fetch/hash scripts and the startup hash manifest.
+
+### Added
+
 - One-click paste-and-download: a "Paste & download" button in the home toolbar reads the link from the clipboard, fetches its info and starts the download with the app's defaults. Playlists, torrents and multi-media posts open the Add dialog instead of guessing.
 - Filename style presets in Settings > Smart: Title + quality (default), Title only, Title + uploader, Uploader + title + quality, Title + date, or Custom. Picking a preset sets the filename template; editing the template by hand switches the preset to Custom.
 - Multi-media picker: when a link resolves to several media items (e.g. a gallery/carousel post), the Add dialog lists them with thumbnails and durations — pick the ones to download, at one quality for all.

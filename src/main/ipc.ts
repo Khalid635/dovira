@@ -18,6 +18,8 @@ import { diskFreeBytes, getExtensionDir, ENGINE_FILES } from './util/paths'
 import { sha256File } from './checksum'
 import { recordEngineHashOverride } from './security'
 import { scanPage } from './grabber'
+import { mimeForPreview } from './localApi'
+import type { SubscriptionManager } from './smart/subscriptions'
 import type {
   AddOptions,
   AppUpdateState,
@@ -55,6 +57,8 @@ export interface IpcDeps {
   localApi: LocalApiServer
   /** Phase 6: app auto-update (check / download / install). */
   updater: AppUpdater
+  /** Next-level: channel subscriptions (local polling). */
+  subscriptions: SubscriptionManager
   /** Phase 3: called after every settings:set — applies launch-at-startup, clipboard watch, etc. */
   onSettingsChanged: (s: Settings) => void
 }
@@ -98,6 +102,46 @@ export function registerIpc(deps: IpcDeps): void {
   )
   ipcMain.handle('dovira:downloads:retry', (_e, id: unknown) =>
     typeof id === 'string' ? queue.retry(id) : false
+  )
+  // Next-level: pin a download to the top of the queue (persisted).
+  ipcMain.handle('dovira:downloads:togglePin', (_e, id: unknown) =>
+    typeof id === 'string' ? queue.togglePin(id) : null
+  )
+  // Next-level: stop a live-stream recording and KEEP the .ts file.
+  ipcMain.handle('dovira:downloads:stopRecording', (_e, id: unknown) =>
+    typeof id === 'string' ? queue.stopRecording(id) : false
+  )
+  // Next-level: preview URL for a completed video/audio row — the
+  // Local API /preview endpoint (token in the query string, localhost
+  // only). Null when the row is not previewable or the API is down.
+  ipcMain.handle('dovira:preview:url', (_e, id: unknown) => {
+    if (typeof id !== 'string') return null
+    const d = queue.get(id)
+    if (!d || d.status !== 'completed' || (d.kind !== 'video' && d.kind !== 'audio')) return null
+    if (!mimeForPreview(d.savePath)) return null
+    const st = deps.localApi.getStatus()
+    if (!st.running || !st.port || !st.token) return null
+    return `http://127.0.0.1:${st.port}/preview?id=${encodeURIComponent(id)}&token=${encodeURIComponent(st.token)}`
+  })
+  // Next-level: channel subscriptions (list / add / remove / check /
+  // consume a pending video after its download was added).
+  ipcMain.handle('dovira:subscriptions:list', () => deps.subscriptions.list())
+  ipcMain.handle('dovira:subscriptions:add', (_e, url: unknown) =>
+    typeof url === 'string' ? deps.subscriptions.add(url) : { ok: false, error: 'invalid-url' }
+  )
+  ipcMain.handle('dovira:subscriptions:remove', (_e, id: unknown) =>
+    typeof id === 'string' ? deps.subscriptions.remove(id) : false
+  )
+  ipcMain.handle('dovira:subscriptions:check', () => deps.subscriptions.checkAll())
+  ipcMain.handle('dovira:subscriptions:checkOne', (_e, id: unknown) =>
+    typeof id === 'string'
+      ? deps.subscriptions.checkOne(id)
+      : { ok: false, found: 0, error: 'not-playlist' }
+  )
+  ipcMain.handle('dovira:subscriptions:consumePending', (_e, id: unknown, videoId: unknown) =>
+    typeof id === 'string' && typeof videoId === 'string'
+      ? deps.subscriptions.consumePending(id, videoId)
+      : null
   )
   ipcMain.handle('dovira:downloads:openFile', (_e, id: unknown) => {
     if (typeof id !== 'string') return false
@@ -376,6 +420,27 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle('dovira:extension:folderPath', () =>
     getExtensionDir(app.getAppPath(), process.resourcesPath)
   )
+  // Next-level: ONE-CLICK PAIRING — opens the extension's own Options
+  // page in the default browser with the token in the URL
+  // (options.html?token=…). The token goes ONLY to the extension's own
+  // chrome-extension:// / moz-extension:// options page — never to any
+  // website. The URL was validated when the extension reported it
+  // (Local API /status ping) and is validated again here; when the
+  // extension has not checked in yet there is nothing to open
+  // ('not-seen'). The Options page strips the token from the URL as
+  // soon as it saves it, so it never lingers in history.
+  ipcMain.handle('dovira:extension:pair', () => {
+    const st = deps.localApi.getStatus()
+    const base = st.extensionOptionsUrl
+    if (!base || !st.token) return { ok: false, error: 'not-seen' }
+    const ok =
+      (base.startsWith('chrome-extension://') || base.startsWith('moz-extension://')) &&
+      base.split('?')[0].endsWith('/options.html')
+    if (!ok) return { ok: false, error: 'not-seen' }
+    const url = `${base.split('?')[0]}?token=${encodeURIComponent(st.token)}`
+    void shell.openExternal(url)
+    return { ok: true }
+  })
   ipcMain.handle('dovira:extension:openFolder', () => {
     const dir = getExtensionDir(app.getAppPath(), process.resourcesPath)
     if (!dir) return false

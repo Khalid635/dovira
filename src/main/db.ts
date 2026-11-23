@@ -1,7 +1,13 @@
 import { DatabaseSync } from 'node:sqlite'
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { DownloadInfo, DownloadKind, DownloadStatus } from './types'
+import type {
+  DownloadInfo,
+  DownloadKind,
+  DownloadStatus,
+  Subscription,
+  SubscriptionVideo
+} from './types'
 
 interface DownloadRow {
   id: string
@@ -26,9 +32,21 @@ interface DownloadRow {
   ytdlp_state: string | null
   sort_order: number
   speed_limit_kbps: number
+  pinned: number
   created_at: number
   started_at: number | null
   completed_at: number | null
+}
+
+interface SubscriptionRow {
+  id: string
+  url: string
+  title: string
+  uploader: string | null
+  last_video_id: string | null
+  last_checked_at: number | null
+  created_at: number
+  pending: string
 }
 
 export interface DownloadInsert {
@@ -55,6 +73,8 @@ export interface DownloadInsert {
   sortOrder?: number
   /** Phase 7: per-download speed limit in KB/s, 0 = use the global limit. */
   speedLimitKBps?: number
+  /** Next-level: pinned to the top of the queue. */
+  pinned?: boolean
   createdAt: number
   startedAt?: number | null
   completedAt?: number | null
@@ -78,6 +98,8 @@ export interface DownloadPatch {
   ytdlpState?: string | null
   sortOrder?: number
   speedLimitKBps?: number
+  /** Next-level: pinned to the top of the queue. */
+  pinned?: boolean
 }
 
 /**
@@ -144,6 +166,24 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     sql: `
       ALTER TABLE downloads ADD COLUMN speed_limit_kbps INTEGER NOT NULL DEFAULT 0;
     `
+  },
+  {
+    // Next-level: pinned queue rows (pin sorts before sort_order) +
+    // channel subscriptions (local polling, no server).
+    version: 5,
+    sql: `
+      ALTER TABLE downloads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        uploader TEXT,
+        last_video_id TEXT,
+        last_checked_at INTEGER,
+        created_at INTEGER NOT NULL,
+        pending TEXT NOT NULL DEFAULT '[]'
+      );
+    `
   }
 ]
 
@@ -173,7 +213,28 @@ function rowToInfo(row: DownloadRow): DownloadInfo {
     formatString: row.format_string,
     ytdlpState: row.ytdlp_state,
     sortOrder: row.sort_order ?? row.created_at,
-    speedLimitKBps: row.speed_limit_kbps ?? 0
+    speedLimitKBps: row.speed_limit_kbps ?? 0,
+    pinned: row.pinned === 1
+  }
+}
+
+function rowToSubscription(row: SubscriptionRow): Subscription {
+  let pending: SubscriptionVideo[] = []
+  try {
+    const parsed: unknown = JSON.parse(row.pending)
+    if (Array.isArray(parsed)) pending = parsed as SubscriptionVideo[]
+  } catch {
+    pending = []
+  }
+  return {
+    id: row.id,
+    url: row.url,
+    title: row.title,
+    uploader: row.uploader,
+    lastVideoId: row.last_video_id,
+    lastCheckedAt: row.last_checked_at,
+    createdAt: row.created_at,
+    pending
   }
 }
 
@@ -226,8 +287,8 @@ export class DoviraDb {
           (id, url, title, filename, save_path, kind, format_label, status,
            total_bytes, done_bytes, error_code, error_message, thumbnail_url,
            site, remote_id, engine, engine_ref, format_id, format_string,
-           ytdlp_state, sort_order, speed_limit_kbps, created_at, started_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           ytdlp_state, sort_order, speed_limit_kbps, pinned, created_at, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         d.id,
@@ -252,6 +313,7 @@ export class DoviraDb {
         d.ytdlpState ?? null,
         d.sortOrder ?? d.createdAt,
         d.speedLimitKBps ?? 0,
+        d.pinned ? 1 : 0,
         d.createdAt,
         d.startedAt ?? null,
         d.completedAt ?? null
@@ -278,12 +340,20 @@ export class DoviraDb {
       ['formatString', 'format_string'],
       ['ytdlpState', 'ytdlp_state'],
       ['sortOrder', 'sort_order'],
-      ['speedLimitKBps', 'speed_limit_kbps']
+      ['speedLimitKBps', 'speed_limit_kbps'],
+      ['pinned', 'pinned']
     ]
     for (const [key, col] of map) {
       if (patch[key] !== undefined) {
         sets.push(`${col} = ?`)
-        values.push(patch[key] as string | number | null)
+        // pinned is a boolean in the patch, 0/1 in the DB.
+        values.push(
+          key === 'pinned'
+            ? (patch[key] as boolean)
+              ? 1
+              : 0
+            : (patch[key] as string | number | null)
+        )
       }
     }
     if (sets.length === 0) return
@@ -371,6 +441,83 @@ export class DoviraDb {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
       { value: string } | undefined
     return row ? row.value : null
+  }
+
+  // ---------------------------------------------------------------
+  // Next-level: channel subscriptions (DB table `subscriptions`).
+  // ---------------------------------------------------------------
+
+  listSubscriptions(): Subscription[] {
+    const rows = this.db
+      .prepare('SELECT * FROM subscriptions ORDER BY created_at ASC')
+      .all() as unknown as SubscriptionRow[]
+    return rows.map(rowToSubscription)
+  }
+
+  getSubscription(id: string): Subscription | null {
+    const row = this.db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id) as unknown as
+      SubscriptionRow | undefined
+    return row ? rowToSubscription(row) : null
+  }
+
+  findSubscriptionByUrl(url: string): Subscription | null {
+    const row = this.db.prepare('SELECT * FROM subscriptions WHERE url = ?').get(url) as unknown as
+      SubscriptionRow | undefined
+    return row ? rowToSubscription(row) : null
+  }
+
+  insertSubscription(s: {
+    id: string
+    url: string
+    title: string
+    uploader: string | null
+    lastVideoId: string | null
+    createdAt: number
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO subscriptions
+          (id, url, title, uploader, last_video_id, last_checked_at, created_at, pending)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, '[]')`
+      )
+      .run(s.id, s.url, s.title, s.uploader, s.lastVideoId, s.createdAt)
+  }
+
+  updateSubscription(
+    id: string,
+    patch: {
+      title?: string
+      uploader?: string | null
+      lastVideoId?: string | null
+      lastCheckedAt?: number | null
+      pending?: SubscriptionVideo[]
+    }
+  ): void {
+    const sets: string[] = []
+    const values: Array<string | number | null> = []
+    const map: [keyof typeof patch, string][] = [
+      ['title', 'title'],
+      ['uploader', 'uploader'],
+      ['lastVideoId', 'last_video_id'],
+      ['lastCheckedAt', 'last_checked_at']
+    ]
+    for (const [key, col] of map) {
+      if (patch[key] !== undefined) {
+        sets.push(`${col} = ?`)
+        values.push(patch[key] as string | number | null)
+      }
+    }
+    if (patch.pending !== undefined) {
+      sets.push('pending = ?')
+      values.push(JSON.stringify(patch.pending))
+    }
+    if (sets.length === 0) return
+    values.push(id)
+    this.db.prepare(`UPDATE subscriptions SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+  }
+
+  deleteSubscription(id: string): void {
+    this.db.prepare('DELETE FROM subscriptions WHERE id = ?').run(id)
   }
 
   setSetting(key: string, value: string): void {

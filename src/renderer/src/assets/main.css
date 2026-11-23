@@ -250,6 +250,17 @@ select.input {
   color: var(--muted);
 }
 
+/* Next-level: pinned queue rows (accent) + live-recording badge (red). */
+.badge-pinned {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.badge-rec {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+
 .nav-item {
   display: flex;
   width: 100%;

@@ -16,6 +16,8 @@ import type {
   SchedulerStatus,
   Settings,
   StatusEvent,
+  Subscription,
+  SubscriptionVideo,
   ToastEvent,
   VideoInfo
 } from '../main/types'
@@ -52,6 +54,29 @@ export interface DoviraAPI {
   cancelDownload(id: string): Promise<boolean>
   removeDownload(id: string, deleteFile: boolean): Promise<boolean>
   retryDownload(id: string): Promise<boolean>
+  // Next-level: pin to the top of the queue (persisted).
+  togglePin(id: string): Promise<boolean | null>
+  // Next-level: stop a live-stream recording and KEEP the .ts file.
+  stopRecording(id: string): Promise<boolean>
+  // Next-level: preview URL for a completed video/audio row (null when
+  // the row is not previewable or the Local API is down).
+  previewUrl(id: string): Promise<string | null>
+  // Next-level: channel subscriptions (local polling).
+  listSubscriptions(): Promise<Subscription[]>
+  addSubscription(url: string): Promise<{
+    ok: boolean
+    subscription?: Subscription
+    error?: string
+  }>
+  removeSubscription(id: string): Promise<boolean>
+  checkSubscriptions(): Promise<{ checked: number; found: number }>
+  checkSubscription(id: string): Promise<{ ok: boolean; found: number; error?: string }>
+  consumeSubscriptionVideo(id: string, videoId: string): Promise<SubscriptionVideo | null>
+  onSubscriptionsUpdated(cb: () => void): () => void
+  // Next-level: one-click pairing — opens the extension's Options page
+  // with the token in the URL. Fails when the extension has not
+  // checked in yet (nothing to open).
+  pairExtension(): Promise<{ ok: boolean; error?: string }>
   // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
   setDownloadSpeedLimit(id: string, kbps: number): Promise<boolean>
   // Phase 7 (v1.0): Smart features.
@@ -159,6 +184,19 @@ const api: DoviraAPI = {
   removeDownload: (id: string, deleteFile: boolean) =>
     ipcRenderer.invoke('dovira:downloads:remove', id, deleteFile),
   retryDownload: (id: string) => ipcRenderer.invoke('dovira:downloads:retry', id),
+  // Next-level
+  togglePin: (id: string) => ipcRenderer.invoke('dovira:downloads:togglePin', id),
+  stopRecording: (id: string) => ipcRenderer.invoke('dovira:downloads:stopRecording', id),
+  previewUrl: (id: string) => ipcRenderer.invoke('dovira:preview:url', id),
+  listSubscriptions: () => ipcRenderer.invoke('dovira:subscriptions:list'),
+  addSubscription: (url: string) => ipcRenderer.invoke('dovira:subscriptions:add', url),
+  removeSubscription: (id: string) => ipcRenderer.invoke('dovira:subscriptions:remove', id),
+  checkSubscriptions: () => ipcRenderer.invoke('dovira:subscriptions:check'),
+  checkSubscription: (id: string) => ipcRenderer.invoke('dovira:subscriptions:checkOne', id),
+  consumeSubscriptionVideo: (id: string, videoId: string) =>
+    ipcRenderer.invoke('dovira:subscriptions:consumePending', id, videoId),
+  onSubscriptionsUpdated: (cb) => subscribe<void>('dovira:subscriptions:updated', cb),
+  pairExtension: () => ipcRenderer.invoke('dovira:extension:pair'),
   // Phase 7
   setDownloadSpeedLimit: (id: string, kbps: number) =>
     ipcRenderer.invoke('dovira:downloads:setSpeedLimit', id, kbps),

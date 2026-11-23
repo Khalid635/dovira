@@ -24,16 +24,28 @@ export class SchedulerManager {
   private runActive = false
   private runCompleted = 0
   private countdown: SchedulerCountdown | null = null
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private queue: QueueManager
+  private settings: SettingsManager
+  private cb: {
+    /** Emitted every second during the countdown; null = countdown ended. */
+    onCountdown: (c: SchedulerCountdown | null) => void
+    onLog: (line: string) => void
+  }
 
   constructor(
-    private queue: QueueManager,
-    private settings: SettingsManager,
-    private cb: {
+    queue: QueueManager,
+    settings: SettingsManager,
+    cb: {
       /** Emitted every second during the countdown; null = countdown ended. */
       onCountdown: (c: SchedulerCountdown | null) => void
       onLog: (line: string) => void
     }
   ) {
+    this.queue = queue
+    this.settings = settings
+    this.cb = cb
     // Count completions while a scheduled run is active.
     this.queue.on('status', (ev: StatusEvent) => {
       if (this.runActive && ev.status === 'completed') this.runCompleted++

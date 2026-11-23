@@ -10,12 +10,17 @@ import type { QueueManager } from './queue'
 export class ClipboardWatcher {
   private timer: ReturnType<typeof setInterval> | null = null
   private lastSeen = ''
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private queue: QueueManager
+  private onLink: (url: string) => void
+  private log: (line: string) => void
 
-  constructor(
-    private queue: QueueManager,
-    private onLink: (url: string) => void,
-    private log: (line: string) => void
-  ) {}
+  constructor(queue: QueueManager, onLink: (url: string) => void, log: (line: string) => void) {
+    this.queue = queue
+    this.onLink = onLink
+    this.log = log
+  }
 
   start(): void {
     if (this.timer) return

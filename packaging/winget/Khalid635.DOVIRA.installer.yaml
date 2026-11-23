@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+PackageIdentifier: Khalid635.DOVIRA
+PackageVersion: 1.2.0
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Khalid635/dovira/releases/download/v1.2.0/dovira-1.2.0-setup.exe
+    InstallerSha256: ace9cece3b5d2ee2c23c432b74730db2bf31ca784106f1853d628c363ef1f6c4
+    InstallerType: nsis
+    Scope: user
+    UpgradeBehavior: install
+ManifestType: installer
+ManifestVersion: 1.10.0

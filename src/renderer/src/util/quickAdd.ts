@@ -1,4 +1,5 @@
 import type { AddOptions, Settings, VideoInfo } from '../../../main/types'
+import { pickSubtitles } from './autoPick.ts'
 
 /**
  * One-click paste-and-download + the multi-media picker share one
@@ -40,7 +41,9 @@ export function sanitizeStem(name: string): string {
  * the highest available row at or below 1080p (same rule as the dialog).
  */
 export function defaultHeightFor(info: VideoInfo, settings: Settings | null): number {
-  const heights = [...new Set(info.formats.filter((f) => f.height !== null).map((f) => f.height as number))]
+  const heights = [
+    ...new Set(info.formats.filter((f) => f.height !== null).map((f) => f.height as number))
+  ]
   if (heights.length === 0) return Number(settings?.defaultVideoQuality ?? '1080')
   const wanted = Number(settings?.defaultVideoQuality ?? '1080')
   if (heights.includes(wanted)) return wanted
@@ -71,21 +74,29 @@ export function buildMediaOptions(input: MediaOptionsInput): AddOptions {
     kind === 'video'
       ? `${sanitizeStem(info.title)}.${container}`
       : `${sanitizeStem(info.title)}.mp3`
+  // Next-level: AI auto subtitles — the Settings language first,
+  // English next, auto-captions as a fallback. Only when the setting
+  // is on; the Add dialog's manual choice still overrides this.
+  const subPick = pickSubtitles(
+    info.subtitleLangs ?? [],
+    info.autoCaptionLangs ?? [],
+    settings?.subtitleLang ?? 'en',
+    settings?.autoSubtitles ?? false
+  )
   return {
     url: info.url,
     kind,
     formatId: kind === 'video' ? `${height}p` : `mp3-${bitrate}`,
-    formatString:
-      kind === 'video' ? `bv*[height<=${height}]+ba/b[height<=${height}]` : 'bestaudio',
+    formatString: kind === 'video' ? `bv*[height<=${height}]+ba/b[height<=${height}]` : 'bestaudio',
     qualityLabel: kind === 'video' ? `${height}p` : `${bitrate} kbps`,
-    subtitles: false,
-    subLang: settings?.subtitleLang ?? 'en',
+    subtitles: subPick !== null,
+    subLang: subPick?.lang ?? settings?.subtitleLang ?? 'en',
     embedThumbnail: false,
     embedMetadata: settings?.embedMetadataDefault ?? false,
     clipStart: null,
     clipEnd: null,
     subMode: 'embed',
-    autoSubs: false,
+    autoSubs: subPick?.autoSubs ?? false,
     thumbnailOnly: false,
     useArchive: false,
     savePath: saveDir ? `${saveDir}\\${filename}` : filename,

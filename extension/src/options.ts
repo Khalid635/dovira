@@ -19,10 +19,21 @@ function setStatus(text: string, ok: boolean | null): void {
 
 async function load(): Promise<void> {
   const items = await chrome.storage.local.get(['token', 'port'])
-  tokenEl.value = typeof items['token'] === 'string' ? (items['token'] as string) : ''
+  // Next-level: one-click pairing — the app opens this page as
+  // options.html?token=<token>. Pre-fill the token and auto-save it,
+  // then strip it from the URL so it never lingers in history.
+  // Manual copy-paste stays as the fallback when no token is given.
+  const paramToken = new URLSearchParams(location.search).get('token')?.trim() ?? ''
+  tokenEl.value =
+    paramToken || (typeof items['token'] === 'string' ? (items['token'] as string) : '')
   portEl.value = String(
     typeof items['port'] === 'number' ? (items['port'] as number) : DEFAULT_API_PORT
   )
+  if (paramToken) {
+    await save()
+    setStatus('Paired with the DOVIRA app.', true)
+    history.replaceState(null, '', location.pathname)
+  }
 }
 
 async function save(): Promise<void> {

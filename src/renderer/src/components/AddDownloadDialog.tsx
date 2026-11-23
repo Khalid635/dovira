@@ -3,6 +3,7 @@ import type { AddOptions, PlainFileInfo, VideoInfo } from '../../../main/types'
 import { useStore, useT } from '../store'
 import { formatBytes, formatEta } from '../util/format'
 import { buildMediaOptions } from '../util/quickAdd'
+import { pickSubtitles } from '../util/autoPick'
 import { IconAlert, IconClose, IconFolder } from './icons'
 
 const HEIGHTS = [2160, 1080, 720, 480, 360]
@@ -147,6 +148,10 @@ export default function AddDownloadDialog(): React.JSX.Element {
   } | null>(null)
   const [duplicateBypass, setDuplicateBypass] = useState(false)
   const [saveDirTouched, setSaveDirTouched] = useState(false)
+  // Next-level: live-stream recording + auto-subtitle pre-check guard.
+  const [recordLive, setRecordLive] = useState(false)
+  const [autoSubsApplied, setAutoSubsApplied] = useState(false)
+  const [autoSubPicked, setAutoSubPicked] = useState(false)
 
   // Reset local state when a (new) dialog opens — the React-endorsed
   // "adjust state during render" pattern, not a setState-in-effect.
@@ -185,6 +190,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setDuplicate(null)
     setDuplicateBypass(false)
     setSaveDirTouched(false)
+    setRecordLive(false)
+    setAutoSubsApplied(false)
+    setAutoSubPicked(false)
   }
   // Phase 4: a fresh playlist defaults to all entries selected.
   if (dialogPlaylist && prevPlaylistUrl !== dialogPlaylist.url) {
@@ -245,6 +253,8 @@ export default function AddDownloadDialog(): React.JSX.Element {
   }, [rows, settings?.defaultVideoQuality])
   const height = heightOverride ?? defaultHeight
 
+  // Next-level: a live stream is recorded, not downloaded.
+  const isLive = dialogInfo?.isLive === true
   // Phase 4: clip validation (end > start, inside the video when known).
   const duration = dialogInfo?.duration ?? null
   const clipStartSec = clipEnabled ? parseClipTime(clipStart) : null
@@ -282,7 +292,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
         ? selectedIds.size === 0
         : mediaItems
           ? selectedMediaIds.size === 0
-          : clipEnabled && dialogInfo !== null && !thumbnailOnly && !clipValid)
+          : clipEnabled && !recordLive && dialogInfo !== null && !thumbnailOnly && !clipValid)
 
   // Phase 7: organizer + smart name — runs once per fetched info/tab/quality.
   // (Hooks must live above the early return below.)
@@ -334,6 +344,28 @@ export default function AddDownloadDialog(): React.JSX.Element {
     }
   }, [dialogOpen, dialogInfo, dialogPlainFile, tab, settings, height, saveDirTouched])
 
+  // Next-level: auto subtitles — when info arrives and the setting is
+  // on, pre-check subtitles with the picked language (Settings language
+  // first, English next, auto-captions as a fallback). Render-time
+  // adjustment (the dialog's established pattern — the reset block
+  // above does the same) with a once-per-dialog guard, so a manual
+  // uncheck is never re-applied.
+  if (dialogOpen && dialogInfo && !autoSubsApplied && settings?.autoSubtitles) {
+    setAutoSubsApplied(true)
+    const pick = pickSubtitles(
+      dialogInfo.subtitleLangs ?? [],
+      dialogInfo.autoCaptionLangs ?? [],
+      settings.subtitleLang ?? 'en',
+      true
+    )
+    if (pick) {
+      setSubtitles(true)
+      setSubLang(pick.lang)
+      setAutoSubs(pick.autoSubs)
+      setAutoSubPicked(true)
+    }
+  }
+
   if (!dialogOpen) return <></>
 
   const container = settings?.videoContainer ?? 'mp4'
@@ -346,8 +378,14 @@ export default function AddDownloadDialog(): React.JSX.Element {
           ? dialogPlainFile.filename
           : 'download'
   // Phase 7: the smart name (previewed below) replaces the plain name
-  // unless the user unchecked it.
-  const filename = smartName && useSmartName && dialogInfo ? smartName : baseFilename
+  // unless the user unchecked it. A live recording is always a plain
+  // .ts file — no smart name, no container choice.
+  const filename =
+    isLive && recordLive
+      ? `${sanitizeName(dialogInfo?.title ?? 'live')}.ts`
+      : smartName && useSmartName && dialogInfo
+        ? smartName
+        : baseFilename
   // Playlist/batch show the folder (each entry gets its own filename).
   const savePath =
     dialogPlaylist || mode === 'batch' || mediaItems
@@ -500,7 +538,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
       return
     }
     if (!dialogInfo) return
-    if (clipEnabled && !clipValid) return
+    if (clipEnabled && !recordLive && !clipValid) return
     const opts: AddOptions =
       tab === 'video'
         ? {
@@ -513,8 +551,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
             subLang,
             embedThumbnail,
             embedMetadata,
-            clipStart: clipEnabled ? clipStart.trim() : null,
-            clipEnd: clipEnabled && clipEnd.trim() ? clipEnd.trim() : null,
+            // A live recording has no clips — the stream has no end.
+            clipStart: recordLive ? null : clipEnabled ? clipStart.trim() : null,
+            clipEnd: recordLive ? null : clipEnabled && clipEnd.trim() ? clipEnd.trim() : null,
             subMode,
             autoSubs,
             thumbnailOnly: false,
@@ -522,7 +561,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
             savePath,
             filename,
             title: dialogInfo.title,
-            thumbnailUrl: dialogInfo.thumbnail
+            thumbnailUrl: dialogInfo.thumbnail,
+            // Next-level: live-stream recording (yt-dlp --hls-use-mpegts).
+            liveRecord: isLive && recordLive
           }
         : {
             url: dialogInfo.url,
@@ -1023,6 +1064,25 @@ export default function AddDownloadDialog(): React.JSX.Element {
               </div>
             </div>
 
+            {/* Next-level: live-stream recording panel. */}
+            {isLive && (
+              <div className="mt-3 rounded-lg border border-[var(--border)] p-3">
+                <div className="flex items-center gap-2 text-[13px] font-semibold">
+                  <span className="text-[var(--danger)]">●</span>
+                  {t('dialog.liveTitle')}
+                </div>
+                <div className="mt-1 text-[12px] text-[var(--muted)]">{t('dialog.liveHint')}</div>
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={recordLive}
+                    onChange={(e) => setRecordLive(e.target.checked)}
+                  />
+                  {t('dialog.liveRecord')}
+                </label>
+              </div>
+            )}
+
             {smartName && smartName !== baseFilename && (
               <div className="mt-3 flex items-center gap-2 text-[13px]">
                 <span className="min-w-0 flex-1 truncate text-[var(--muted)]" title={smartName}>
@@ -1049,9 +1109,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
                   <button
                     className="btn btn-sm"
                     onClick={() =>
-                      setSelectedMediaIds(
-                        new Set((dialogInfo?.mediaItems ?? []).map((m) => m.id))
-                      )
+                      setSelectedMediaIds(new Set((dialogInfo?.mediaItems ?? []).map((m) => m.id)))
                     }
                   >
                     {t('dialog.selectAll')}
@@ -1155,7 +1213,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
                   <input
                     type="checkbox"
                     checked={clipEnabled}
-                    disabled={thumbnailOnly}
+                    disabled={thumbnailOnly || recordLive}
                     onChange={(e) => setClipEnabled(e.target.checked)}
                   />
                   {t('dialog.clip')}
@@ -1218,6 +1276,11 @@ export default function AddDownloadDialog(): React.JSX.Element {
                 {subtitles && !subsAvailable && (
                   <div className="text-[12px] text-[var(--muted)]">{t('dialog.noSubtitles')}</div>
                 )}
+                {subtitles && autoSubPicked && (
+                  <div className="text-[12px] text-[var(--muted)]">
+                    {t('dialog.autoSubtitlesNote')}
+                  </div>
+                )}
                 {subtitles && subsAvailable && (
                   <div className="flex flex-wrap items-center gap-2 text-[13px]">
                     <span className="text-[var(--muted)]">{t('dialog.subtitleMode')}</span>
@@ -1246,6 +1309,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
                   <input
                     type="checkbox"
                     checked={embedThumbnail}
+                    disabled={recordLive}
                     onChange={(e) => setEmbedThumbnail(e.target.checked)}
                   />
                   {t('dialog.embedThumbnail')}
@@ -1551,7 +1615,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
               ? t('add.adding')
               : mode === 'batch'
                 ? t('dialog.batchDownloadAll', { n: readyCount })
-                : t('dialog.download')}
+                : isLive && recordLive
+                  ? t('dialog.liveRecordButton')
+                  : t('dialog.download')}
           </button>
         </div>
       </div>

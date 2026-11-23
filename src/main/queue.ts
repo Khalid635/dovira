@@ -6,6 +6,8 @@ import { basename, dirname } from 'node:path'
 import type { DoviraDb } from './db'
 import type { SettingsManager } from './settings'
 import type { Aria2Manager } from './engines/aria2'
+import { pickHeight, pickSubtitles } from './smart/autoPick'
+import type { AssistantCommand } from './smart/assistantCommands'
 import {
   YtDlpManager,
   YtDlpError,
@@ -190,6 +192,8 @@ interface YtDlpState {
   autoSubs?: boolean
   /** Phase 4: thumbnail-only (.jpg) download. */
   thumbnailOnly?: boolean
+  /** Next-level: live-stream recording — save the raw stream as .ts. */
+  liveRecord?: boolean
   /** Phase 4: skip via --download-archive. */
   useArchive?: boolean
   /** Phase 5: per-link extension cookies file (userData/ext-cookies/<id>.txt). */
@@ -241,19 +245,36 @@ export class QueueManager extends EventEmitter {
    * YtDlpState instead, so they survive restarts.
    */
   private extHeaders = new Map<string, string[]>()
+  /**
+   * Next-level: mirror URLs per plain-file download (Local API `mirrors`
+   * field). Stored in memory only — a resume after an app restart
+   * re-sends without them, like the per-link headers above.
+   */
+  private extMirrorUrls = new Map<string, string[]>()
+
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private db: DoviraDb
+  private settings: SettingsManager
+  private aria2: Aria2Manager | null
+  private ytdlp: YtDlpManager | null
 
   constructor(
-    private db: DoviraDb,
-    private settings: SettingsManager,
+    db: DoviraDb,
+    settings: SettingsManager,
     /**
      * Phase 6: aria2 is null on macOS/Linux when no source-built aria2c
      * is bundled — plain files then go through the yt-dlp fallback
      * (startYtDlpPlain) instead of failing. Windows always has aria2.
      */
-    private aria2: Aria2Manager | null,
-    private ytdlp: YtDlpManager | null = null
+    aria2: Aria2Manager | null,
+    ytdlp: YtDlpManager | null = null
   ) {
     super()
+    this.db = db
+    this.settings = settings
+    this.aria2 = aria2
+    this.ytdlp = ytdlp
     // A fresh aria2 process has no session: anything mid-flight last time
     // comes back as paused, ready to resume (§4).
     for (const d of db.listDownloads()) {
@@ -516,7 +537,7 @@ export class QueueManager extends EventEmitter {
   async add(
     url: string,
     saveDir?: string,
-    opts?: { skipDuplicateCheck?: boolean }
+    opts?: { skipDuplicateCheck?: boolean; mirrors?: string[] }
   ): Promise<{ ok: boolean; id?: string; error?: string }> {
     let parsed: URL
     try {
@@ -640,7 +661,8 @@ export class QueueManager extends EventEmitter {
       formatString: null,
       ytdlpState: null,
       sortOrder: now,
-      speedLimitKBps: 0
+      speedLimitKBps: 0,
+      pinned: false
     }
     this.db.insertDownload({
       id: info.id,
@@ -657,6 +679,10 @@ export class QueueManager extends EventEmitter {
       engine: 'aria2'
     })
     this.downloads.set(id, info)
+    // Next-level: mirrors ride along to startDownload (aria2.addUris).
+    if (opts?.mirrors && opts.mirrors.length > 0) {
+      this.extMirrorUrls.set(id, opts.mirrors)
+    }
     this.emitStatus(id)
     void this.pump()
     return { ok: true, id }
@@ -785,7 +811,8 @@ export class QueueManager extends EventEmitter {
       formatString: opts.formatString,
       ytdlpState: JSON.stringify(state),
       sortOrder: now,
-      speedLimitKBps: 0
+      speedLimitKBps: 0,
+      pinned: false
     }
     this.db.insertDownload({
       id: info.id,
@@ -887,7 +914,8 @@ export class QueueManager extends EventEmitter {
       formatString: null,
       ytdlpState: JSON.stringify(state),
       sortOrder: now,
-      speedLimitKBps: 0
+      speedLimitKBps: 0,
+      pinned: false
     }
     this.db.insertDownload({
       id: info.id,
@@ -1076,6 +1104,42 @@ export class QueueManager extends EventEmitter {
   }
 
   /**
+   * Next-level: stop a live-stream recording and KEEP the file.
+   * The yt-dlp job is killed and removed from `active` (so the done
+   * handler ignores the exit, exactly like pause/cancel). After a
+   * short wait the .ts file — playable even mid-stream, no moov atom
+   * needed — is completed when it exists and is non-empty; an empty
+   * recording fails honestly with 'empty-recording'. Cancel still
+   * deletes the file; Stop keeps it. Only yt-dlp rows with
+   * liveRecord set can be stopped this way.
+   */
+  async stopRecording(id: string): Promise<boolean> {
+    const d = this.downloads.get(id)
+    if (!d) return false
+    const state = parseYtDlpState(d.ytdlpState)
+    if (!state?.liveRecord) return false
+    if (d.status !== 'downloading' && d.status !== 'processing') return false
+    const entry = this.active.get(id)
+    if (entry?.ytdlpJob) {
+      entry.ytdlpJob.kill()
+      this.active.delete(id)
+    }
+    this.ytDlpArgs.delete(id)
+    // Give yt-dlp a moment to flush the .ts file to disk.
+    await new Promise((r) => setTimeout(r, 500))
+    try {
+      if (existsSync(d.savePath) && statSync(d.savePath).size > 0) {
+        await this.complete(id)
+        return true
+      }
+    } catch {
+      // Stat failed — the recording is not usable.
+    }
+    this.fail(d, 'empty-recording', 'the recording has no data')
+    return true
+  }
+
+  /**
    * Phase 5: delete a per-link extension cookies file (tiny text file
    * under userData/ext-cookies). Best-effort — a completed/removed
    * download never needs it again, and a stale temp file is harmless.
@@ -1172,6 +1236,21 @@ export class QueueManager extends EventEmitter {
     this.db.updateDownload(id, { sortOrder: next })
     this.emitStatus(id)
     return true
+  }
+
+  /**
+   * Next-level: pin / unpin a download. Pinned rows start before every
+   * unpinned one (see pump). Persisted, so the pin survives restarts.
+   * Returns the new pinned state, or null when the id is unknown.
+   */
+  async togglePin(id: string): Promise<boolean | null> {
+    const d = this.downloads.get(id)
+    if (!d) return null
+    d.pinned = !d.pinned
+    this.db.updateDownload(id, { pinned: d.pinned })
+    this.emitStatus(id)
+    void this.pump()
+    return d.pinned
   }
 
   /**
@@ -1320,9 +1399,15 @@ export class QueueManager extends EventEmitter {
         // Phase 3: the queue starts by sort_order (Move to top / reorder),
         // not by age. createdAt only breaks ties. Display order is
         // unchanged — list() still returns newest first.
+        // Next-level: pinned rows start before every unpinned one.
         const next = [...this.downloads.values()]
           .filter((d) => d.status === 'queued')
-          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)[0]
+          .sort(
+            (a, b) =>
+              Number(b.pinned) - Number(a.pinned) ||
+              a.sortOrder - b.sortOrder ||
+              a.createdAt - b.createdAt
+          )[0]
         if (!next) return
         await this.startDownload(next)
       }
@@ -1432,6 +1517,12 @@ export class QueueManager extends EventEmitter {
       diskFreeBytes: diskFreeBytes(s.downloadDir)
     }
     const rules = answerQuestion(snap, question)
+    // Next-level: a command is executed here, never sent to the model.
+    // The rules lines are replaced with the honest outcome.
+    if (rules.action) {
+      const outcome = await this.executeAssistantCommand(rules.action)
+      return { ...rules, lines: outcome }
+    }
     if (rules.intent !== 'fallback' || !s.assistantLocalModel) return rules
     const prompt = buildModelPrompt(snap, question, s.language)
     const text = await askLocalModel(
@@ -1445,6 +1536,49 @@ export class QueueManager extends EventEmitter {
     )
     if (!text) return rules
     return { intent: 'fallback', source: 'model', lines: [], modelText: text.trim() }
+  }
+
+  /**
+   * Next-level: execute an assistant command (see
+   * src/main/smart/assistantCommands.ts). Download goes through the
+   * extension path (same defaults + auto-pick as a pasted link);
+   * control verbs reuse pause/resume/cancel/retry/moveToTop by the
+   * already-resolved id. Every outcome is an honest i18n line — a
+   * failed command never pretends it worked.
+   */
+  private async executeAssistantCommand(
+    cmd: AssistantCommand
+  ): Promise<{ key: string; params?: Record<string, string | number> }[]> {
+    switch (cmd.type) {
+      case 'download': {
+        const res = await this.addFromExtension(cmd.url)
+        if (res.ok) return [{ key: 'assistant.commandDownloaded', params: { url: cmd.url } }]
+        if (res.error === 'playlist') return [{ key: 'assistant.commandPlaylist' }]
+        if (res.error === 'duplicate')
+          return [{ key: 'assistant.commandDuplicate', params: { url: cmd.url } }]
+        return [{ key: 'assistant.commandFailed', params: { error: res.error ?? 'unknown' } }]
+      }
+      case 'pause':
+        return (await this.pause(cmd.id))
+          ? [{ key: 'assistant.commandPaused', params: { name: cmd.name } }]
+          : [{ key: 'assistant.commandFailed', params: { error: 'not-found' } }]
+      case 'resume':
+        return (await this.resume(cmd.id))
+          ? [{ key: 'assistant.commandResumed', params: { name: cmd.name } }]
+          : [{ key: 'assistant.commandFailed', params: { error: 'not-found' } }]
+      case 'cancel':
+        return (await this.cancel(cmd.id))
+          ? [{ key: 'assistant.commandCancelled', params: { name: cmd.name } }]
+          : [{ key: 'assistant.commandFailed', params: { error: 'not-found' } }]
+      case 'retry':
+        return (await this.retry(cmd.id))
+          ? [{ key: 'assistant.commandRetried', params: { name: cmd.name } }]
+          : [{ key: 'assistant.commandFailed', params: { error: 'not-found' } }]
+      case 'moveToTop':
+        return (await this.moveToTop(cmd.id))
+          ? [{ key: 'assistant.commandMovedTop', params: { name: cmd.name } }]
+          : [{ key: 'assistant.commandFailed', params: { error: 'not-found' } }]
+    }
   }
 
   /**
@@ -1537,7 +1671,13 @@ export class QueueManager extends EventEmitter {
     const ext = this.extHeaders.get(d.id)
     if (ext && ext.length > 0) opts['header'] = ext
     try {
-      const gid = await aria2.addUri(d.url, opts)
+      // Next-level: mirrors ride along when the Local API sent them —
+      // aria2 tries them for the same file when the main URL stalls.
+      const mirrors = this.extMirrorUrls.get(d.id)
+      const gid =
+        mirrors && mirrors.length > 0
+          ? await aria2.addUris(d.url, mirrors, opts)
+          : await aria2.addUri(d.url, opts)
       // Phase 7: addUri does NOT apply the global option — aria2 keeps
       // whatever max-overall-download-limit it already had (e.g. 200 KB/s
       // from an earlier limit). Sync it explicitly, so a limit that was
@@ -1592,6 +1732,8 @@ export class QueueManager extends EventEmitter {
       cookiesFile: state?.extCookiesFile ?? null,
       userAgent: state?.userAgent ?? null,
       referer: state?.referer ?? null,
+      // Next-level: live-stream recording (raw .ts, no merge).
+      liveRecord: state?.liveRecord ?? false,
       // Phase 7: yt-dlp gets --limit-rate at start.
       speedLimitKBps: this.effectiveLimitKBps(d),
       // Phase 7: concurrent fragments from the measured network class.
@@ -1620,6 +1762,8 @@ export class QueueManager extends EventEmitter {
       userAgent?: string | null
       referer?: string | null
       headers?: string[]
+      /** Next-level: mirror URLs for a plain-file download (Local API). */
+      mirrors?: string[]
     } = {}
   ): Promise<{
     ok: boolean
@@ -1657,7 +1801,7 @@ export class QueueManager extends EventEmitter {
       return this.add(trimmed)
     }
     if (res.plainFile) {
-      const added = await this.add(trimmed)
+      const added = await this.add(trimmed, undefined, { mirrors: opts.mirrors })
       if (added.ok && added.id && opts.headers && opts.headers.length > 0) {
         this.extHeaders.set(added.id, opts.headers)
       }
@@ -1679,12 +1823,32 @@ export class QueueManager extends EventEmitter {
       kind === 'video'
         ? `${sanitizeFilename(info.title)}.${container}`
         : `${sanitizeFilename(info.title)}.mp3`
+    // Next-level: AI auto quality pick — the best available height at or
+    // below the Settings cap (or the explicit quality when the caller
+    // gave one). OFF = the Settings cap verbatim, as before.
+    const cap = Number(s.defaultVideoQuality)
+    const pickedHeight =
+      kind === 'video' && s.autoQuality
+        ? pickHeight(
+            info.formats.map((f) => f.height ?? 0),
+            cap
+          )
+        : null
     const height =
-      opts.quality && /^\d{3,4}$/.test(opts.quality) ? opts.quality : s.defaultVideoQuality
+      opts.quality && /^\d{3,4}$/.test(opts.quality) ? opts.quality : String(pickedHeight ?? cap)
     const bitrate =
       opts.quality && ['320', '192', '128'].includes(opts.quality)
         ? opts.quality
         : s.defaultAudioBitrate
+    // Next-level: AI auto subtitles pick — the Settings language first,
+    // English next, auto-captions as a fallback. OFF = no subtitles,
+    // as before.
+    const subPick = pickSubtitles(
+      info.subtitleLangs,
+      info.autoCaptionLangs,
+      s.subtitleLang,
+      s.autoSubtitles
+    )
     // Security: the extension-supplied path is built through the
     // containment-checked helper — a hostile title can never escape the
     // download folder.
@@ -1696,14 +1860,14 @@ export class QueueManager extends EventEmitter {
       formatString:
         kind === 'video' ? `bv*[height<=${height}]+ba/b[height<=${height}]` : 'bestaudio',
       qualityLabel: kind === 'video' ? `${height}p` : `${bitrate} kbps`,
-      subtitles: false,
-      subLang: s.subtitleLang,
+      subtitles: subPick !== null,
+      subLang: subPick?.lang ?? s.subtitleLang,
       embedThumbnail: false,
       embedMetadata: s.embedMetadataDefault,
       clipStart: null,
       clipEnd: null,
       subMode: 'embed',
-      autoSubs: false,
+      autoSubs: subPick?.autoSubs ?? false,
       thumbnailOnly: false,
       useArchive: false,
       extCookiesFile: opts.cookiesFile ?? null,

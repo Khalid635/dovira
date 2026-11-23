@@ -30,6 +30,30 @@ interface RpcReply<T> {
 }
 
 /**
+ * Next-level: build the URI list for aria2.addUri — the main URL first,
+ * then mirror URLs (de-duplicated, http(s) only, at most 5). Pure, so
+ * it is unit-testable standalone. Mirrors only make sense for plain
+ * files (one URL = one file); video/audio and torrents never get them.
+ */
+export function mirrorUris(url: string, mirrors: string[]): string[] {
+  const out = [url]
+  const seen = new Set([url])
+  for (const m of mirrors) {
+    if (out.length >= 6) break // main + 5 mirrors
+    if (typeof m !== 'string' || seen.has(m)) continue
+    try {
+      const u = new URL(m)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue
+    } catch {
+      continue
+    }
+    seen.add(m)
+    out.push(m)
+  }
+  return out
+}
+
+/**
  * Owns the aria2c child process (JSON-RPC on localhost, random port + secret).
  * Plain Node — no Electron imports, so it can be tested outside the app.
  */
@@ -44,10 +68,15 @@ export class Aria2Manager {
   /** Called when the process exits unexpectedly (not via stop()). */
   onUnexpectedExit: (() => void) | null = null
 
-  constructor(
-    private binaryPath: string,
-    private defaultDir: string
-  ) {}
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private binaryPath: string
+  private defaultDir: string
+
+  constructor(binaryPath: string, defaultDir: string) {
+    this.binaryPath = binaryPath
+    this.defaultDir = defaultDir
+  }
 
   isReady(): boolean {
     return this.readyFlag && this.proc !== null
@@ -72,8 +101,10 @@ export class Aria2Manager {
       '--auto-file-renaming=false',
       '--allow-overwrite=false',
       '--max-concurrent-downloads=10',
-      '--max-connection-per-server=8',
-      '--split=8',
+      // Next-level: daemon defaults 16/16 (was 8/8) — per-download
+      // options still override these at addUri time.
+      '--max-connection-per-server=16',
+      '--split=16',
       '--min-split-size=1M',
       '--file-allocation=none',
       '--console-log-level=warn',
@@ -165,6 +196,21 @@ export class Aria2Manager {
 
   async addUri(url: string, options: Record<string, string | string[]>): Promise<string> {
     return this.rpc<string>('aria2.addUri', [[url], options])
+  }
+
+  /**
+   * Next-level: add a download with mirror URLs — aria2 tries the
+   * mirrors for the same file when the main URL stalls or fails.
+   * The first URI is the main URL; mirrors are de-duplicated, http(s)
+   * only, at most 5. aria2.addUri takes the whole URI list at once.
+   */
+  async addUris(
+    url: string,
+    mirrors: string[],
+    options: Record<string, string | string[]>
+  ): Promise<string> {
+    const uris = mirrorUris(url, mirrors)
+    return this.rpc<string>('aria2.addUri', [uris, options])
   }
 
   async tellStatus(gid: string): Promise<Aria2Status> {

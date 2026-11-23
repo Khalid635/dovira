@@ -35,11 +35,14 @@ function errorText(err: unknown): string {
 export class AppUpdater {
   private state: AppUpdateState = { state: 'idle', version: null, progress: null, error: null }
   private downloadedFile: string | null = null
+  // No parameter properties — Node's strip-only test runner cannot
+  // parse them; explicit fields instead.
+  private getSettings: () => Settings
+  private emit: (s: AppUpdateState) => void
 
-  constructor(
-    private getSettings: () => Settings,
-    private emit: (s: AppUpdateState) => void
-  ) {
+  constructor(getSettings: () => Settings, emit: (s: AppUpdateState) => void) {
+    this.getSettings = getSettings
+    this.emit = emit
     // Dev builds skip update checks unless forced — dev-app-update.yml
     // exists precisely so the updater can be exercised before packaging.
     if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true

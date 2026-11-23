@@ -20,6 +20,8 @@ export default function ExtensionSetup(): React.JSX.Element {
   const [folderMissing, setFolderMissing] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  // Next-level: one-click pairing state.
+  const [pairState, setPairState] = useState<'idle' | 'done' | 'failed'>('idle')
   // Clock snapshot for the "seen X minutes ago" line — plain state, so
   // render stays pure (no Date.now() during render).
   const [now, setNow] = useState(0)
@@ -89,10 +91,26 @@ export default function ExtensionSetup(): React.JSX.Element {
     try {
       const token = await window.dovira.regenerateExtensionToken()
       setExtStatus((prev) =>
-        prev ? { ...prev, token } : { running: false, port: null, token, extensionSeenAt: null }
+        prev
+          ? { ...prev, token }
+          : { running: false, port: null, token, extensionSeenAt: null, extensionOptionsUrl: null }
       )
     } catch {
       // Keep the old token on screen.
+    }
+  }
+
+  // Next-level: one-click pairing — opens the extension's own Options
+  // page with the token in the URL; the Options page pre-fills and
+  // auto-saves it. Only enabled once the extension has checked in
+  // (the app only learns the Options URL from its status ping).
+  const pairExtension = async (): Promise<void> => {
+    if (typeof window.dovira === 'undefined') return
+    try {
+      const res = await window.dovira.pairExtension()
+      setPairState(res.ok ? 'done' : 'failed')
+    } catch {
+      setPairState('failed')
     }
   }
 
@@ -157,6 +175,11 @@ export default function ExtensionSetup(): React.JSX.Element {
                 {t('extension.pathMissing')}
               </div>
             )}
+            {folderMissing && (
+              <div className="mt-1 text-[12px] text-[var(--muted)]">
+                {t('extension.folderMissingHint')}
+              </div>
+            )}
           </li>
           <li>
             <div>{t('extension.step2')}</div>
@@ -177,6 +200,13 @@ export default function ExtensionSetup(): React.JSX.Element {
             <div>{t('extension.step4')}</div>
             <div className="mt-1 flex flex-wrap gap-2">
               <button
+                className="btn btn-sm btn-primary"
+                disabled={!extStatus?.extensionOptionsUrl}
+                onClick={() => void pairExtension()}
+              >
+                {t('extension.pairExtension')}
+              </button>
+              <button
                 className="btn btn-sm"
                 disabled={!extStatus?.token}
                 onClick={() => void copy('token', extStatus?.token ?? '')}
@@ -187,6 +217,21 @@ export default function ExtensionSetup(): React.JSX.Element {
                 {t('settings.extensionRegenerate')}
               </button>
             </div>
+            <div className="mt-1 text-[12px] text-[var(--muted)]">
+              {extStatus?.extensionOptionsUrl
+                ? t('extension.pairHint')
+                : t('extension.pairUnavailable')}
+            </div>
+            {pairState === 'done' && (
+              <div className="mt-1 text-[12px] text-[var(--success)]">
+                {t('extension.pairDone')}
+              </div>
+            )}
+            {pairState === 'failed' && (
+              <div className="mt-1 text-[12px] text-[var(--danger)]">
+                {t('extension.pairFailed')}
+              </div>
+            )}
           </li>
         </ol>
       </div>

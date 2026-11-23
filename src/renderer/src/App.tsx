@@ -5,6 +5,7 @@ import HistoryPage from './components/HistoryPage'
 import AssistantPage from './components/AssistantPage'
 import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
+import SubscriptionsPage from './components/SubscriptionsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
 import SiteGrabberDialog from './components/SiteGrabberDialog'
 import SetupWizard from './components/SetupWizard'
@@ -164,6 +165,10 @@ function App(): React.JSX.Element {
         ) : view === 'assistant' ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <AssistantPage />
+          </div>
+        ) : view === 'subscriptions' ? (
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <SubscriptionsPage />
           </div>
         ) : (
           <>

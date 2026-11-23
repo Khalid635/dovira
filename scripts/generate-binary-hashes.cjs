@@ -38,11 +38,10 @@ const ENGINE_FILES = {
     aria2: 'aria2c.exe',
     'yt-dlp': 'yt-dlp.exe',
     ffmpeg: 'ffmpeg.exe',
-    ffprobe: 'ffprobe.exe',
     deno: 'deno.exe'
   },
-  mac: { 'yt-dlp': 'yt-dlp_macos', ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', deno: 'deno' },
-  linux: { 'yt-dlp': 'yt-dlp_linux', ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', deno: 'deno' }
+  mac: { 'yt-dlp': 'yt-dlp_macos', ffmpeg: 'ffmpeg', deno: 'deno' },
+  linux: { 'yt-dlp': 'yt-dlp_linux', ffmpeg: 'ffmpeg', deno: 'deno' }
 }
 
 function sha256File(path) {
