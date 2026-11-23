@@ -11,6 +11,13 @@ import type { Aria2Manager } from './engines/aria2'
 import { checkLatest, getAria2Version, getYtDlpVersion } from './engines/versions'
 import type { LocalApiServer } from './localApi'
 import type { DiagnosticCheck, DiagnosticsResult } from './types'
+import { currentPlatform } from './util/paths'
+import {
+  getExpectedBinaryHashes,
+  loadEngineHashOverrides,
+  verifyEngineBinaries,
+  type EngineBinaryInput
+} from './security'
 
 export interface DiagnosticsDeps {
   localApi: LocalApiServer
@@ -21,6 +28,10 @@ export interface DiagnosticsDeps {
   /** Free bytes on the download volume (null when it cannot be determined). */
   freeBytes: number | null
   isWindows: boolean
+  /** Security: engine binaries to hash-check (name + resolved path). */
+  binaries?: EngineBinaryInput[]
+  /** userData dir — reads hashes the app recorded after its own engine updates. */
+  userData?: string
 }
 
 export interface DiagnosticsOptions {
@@ -219,6 +230,54 @@ export async function runDiagnostics(
       detailParams: { dir: deps.downloadDir },
       fix: 'chooseFolder'
     })
+  }
+
+  // 6. Engine binaries — SHA-256 against the known-good manifest (plus
+  // hashes the app itself recorded after an in-app yt-dlp update).
+  // Skipped when the caller passes no binaries (older callers/tests).
+  if (deps.binaries && deps.binaries.length > 0) {
+    const results = await verifyEngineBinaries(
+      deps.binaries,
+      getExpectedBinaryHashes(),
+      deps.userData ? loadEngineHashOverrides(deps.userData) : {},
+      currentPlatform()
+    )
+    const missing = results.filter((r) => r.status === 'missing')
+    const mismatch = results.filter((r) => r.status === 'mismatch')
+    const unknown = results.filter((r) => r.status === 'unknown')
+    if (missing.length > 0) {
+      checks.push({
+        id: 'binaries',
+        status: 'fail',
+        detailKey: 'diag.detailBinariesMissing',
+        detailParams: { name: missing[0].name },
+        fix: null
+      })
+    } else if (mismatch.length > 0) {
+      checks.push({
+        id: 'binaries',
+        status: 'fail',
+        detailKey: 'diag.detailBinariesMismatch',
+        detailParams: { name: mismatch[0].name },
+        fix: null
+      })
+    } else if (unknown.length > 0) {
+      checks.push({
+        id: 'binaries',
+        status: 'warn',
+        detailKey: 'diag.detailBinariesUnknown',
+        detailParams: { names: unknown.map((r) => r.name).join(', ') },
+        fix: null
+      })
+    } else {
+      checks.push({
+        id: 'binaries',
+        status: 'ok',
+        detailKey: 'diag.detailBinariesOk',
+        detailParams: { n: results.length },
+        fix: null
+      })
+    }
   }
 
   return { checks, ranAt: Date.now() }

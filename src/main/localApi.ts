@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { safeStorage } from 'electron'
+import { loadExtensionToken, storeExtensionToken, type TokenCrypto } from './tokenStore'
 import type { QueueManager } from './queue'
 import type { SettingsManager } from './settings'
 import type { ExtensionApiStatus } from './types'
@@ -117,13 +119,34 @@ export class LocalApiServer {
     private userData: string
   ) {}
 
+  /** safeStorage adapter for tokenStore (DPAPI on Windows). */
+  private tokenCrypto(): TokenCrypto {
+    return {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain: string): string => {
+        const buf = safeStorage.encryptString(plain)
+        if (!buf || buf.length === 0) throw new Error('safeStorage encryption failed')
+        return buf.toString('base64')
+      },
+      decrypt: (ciphertext: string): string => {
+        const plain = safeStorage.decryptString(Buffer.from(ciphertext, 'base64'))
+        if (!plain) throw new Error('safeStorage decryption failed')
+        return plain
+      }
+    }
+  }
+
   /** Start listening. Never throws — a bind failure is logged and the API stays down. */
   async start(): Promise<void> {
-    this.token = this.settings.get().extensionToken
-    if (!this.token) {
-      this.token = randomBytes(32).toString('hex')
-      this.settings.update({ extensionToken: this.token })
-      logMain('info', 'local-api: pairing token generated (see Settings > Browser & Cookies)')
+    // Security: the pairing token lives encrypted (safeStorage/DPAPI)
+    // when the OS offers it. A legacy plaintext token migrates on first
+    // sight with the SAME value, so a paired extension keeps working.
+    const loaded = loadExtensionToken(this.settings, this.tokenCrypto())
+    this.token = loaded.token
+    if (loaded.migrated) {
+      logMain('info', 'local-api: pairing token moved to encrypted storage (same token)')
+    } else if (loaded.storage === 'legacy') {
+      logMain('warn', 'local-api: pairing token stored in plaintext — OS encryption unavailable')
     }
     this.server = createServer((req, res) => {
       void this.handle(req, res)
@@ -197,7 +220,7 @@ export class LocalApiServer {
   /** New token (Settings > Regenerate). Persisted; the old one stops working at once. */
   regenerateToken(): string {
     this.token = randomBytes(32).toString('hex')
-    this.settings.update({ extensionToken: this.token })
+    storeExtensionToken(this.settings, this.token, this.tokenCrypto())
     logMain('info', 'local-api: pairing token regenerated')
     return this.token
   }

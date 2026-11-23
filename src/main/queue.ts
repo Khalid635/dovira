@@ -30,7 +30,13 @@ import {
   type AssistantSnapshot
 } from './smart/assistant'
 import { findFileDuplicate, type DuplicateInfo } from './smart/duplicates'
-import { sanitizeFilename, resolveUniquePath, filenameFromUrl } from './util/filename'
+import {
+  sanitizeFilename,
+  resolveUniquePath,
+  resolveDownloadPath,
+  filenameFromUrl
+} from './util/filename'
+import { applyPostDownloadSecurity, findMpCmdRun } from './security'
 import { mapEngineError } from './util/errors'
 import { diskFreeBytes } from './util/paths'
 import { logMain } from './logger'
@@ -1659,7 +1665,10 @@ export class QueueManager extends EventEmitter {
       opts.quality && ['320', '192', '128'].includes(opts.quality)
         ? opts.quality
         : s.defaultAudioBitrate
-    const savePath = `${s.downloadDir}\\${name}`
+    // Security: the extension-supplied path is built through the
+    // containment-checked helper — a hostile title can never escape the
+    // download folder.
+    const savePath = resolveDownloadPath(s.downloadDir, name)
     return this.addWithOptions({
       url: trimmed,
       kind,
@@ -2111,7 +2120,36 @@ export class QueueManager extends EventEmitter {
       completedAt: d.completedAt
     })
     this.emitStatus(id)
+    // Security: Mark-of-the-Web + Defender scan (best-effort, never
+    // blocks completion — a threat only warns, it never fails the file).
+    void this.runPostDownloadSecurity(d)
     void this.pump()
+  }
+
+  /**
+   * Security: after a download completes, tag the file with the
+   * Mark-of-the-Web and scan it with Windows Defender. Fire-and-forget —
+   * the download is already complete; a threat only warns (toast + log),
+   * it never fails or deletes the download.
+   */
+  private async runPostDownloadSecurity(d: DownloadInfo): Promise<void> {
+    try {
+      const { motwApplied, scan } = await applyPostDownloadSecurity(d.savePath, findMpCmdRun())
+      if (scan === 'threat') {
+        logMain(
+          'warn',
+          `defender: threat found in ${d.filename} — file left in place, delete it if untrusted`
+        )
+        this.emitToast({ key: 'toast.defenderThreat', params: { filename: d.filename } })
+      } else {
+        logMain(
+          'info',
+          `post-download security: ${d.filename} motw=${motwApplied} defender=${scan}`
+        )
+      }
+    } catch (err) {
+      logMain('error', `post-download security failed: ${(err as Error).message}`)
+    }
   }
 
   private async handleError(id: string, raw: string, codeOverride?: string): Promise<void> {

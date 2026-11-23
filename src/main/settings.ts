@@ -33,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   embedMetadataDefault: false,
   // Phase 5
   extensionToken: '',
+  // Security: safeStorage-encrypted Local API token (see tokenStore.ts).
+  extensionTokenEncrypted: '',
   // Phase 6
   appUpdateCheck: true,
   appUpdateAutoDownload: false,
@@ -138,6 +140,8 @@ function normalizeSettings(next: Settings): Settings {
   next.embedMetadataDefault = next.embedMetadataDefault === true
   // Phase 5
   if (typeof next.extensionToken !== 'string') next.extensionToken = ''
+  // Security: encrypted token blob (base64) — a non-string is corrupt, drop it.
+  if (typeof next.extensionTokenEncrypted !== 'string') next.extensionTokenEncrypted = ''
   // Phase 6
   next.appUpdateCheck = next.appUpdateCheck === true
   next.appUpdateAutoDownload = next.appUpdateAutoDownload === true

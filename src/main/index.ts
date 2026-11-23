@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog } from 'electron'
+import { app, shell, BrowserWindow, dialog, session } from 'electron'
 import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -14,7 +14,14 @@ import { TrayManager } from './tray'
 import { ClipboardWatcher } from './clipboard'
 import { registerIpc } from './ipc'
 import { LocalApiServer } from './localApi'
-import { findBinary, ensureExecutable, ENGINE_FILES, platformDirName } from './util/paths'
+import {
+  findBinary,
+  ensureExecutable,
+  ENGINE_FILES,
+  platformDirName,
+  currentPlatform
+} from './util/paths'
+import { getExpectedBinaryHashes, loadEngineHashOverrides, verifyEngineBinaries } from './security'
 import { AppUpdater } from './updater'
 import { getYtDlpVersion } from './engines/versions'
 import { initLogger, logMain } from './logger'
@@ -34,6 +41,16 @@ let localApi: LocalApiServer | null = null
 let updater: AppUpdater | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
+
+/**
+ * Renderer Content-Security-Policy — keep in sync with the meta tag in
+ * src/renderer/index.html. The renderer makes no network calls itself
+ * (no fetch/WebSocket), loads thumbnails over https, and uses React
+ * inline styles, so: no frames/objects/workers, scripts self-only,
+ * styles self + inline, images self/data/https, connections self-only.
+ */
+const RENDERER_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'none'"
 
 /**
  * Phase 3: apply the settings that live outside the renderer — launch at
@@ -186,6 +203,20 @@ app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.khalid635.dovira')
 
+  // Security: enforce the renderer CSP as a response header too (defence
+  // in depth — the meta tag in index.html is the primary enforcement).
+  // Scoped to file:// (the packaged renderer); the Vite dev server keeps
+  // its own headers so HMR is untouched.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.url.startsWith('file://')) {
+      callback({
+        responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [RENDERER_CSP] }
+      })
+    } else {
+      callback({})
+    }
+  })
+
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
@@ -255,6 +286,49 @@ app.whenReady().then(() => {
     'info',
     `engines resolved: yt-dlp=${ytDlpBinary} aria2=${aria2Binary ?? 'none'} ffmpeg=${ffmpegBinary} deno=${denoBinary} binDir=${binDir}`
   )
+
+  // Security: verify the bundled engine binaries against known-good
+  // SHA-256 hashes (plus hashes the app recorded after its own yt-dlp
+  // updates). A mismatch warns loudly but never blocks startup — a
+  // tampered binary is the user's problem to fix, not a reason to lose
+  // their downloads. aria2 is optional on macOS/Linux (yt-dlp fallback),
+  // so it is only checked when actually bundled.
+  const engineBinaries: { name: string; path: string | null }[] = [
+    { name: 'yt-dlp', path: ytDlpBinary },
+    { name: 'ffmpeg', path: ffmpegBinary },
+    { name: 'ffprobe', path: findBinary('ffprobe', appPath, resourcesPath) },
+    { name: 'deno', path: denoBinary }
+  ]
+  if (aria2Binary) engineBinaries.unshift({ name: 'aria2', path: aria2Binary })
+  void verifyEngineBinaries(
+    engineBinaries,
+    getExpectedBinaryHashes(),
+    loadEngineHashOverrides(userData),
+    currentPlatform()
+  )
+    .then((results) => {
+      for (const r of results) {
+        if (r.status === 'ok') logMain('info', `binary check: ${r.name} ok`)
+        else if (r.status === 'unknown')
+          logMain('warn', `binary check: ${r.name} has no known-good hash — cannot verify`)
+        else
+          logMain(
+            'error',
+            `binary check: ${r.name} ${r.status} (expected ${r.expected ?? 'n/a'}, actual ${r.actual ?? 'n/a'})`
+          )
+      }
+      const bad = results.filter((r) => r.status === 'mismatch' || r.status === 'missing')
+      if (bad.length > 0) {
+        void dialog.showMessageBox({
+          type: 'warning',
+          title: 'DOVIRA — Engine binary warning',
+          message: `These engine files look tampered with or unexpected:\n${bad.map((r) => `• ${r.name} (${r.status})`).join('\n')}\n\nDOVIRA will still run, but downloads may be unsafe. Reinstall DOVIRA or run "npm run fetch-binaries" to restore the official binaries.`
+        })
+      }
+    })
+    .catch((err) => {
+      logMain('error', `binary check failed: ${(err as Error).message}`)
+    })
 
   aria2 = aria2Binary ? new Aria2Manager(aria2Binary, settings.get().downloadDir) : null
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
@@ -338,6 +412,8 @@ app.whenReady().then(() => {
     ffmpegBinary,
     denoBinary,
     binDir,
+    engineBinaries,
+    userData,
     getMainWindow: () => mainWindow,
     scheduler,
     localApi,

@@ -8,7 +8,8 @@ const CHECK_LABEL_KEYS: Record<string, string> = {
   ytdlp: 'diag.checkYtdlp',
   aria2: 'diag.checkAria2',
   extension: 'diag.checkExtension',
-  downloadDir: 'diag.checkDownloadDir'
+  downloadDir: 'diag.checkDownloadDir',
+  binaries: 'diag.checkBinaries'
 }
 
 /**

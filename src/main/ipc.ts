@@ -14,7 +14,9 @@ import {
   updateYtDlp,
   type EngineSpec
 } from './engines/versions'
-import { diskFreeBytes, getExtensionDir } from './util/paths'
+import { diskFreeBytes, getExtensionDir, ENGINE_FILES } from './util/paths'
+import { sha256File } from './checksum'
+import { recordEngineHashOverride } from './security'
 import { scanPage } from './grabber'
 import type {
   AddOptions,
@@ -42,6 +44,10 @@ export interface IpcDeps {
   ffmpegBinary: string | null
   denoBinary: string | null
   binDir: string
+  /** Security: engine binaries for the startup/diagnostics hash check. */
+  engineBinaries: { name: string; path: string | null }[]
+  /** userData dir — reads/writes hashes recorded after engine updates. */
+  userData: string
   getMainWindow: () => BrowserWindow | null
   /** Phase 3: scheduler status + countdown cancel. */
   scheduler: SchedulerManager
@@ -193,7 +199,19 @@ export function registerIpc(deps: IpcDeps): void {
   )
   ipcMain.handle('dovira:engines:update', async (_e, name: unknown) => {
     if (name !== 'yt-dlp') return { ok: false, error: 'not-supported' }
-    return updateYtDlp(deps.binDir)
+    const result = await updateYtDlp(deps.binDir)
+    if (result.ok) {
+      // Security: the new binary's hash becomes the known-good one, so
+      // the startup integrity check never mistakes our own update for
+      // tampering. Best-effort — a failure here only costs a warning.
+      try {
+        const hash = await sha256File(join(deps.binDir, ENGINE_FILES['yt-dlp']))
+        recordEngineHashOverride(deps.userData, 'yt-dlp', hash)
+      } catch {
+        // Best effort — the next startup check may warn once.
+      }
+    }
+    return result
   })
   ipcMain.handle('dovira:settings:get', () => settings.get())
   ipcMain.handle('dovira:settings:set', (_e, patch: unknown) => {
@@ -331,7 +349,9 @@ export function registerIpc(deps: IpcDeps): void {
       ytDlpBinary: deps.ytDlpBinary,
       downloadDir: s.downloadDir,
       freeBytes: diskFreeBytes(s.downloadDir),
-      isWindows: process.platform === 'win32'
+      isWindows: process.platform === 'win32',
+      binaries: deps.engineBinaries,
+      userData: deps.userData
     })
   })
   // v1.2.0: the built extension folder the user loads unpacked in Chrome.

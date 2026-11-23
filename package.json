@@ -21,7 +21,8 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "fetch-binaries": "node scripts/fetch-binaries.cjs"
+    "fetch-binaries": "node scripts/fetch-binaries.cjs",
+    "generate-hashes": "node scripts/generate-binary-hashes.cjs"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",

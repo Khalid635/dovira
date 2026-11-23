@@ -93,6 +93,12 @@ export interface Settings {
   embedMetadataDefault: boolean
   /** Phase 5: the Local API token the browser extension pairs with. Empty = not generated yet. */
   extensionToken: string
+  /**
+   * Security: the Local API token, encrypted with safeStorage
+   * (DPAPI / Keychain / libsecret). Base64 ciphertext; empty = not stored
+   * encrypted yet (legacy plaintext extensionToken still applies).
+   */
+  extensionTokenEncrypted: string
   /** Phase 6: check for app updates automatically after startup. */
   appUpdateCheck: boolean
   /** Phase 6: download an available app update without asking first. */
@@ -352,7 +358,7 @@ export interface ExtensionApiStatus {
  * v1.2.0: one self-check row from the Setup & diagnostics section.
  * detailKey is an i18n key; the renderer translates it with detailParams.
  */
-export type DiagnosticId = 'localApi' | 'ytdlp' | 'aria2' | 'extension' | 'downloadDir'
+export type DiagnosticId = 'localApi' | 'ytdlp' | 'aria2' | 'extension' | 'downloadDir' | 'binaries'
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 export type DiagnosticFix = 'updateYtdlp' | 'openSetup' | 'chooseFolder'
 
