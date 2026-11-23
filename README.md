@@ -2,19 +2,57 @@
 
 > **Download Smarter. Go Further.**
 
-DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux — download videos and audio from the web with quality choice, smart resume, and rule-based smart features. No ads, no tracking, no pro-lock.
+[![Build](https://github.com/Khalid635/dovira/actions/workflows/build.yml/badge.svg)](https://github.com/Khalid635/dovira/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/Khalid635/dovira)](https://github.com/Khalid635/dovira/releases)
+[![License: MIT](https://img.shields.io/github/license/Khalid635/dovira)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/Khalid635/dovira/releases)
+[![Downloads](https://img.shields.io/github/downloads/Khalid635/dovira/total)](https://github.com/Khalid635/dovira/releases)
+
+DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. Download videos and audio from the web with quality choice, smart resume, and rule-based smart features. **No ads, no tracking, no pro-lock** — and no account needed.
+
+## Why DOVIRA
+
+- **Free forever** — MIT licensed, every feature unlocked, no paid tier.
+- **AI that actually helps** — Bangla commands, an AI Assistant, smart filenames, duplicate detection, and automatic file organizing.
+- **Bangla + English** — the whole app speaks both.
+- **Private by design** — everything runs on your machine; downloads, history and settings never leave it.
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [Quick start](#quick-start)
+- [Install](#install)
+- [Features](#features)
+- [AI features](#ai-features)
+- [Browser extension](#browser-extension)
+- [FAQ](#faq)
+- [Limitations](#limitations-v131)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap)
+- [Build & run](#build--run)
+- [Project structure](#project-structure)
+- [License](#license)
 
 ## Status
 
-**v1.3.1 — Phases 0–7 + guided setup + next-level features + instant Add dialog (done).** Everything in the master plan through v1.3.1 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
+**Current version: v1.3.1** (pre-release). Everything in the master plan through v1.3.1 is built, tested and released — see the [Releases page](https://github.com/Khalid635/dovira/releases) and [CHANGELOG.md](CHANGELOG.md). Highlights of v1.3.1: the Add dialog opens instantly (formats load in the background), the floating Download button works on Facebook Reels, and clicking the same video twice no longer re-extracts it.
+
+> All releases are pre-releases for now — a stable release is planned next (see [Roadmap](#roadmap)).
 
 ## Screenshots
 
-![Home — empty, Mint light theme](docs/screenshots/home-empty-light.png)
+| Home — Mint light theme | Add Download dialog | Home — dark theme |
+| --- | --- | --- |
+| ![Home — empty, Mint light theme](docs/screenshots/home-empty-light.png) | ![Add Download dialog — Mint light theme](docs/screenshots/dialog-light.png) | ![Home — empty, dark theme](docs/screenshots/home-empty-dark.png) |
 
-![Add Download dialog — Mint light theme](docs/screenshots/dialog-light.png)
+Real screenshots of the app (v1.3.x). More screenshots — downloads in progress, the AI Assistant, the extension — are coming.
 
-![Home — empty, dark theme](docs/screenshots/home-empty-dark.png)
+## Quick start
+
+1. **Install** DOVIRA from the [Releases page](https://github.com/Khalid635/dovira/releases) (Windows `.exe`, macOS `.dmg`, Linux `.AppImage` / `.deb`).
+2. **First run:** the setup wizard walks you through the download folder, language (English / বাংলা) and the browser extension — in Bangla and English.
+3. **Download:** paste a link, pick Video (up to 2160p) or Audio (MP3), and press Download. Or give the AI Assistant a link and a plain-language instruction — e.g. `এইটা ডাউনলোড করো`.
+4. **Browser extension (optional):** load the extension from `extension/dist`, then pair it in 3 steps — reload the extension in your browser, open the app's Settings → Browser extension → **Pair extension**, and press Save on the page that opens. Details: [extension/README.md](extension/README.md).
 
 ## Install
 
@@ -47,9 +85,52 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
   - **Duplicate Detection** — checks the history for the same URL or the same video + format, and the destination folder for the same name + size. If found, the dialog offers Re-download / Skip / Keep both
   - **Smart Download** — measures your running speed and adapts: more aria2 connections and yt-dlp fragments when fast and stable, fewer (and longer retry gaps) when slow or unstable
   - **Local AI model (optional, off by default)** — for the downloads the rules cannot categorize, an Ollama or LM Studio model running on your machine can be asked instead. No model is bundled; nothing leaves your machine
-- **AI Assistant** — done in v1.1.0 (optional local model, off by default)
 
 Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
+
+## AI features
+
+### AI Assistant (v1.1.0)
+
+- **Chat panel in the app** (English + বাংলা). Give it a link and a plain-language instruction — e.g. paste a YouTube link and write `এইটা ডাউনলোড করো` — and it starts the download.
+- **Rule-based first**, so it works with no setup, no API key and no cost. An optional local model (Ollama / LM Studio) can be switched on for the cases the rules cannot handle; nothing leaves your machine.
+- **Plain-language help** — when a download fails, it explains the reason in plain language and suggests what to try next.
+
+### Smart downloads
+
+The Smart features above are the AI side of every download: files get organized into folders, titles get cleaned up, duplicates get caught before they waste your bandwidth, and the downloader adapts its connections to your real speed. All of it is rule-based and runs locally — the optional local model only steps in for the cases the rules cannot categorize.
+
+## Browser extension
+
+- **Manifest V3 extension** — right-click "Download with DOVIRA", toolbar popup, floating Download button on video pages, optional download intercept (off by default).
+- **Pairs with the app** over a token-authenticated Local API on 127.0.0.1 (default port 17530). Guided install, live status and diagnostics are in the app (Settings > Setup & diagnostics).
+- **Install:** load the built extension from `extension/dist` — Firefox (AMO) first; Chrome via Load unpacked (Developer mode). See [extension/README.md](extension/README.md) and the [Local API reference](docs/local-api.md).
+
+## FAQ
+
+**Is DOVIRA really free?**
+Yes. MIT licensed, no ads, no tracking, no account, no pro-lock. Every feature is unlocked.
+
+**Can it download YouTube videos?**
+Yes — via yt-dlp, with Video quality up to 2160p or Audio MP3, plus subtitles and thumbnails on request. The quality list shows only the formats the site really offers for that video.
+
+**Why does fetching a video take ~10 seconds?**
+yt-dlp has to extract the video's format list — that takes 9–13 seconds and is normal. Results are cached for 5 minutes, so clicking the same video again is instant.
+
+**Is my data sent anywhere?**
+No. Downloads, history and settings stay on your machine. The AI Assistant is rule-based by default, and the optional local model also runs on your machine.
+
+**Why does the extension need Developer mode in Chrome?**
+The Chrome Web Store prohibits YouTube-download extensions, so DOVIRA's extension is installed unpacked (Developer mode). Firefox users can install it from AMO when the listing is ready.
+
+**Why is the macOS dmg unsigned?**
+There is no paid Apple Developer account. On first launch, right-click the app and choose Open (or run `xattr -d com.apple.quarantine /Applications/dovira.app`).
+
+**Why is there no 1080p for this video?**
+The quality list comes from the site's real format list. If a video has no 1080p, 1080p is not offered — DOVIRA never invents a quality.
+
+**Does it support DRM sites like Netflix?**
+No — and no app can. See [Limitations](#limitations-v131).
 
 ## Limitations (v1.3.1)
 
@@ -62,6 +143,19 @@ Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
 - On macOS/Linux without a bundled aria2, torrents/magnets are unavailable (plain files still work via yt-dlp).
 - A changed speed limit or fragment count takes effect on the next _fresh_ yt-dlp download, not on a resumed fragmented one (see Speed limiter above).
 - The "Total size" stat counts the video stream size yt-dlp reports, which can differ from the final file size on disk.
+
+## Contributing
+
+Bug reports and feature requests: [open an issue](https://github.com/Khalid635/dovira/issues) — templates for bug reports and feature requests are ready, just fill them in. Never paste tokens, passwords or cookies in an issue.
+
+Pull requests are welcome. Please run `npm test` and `npm run build` before submitting. Tests live in `tests/` — 107 tests across 19 suites, all passing (`npm test`).
+
+## Roadmap
+
+- **Stable release** — the next release, once the current version is verified end-to-end (extension pairing + clean install).
+- **Demo video** — a 1–2 minute video of the real app in use.
+- **Official website + landing page** — real screenshots and the demo video in one place.
+- **Firefox AMO listing** and a winget package.
 
 ## Build & run
 
