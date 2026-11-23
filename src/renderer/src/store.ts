@@ -97,6 +97,10 @@ interface Store {
   dialogErrorDetail: string | null
   openDialog: (url?: string) => void
   closeDialog: () => void
+  /** Dialog-first extension flow: the URL the floating button just sent (null otherwise). */
+  extensionRequest: { url: string } | null
+  /** Open the Add dialog for an extension send (records it so cancel can discard its temp cookies file). */
+  openExtensionDownload: (req: { url: string }) => void
   // One-click paste-and-download (Cobalt-inspired).
   quickPasteBusy: boolean
   quickPasteDownload: () => void
@@ -171,6 +175,7 @@ export const useStore = create<Store>()((set, get) => ({
   dialogTorrent: null,
   dialogError: null,
   dialogErrorDetail: null,
+  extensionRequest: null,
   quickPasteBusy: false,
   engines: [],
   enginesLoading: false,
@@ -260,6 +265,24 @@ export const useStore = create<Store>()((set, get) => ({
 
     if (listenersAttached) return
     listenersAttached = true
+    // Dialog-first extension flow: a floating-button click opens the
+    // Add dialog the moment the extension POSTs — no fetchInfo wait.
+    // Guarded: an old preload (stale build) must not break init.
+    if (typeof window.dovira.onExtensionDownload === 'function') {
+      window.dovira.onExtensionDownload((req) => {
+        get().openExtensionDownload(req)
+      })
+      // Startup race: a send that arrived before the renderer mounted
+      // is pulled once here instead of being lost.
+      void window.dovira
+        .getPendingExtensionDownload()
+        .then((req) => {
+          if (req) get().openExtensionDownload(req)
+        })
+        .catch(() => {
+          // No pending request (or an old preload) — nothing to open.
+        })
+    }
     window.dovira.onProgress((p: ProgressEvent) => {
       set((s) => {
         const downloads = s.downloads.map((d) =>
@@ -477,6 +500,15 @@ export const useStore = create<Store>()((set, get) => ({
     })
     if (url.trim()) void get().fetchInfo(url)
   },
+  // Dialog-first extension flow: the floating button already opened the
+  // dialog via openDialog — this just records which URL came from the
+  // extension, so closeDialog can discard its temp cookies file when
+  // the user cancels, and so a second click replaces the dialog
+  // instead of stacking one.
+  openExtensionDownload: (req) => {
+    set({ extensionRequest: { url: req.url } })
+    get().openDialog(req.url)
+  },
   // One-click paste-and-download (Cobalt-inspired): read the clipboard,
   // fetch info, and start the download with the app's defaults. A playlist,
   // a torrent, or a multi-media post opens the picker dialog instead of
@@ -553,7 +585,13 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   closeDialog: () => {
-    set({ dialogOpen: false, dialogLoading: false })
+    const req = get().extensionRequest
+    set({ dialogOpen: false, dialogLoading: false, extensionRequest: null })
+    // Dialog-first extension flow: the user cancelled the dialog, so
+    // the extension send's temp cookies file must be deleted — no
+    // download started. After a successful submit the IPC handler
+    // already took the request, so this is a no-op there.
+    if (req) void window.dovira.dismissExtensionDownload(req.url)
   },
 
   openGrabber: () => set({ grabberOpen: true }),
@@ -695,7 +733,10 @@ export const useStore = create<Store>()((set, get) => ({
   addWithOptions: async (opts) => {
     const res = await window.dovira.addWithOptions(opts)
     if (res.ok) {
-      set({ dialogOpen: false })
+      // Dialog-first extension flow: the IPC handler took the pending
+      // request — clear the flag so a later closeDialog cannot dismiss
+      // a request the queue already owns.
+      set({ dialogOpen: false, extensionRequest: null })
       await get().refresh()
       get().showToast('toast.added')
     }

@@ -5,7 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { DoviraDb } from './db'
 import { SettingsManager } from './settings'
-import type { Settings } from './types'
+import type { ExtensionDownloadRequest, Settings } from './types'
 import { Aria2Manager } from './engines/aria2'
 import { YtDlpManager } from './engines/ytdlp'
 import { QueueManager } from './queue'
@@ -395,7 +395,20 @@ app.whenReady().then(() => {
   // Phase 5: Local API for the browser extension — 127.0.0.1 only,
   // Bearer token required on every request. Start is best-effort: a
   // bind failure is logged and the app runs on without it.
-  localApi = new LocalApiServer(settings, queue, userData)
+  // Dialog-first handoff: a floating-button send opens the Add dialog
+  // at once (the window is shown/focused) instead of waiting ~10 s for
+  // yt-dlp extraction — the dialog runs fetchInfo in the background.
+  localApi = new LocalApiServer(settings, queue, userData, {
+    onExtensionDownload: (req: ExtensionDownloadRequest) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('dovira:extension:download', req)
+      }
+    }
+  })
   void localApi.start()
 
   applyRuntimeSettings(settings.get())

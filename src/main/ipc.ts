@@ -19,6 +19,12 @@ import { sha256File } from './checksum'
 import { recordEngineHashOverride } from './security'
 import { scanPage } from './grabber'
 import { mimeForPreview } from './localApi'
+import {
+  discardExtensionRequest,
+  peekAnyExtensionRequest,
+  peekExtensionRequest,
+  takeExtensionRequest
+} from './extensionRequests'
 import type { SubscriptionManager } from './smart/subscriptions'
 import type {
   AddOptions,
@@ -80,13 +86,25 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle('dovira:downloads:list', () => queue.list())
   // Issue #2: the duplicate panel's Re-download / Keep both pass
   // skipDuplicateCheck through for plain files (videos already had it).
-  ipcMain.handle('dovira:downloads:add', (_e, url: unknown, saveDir: unknown, opts: unknown) =>
-    typeof url === 'string'
-      ? queue.add(url, typeof saveDir === 'string' ? saveDir : undefined, {
-          skipDuplicateCheck:
-            (opts as { skipDuplicateCheck?: unknown } | null)?.skipDuplicateCheck === true
-        })
-      : { ok: false, error: 'invalid-url' }
+  ipcMain.handle(
+    'dovira:downloads:add',
+    async (_e, url: unknown, saveDir: unknown, opts: unknown) => {
+      if (typeof url !== 'string') return { ok: false, error: 'invalid-url' }
+      const res = await queue.add(url, typeof saveDir === 'string' ? saveDir : undefined, {
+        skipDuplicateCheck:
+          (opts as { skipDuplicateCheck?: unknown } | null)?.skipDuplicateCheck === true
+      })
+      // Dialog-first extension flow: a plain file / torrent the dialog
+      // just confirmed carries per-link headers (User-Agent / Referer /
+      // Cookie) from the extension — attach them exactly like
+      // addFromExtension did (take consumes the request; a second call
+      // for the same URL finds nothing, so headers are never doubled).
+      if (res.ok && res.id) {
+        const pending = takeExtensionRequest(url)
+        if (pending) queue.setExtHeaders(res.id, pending.headers)
+      }
+      return res
+    }
   )
   ipcMain.handle('dovira:downloads:pause', (_e, id: unknown) =>
     typeof id === 'string' ? queue.pause(id) : false
@@ -170,18 +188,42 @@ export function registerIpc(deps: IpcDeps): void {
   })
   // Issues #1 + #8: the dialog's Retry button passes { force: true } to
   // bypass the fetchInfo cache.
-  ipcMain.handle('dovira:info:fetch', (_e, url: unknown, opts: unknown) =>
-    typeof url === 'string'
-      ? queue.fetchInfo(url, undefined, {
-          force: (opts as { force?: unknown } | null)?.force === true
-        })
-      : { ok: false, error: 'invalid-url' }
-  )
+  // Dialog-first extension flow: a pending request for this URL carries
+  // per-link cookies/UA/referer — attach them so login-walled videos
+  // resolve in the dialog exactly like the old auto-add path did.
+  ipcMain.handle('dovira:info:fetch', (_e, url: unknown, opts: unknown) => {
+    if (typeof url !== 'string') return { ok: false, error: 'invalid-url' }
+    const pending = peekExtensionRequest(url)
+    const netOverride = pending
+      ? {
+          cookiesFile: pending.cookiesFile,
+          userAgent: pending.userAgent,
+          referer: pending.referer
+        }
+      : undefined
+    return queue.fetchInfo(url, netOverride, {
+      force: (opts as { force?: unknown } | null)?.force === true
+    })
+  })
   ipcMain.handle('dovira:downloads:addWithOptions', (_e, opts: unknown) => {
     if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
       return { ok: false, error: 'invalid-url' }
     }
-    return queue.addWithOptions(opts as AddOptions)
+    const o = opts as AddOptions
+    // Dialog-first extension flow: the dialog was opened by an extension
+    // send — merge its per-link cookies/UA/referer so the download runs
+    // with the browser's session, exactly like addFromExtension did.
+    // take() consumes the request, so a repeated submit cannot reuse a
+    // temp cookies file the queue already owns (or deleted).
+    if (typeof o.url === 'string') {
+      const pending = takeExtensionRequest(o.url)
+      if (pending) {
+        o.extCookiesFile = pending.cookiesFile ?? undefined
+        o.userAgent = pending.userAgent ?? undefined
+        o.referer = pending.referer ?? undefined
+      }
+    }
+    return queue.addWithOptions(o)
   })
   // Phase 7 (v1.0): Smart features — main re-validates every input
   // (settings are the source of truth for folders/template/switches).
@@ -401,6 +443,15 @@ export function registerIpc(deps: IpcDeps): void {
   // can copy it into the extension's options page.
   ipcMain.handle('dovira:extension:status', (): ExtensionApiStatus => deps.localApi.getStatus())
   ipcMain.handle('dovira:extension:regenerateToken', (): string => deps.localApi.regenerateToken())
+  // Dialog-first extension flow: the renderer pulls the pending
+  // request once at startup (a send that arrived before the renderer
+  // mounted) and discards it when the user cancels the dialog — the
+  // temp cookies file is deleted with it, since no download started.
+  ipcMain.handle('dovira:extension:pending', () => peekAnyExtensionRequest())
+  ipcMain.handle('dovira:extension:dismiss', (_e, url: unknown) => {
+    if (typeof url === 'string') discardExtensionRequest(url)
+    return true
+  })
   // v1.2.0: guided setup + diagnostics.
   ipcMain.handle('dovira:diagnostics:run', async () => {
     const s = settings.get()

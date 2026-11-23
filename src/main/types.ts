@@ -414,6 +414,37 @@ export interface ExtensionApiStatus {
 }
 
 /**
+ * Next-level (dialog-first extension handoff): one floating-button send
+ * waiting for the user in the Add dialog. The Local API stores it and
+ * the renderer opens the dialog the moment it arrives — the download
+ * itself only starts when the user confirms, so the extension POST
+ * never waits for yt-dlp extraction (~7–11 s) any more.
+ *
+ * `cookiesFile` is a temp Netscape file under userData/ext-cookies.
+ * Whoever takes the request owns that file: the queue deletes it when
+ * the download completes or is removed; a discard deletes it at once.
+ */
+export interface ExtensionDownloadRequest {
+  url: string
+  /** Temp cookies file (null when the extension sent no cookies). */
+  cookiesFile: string | null
+  userAgent: string | null
+  referer: string | null
+  /** Plain-file headers (User-Agent / Referer / Cookie) for aria2. */
+  headers: string[]
+  mirrors: string[]
+}
+
+/**
+ * Hooks the Local API calls when an extension send arrives — wired in
+ * index.ts so the API module stays UI-free.
+ */
+export interface LocalApiHooks {
+  /** Open the Add dialog for this URL (the renderer runs fetchInfo in the background). */
+  onExtensionDownload: (req: ExtensionDownloadRequest) => void
+}
+
+/**
  * v1.2.0: one self-check row from the Setup & diagnostics section.
  * detailKey is an i18n key; the renderer translates it with detailParams.
  */

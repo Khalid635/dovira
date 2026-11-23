@@ -19,7 +19,7 @@ import {
 import { categorize, organizeDir, type Category } from './smart/categorize'
 import { suggestName } from './smart/naming'
 import { AdaptiveNet } from './smart/adaptive'
-import { FetchInfoCache } from './util/fetchInfoCache'
+import { cookiesFileHash, FetchInfoCache } from './util/fetchInfoCache'
 import {
   askCategory,
   askLocalModel,
@@ -453,7 +453,15 @@ export class QueueManager extends EventEmitter {
     // override; `force` (the dialog's Retry button, issue #8) bypasses
     // the cache. Only successful results are cached — failures always
     // re-fetch, so a transient error never sticks for 5 minutes.
-    const cacheKey = FetchInfoCache.key(trimmed, netOverride)
+    // The key uses a hash of the cookies file's CONTENT, never its
+    // path: the Local API writes a fresh random-named temp file per
+    // extension send, so keying on the path made the cache never hit
+    // for extension sends (two ~10 s fetches 17 s apart, 2026-11-24).
+    const cacheKey = FetchInfoCache.key(trimmed, {
+      cookiesHash: cookiesFileHash(netOverride?.cookiesFile),
+      userAgent: netOverride?.userAgent ?? null,
+      referer: netOverride?.referer ?? null
+    })
     if (!opts?.force) {
       const hit = this.fetchInfoCache.get(cacheKey)
       if (hit) return hit
@@ -1741,6 +1749,18 @@ export class QueueManager extends EventEmitter {
       // fragment count applies to the NEXT FRESH download only.
       fragments: this.settings.get().smartDownload ? this.adaptive.fragments() : undefined
     }
+  }
+
+  /**
+   * Attach per-link headers (User-Agent / Referer / Cookie) the browser
+   * extension sent, for a plain-file download the Add dialog just
+   * confirmed. Called by the IPC handler right after queue.add returns
+   * — add() starts the download via an async pump(), so the headers
+   * are in place before aria2 is given the URL. Mirrors the
+   * addFromExtension behaviour for the dialog-first flow.
+   */
+  setExtHeaders(id: string, headers: string[]): void {
+    if (headers.length > 0) this.extHeaders.set(id, headers)
   }
 
   /**

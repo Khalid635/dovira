@@ -14,7 +14,8 @@ import { safeStorage } from 'electron'
 import { loadExtensionToken, storeExtensionToken, type TokenCrypto } from './tokenStore'
 import type { QueueManager } from './queue'
 import type { SettingsManager } from './settings'
-import type { ExtensionApiStatus } from './types'
+import type { ExtensionApiStatus, ExtensionDownloadRequest, LocalApiHooks } from './types'
+import { discardPendingExtensionRequest, setExtensionRequest } from './extensionRequests'
 import { logMain } from './logger'
 import { isValidExtensionOptionsUrl } from './util/extensionOptions.ts'
 
@@ -157,11 +158,19 @@ export class LocalApiServer {
   private settings: SettingsManager
   private queue: QueueManager
   private userData: string
+  /** Dialog-first handoff (optional — the API works without a UI). */
+  private hooks: LocalApiHooks | undefined
 
-  constructor(settings: SettingsManager, queue: QueueManager, userData: string) {
+  constructor(
+    settings: SettingsManager,
+    queue: QueueManager,
+    userData: string,
+    hooks?: LocalApiHooks
+  ) {
     this.settings = settings
     this.queue = queue
     this.userData = userData
+    this.hooks = hooks
   }
 
   /** safeStorage adapter for tokenStore (DPAPI on Windows). */
@@ -243,6 +252,9 @@ export class LocalApiServer {
     }
     this.server = null
     this.port = null
+    // A pending dialog request dies with the app — its temp cookies
+    // file must not leak into userData/ext-cookies.
+    discardPendingExtensionRequest()
   }
 
   isRunning(): boolean {
@@ -487,9 +499,6 @@ export class LocalApiServer {
       this.send(res, 400, { ok: false, error: 'unsupported-url' })
       return
     }
-    const kind = body.kind === 'video' || body.kind === 'audio' ? body.kind : ('auto' as const)
-    const quality =
-      typeof body.quality === 'string' && body.quality.length <= 8 ? body.quality : undefined
     const userAgent =
       typeof body.userAgent === 'string' && body.userAgent.length > 0
         ? body.userAgent.slice(0, 512)
@@ -542,28 +551,28 @@ export class LocalApiServer {
         const cookieHeader = netscapeCookiesToHeader(cookiesText, url)
         if (cookieHeader) headers.push(`Cookie: ${cookieHeader}`)
       }
-      const result = await this.queue.addFromExtension(url, {
-        kind,
-        quality,
+      // Dialog-first handoff (IDM-fast): store the request and open the
+      // Add dialog — do NOT run fetchInfo here. The old code awaited
+      // queue.addFromExtension, whose full yt-dlp extraction (~7–11 s)
+      // blocked this response, so the extension's button sat on
+      // "Sending…" and the app showed nothing meanwhile (measured
+      // 2026-11-24: POST 6,892 ms, fetchInfo ok 6,872 ms). The dialog
+      // runs fetchInfo in the background and fills in the Video/Audio
+      // options when ready; the download itself starts only when the
+      // user confirms. addFromExtension stays for the AI assistant's
+      // download command, which needs the blocking auto-add.
+      const req: ExtensionDownloadRequest = {
+        url,
         cookiesFile,
         userAgent,
         referer,
         headers,
-        mirrors: mirrors.length > 0 ? mirrors : undefined
-      })
-      if (!result.ok) {
-        if (cookiesFile && existsSync(cookiesFile)) {
-          try {
-            unlinkSync(cookiesFile)
-          } catch {
-            // Stale temp file — harmless.
-          }
-        }
-        this.send(res, 400, { ok: false, error: result.error ?? 'unknown' })
-        return
+        mirrors: mirrors.length > 0 ? mirrors : []
       }
-      logMain('info', `local-api: download added ${result.id ?? ''} host=${parsed.hostname}`)
-      this.send(res, 200, { ok: true, id: result.id })
+      setExtensionRequest(req)
+      this.hooks?.onExtensionDownload(req)
+      logMain('info', `local-api: extension download queued for dialog host=${parsed.hostname}`)
+      this.send(res, 200, { ok: true, dialog: true })
     } catch (err) {
       if (cookiesFile && existsSync(cookiesFile)) {
         try {

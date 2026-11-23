@@ -8,6 +8,7 @@ import type {
   DownloadInfo,
   EngineInfo,
   ExtensionApiStatus,
+  ExtensionDownloadRequest,
   GrabberScanResult,
   PlainFileInfo,
   PlaylistInfo,
@@ -140,6 +141,12 @@ export interface DoviraAPI {
   // Phase 5: browser extension pairing (Local API status + token).
   extensionStatus(): Promise<ExtensionApiStatus>
   regenerateExtensionToken(): Promise<string>
+  // Dialog-first extension flow: a floating-button click opens the Add
+  // dialog immediately (main sends the URL); the pending request is
+  // pulled once at startup in case the send arrived before mount.
+  onExtensionDownload(cb: (req: ExtensionDownloadRequest) => void): () => void
+  getPendingExtensionDownload(): Promise<ExtensionDownloadRequest | null>
+  dismissExtensionDownload(url: string): Promise<boolean>
   // v1.2.0: guided setup + diagnostics.
   runDiagnostics(): Promise<DiagnosticsResult>
   extensionFolderPath(): Promise<string | null>
@@ -233,6 +240,12 @@ const api: DoviraAPI = {
   // Phase 5
   extensionStatus: () => ipcRenderer.invoke('dovira:extension:status'),
   regenerateExtensionToken: () => ipcRenderer.invoke('dovira:extension:regenerateToken'),
+  // Dialog-first extension flow: a floating-button click opens the Add
+  // dialog immediately (main sends the URL); the pending request is
+  // pulled once at startup in case the send arrived before mount.
+  onExtensionDownload: (cb) => subscribe<ExtensionDownloadRequest>('dovira:extension:download', cb),
+  getPendingExtensionDownload: () => ipcRenderer.invoke('dovira:extension:pending'),
+  dismissExtensionDownload: (url: string) => ipcRenderer.invoke('dovira:extension:dismiss', url),
   // v1.2.0
   runDiagnostics: () => ipcRenderer.invoke('dovira:diagnostics:run'),
   extensionFolderPath: () => ipcRenderer.invoke('dovira:extension:folderPath'),

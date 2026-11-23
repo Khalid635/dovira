@@ -226,13 +226,33 @@ function start(): void {
   // Facebook) without a listener per video.
   document.addEventListener('mouseover', (e) => {
     const target = e.target as Element | null
-    const video = target?.closest?.('video') as HTMLVideoElement | null
+    // Direct hit first (cheap, covers plain <video> pages)…
+    let video = target?.closest?.('video') as HTMLVideoElement | null
+    // …then look UNDER the cursor: Facebook Reels / YouTube's control
+    // bar overlay the <video>, so e.target is the overlay, never the
+    // video — the button never appeared there (2026-11-24). The first
+    // video in the element stack at the cursor is the one hovered.
+    if (!video) {
+      for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+        if (el.tagName === 'VIDEO') {
+          video = el as HTMLVideoElement
+          break
+        }
+      }
+    }
     if (video) showFor(video)
   })
   document.addEventListener('mouseout', (e) => {
-    const target = e.target as Element | null
-    const video = target?.closest?.('video') as HTMLVideoElement | null
-    if (video && video === currentVideo) scheduleHide()
+    if (!currentVideo) return
+    // Still over the current video (or one of its overlays, or the
+    // button itself sitting on top of it)? Stay. Only hide once the
+    // cursor has really left the video — the old handler hid whenever
+    // the cursor left the <video> element itself, which never fired
+    // while an overlay covered it, so the button could also stick.
+    for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+      if (el === currentVideo || el.tagName === 'VIDEO') return
+    }
+    scheduleHide()
   })
   // Keep the button glued to the video while the page moves.
   const reposition = (): void => {
