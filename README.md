@@ -38,7 +38,7 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
 - **Playlists & batch** — download a whole playlist/channel (pick the entries, one quality for all) or paste many links at once; already-downloaded videos can be skipped via the download archive
 - **Clips, metadata & subtitles** — download just a time range of a video, embed title/artist metadata and thumbnails, or save subtitles as .srt (including auto-generated captions)
 - **Torrents** — magnet links and .torrent files via aria2 (DHT on, never seeds after a download finishes)
-- **Browser extension** — right-click "Download with DOVIRA", toolbar popup, floating download button on video pages, optional download intercept (off by default). Pairs with the app over a token-authenticated Local API on 127.0.0.1 — guided install, live status and diagnostics are in the app (Settings > Setup & diagnostics). See `extension/README.md` — Firefox (AMO) first; Chrome via Load unpacked. Do NOT submit the YouTube-download capability to the Chrome Web Store (its policy prohibits it).
+- **Browser extension** — right-click "Download with DOVIRA", toolbar popup, floating download button on video pages, optional download intercept (off by default). Pairs with the app over a token-authenticated Local API on 127.0.0.1 — guided install, live status and diagnostics are in the app (Settings > Setup & diagnostics). See `extension/README.md` — Firefox (AMO) first; Chrome via Load unpacked. Do NOT submit the YouTube-download capability to the Chrome Web Store (its policy prohibits it). Local API reference: `docs/local-api.md`.
 - **Site grabber** — scan a page for downloadable files (images, documents, media) and queue the ones you pick
 - **Speed limiter** — a global cap plus a per-download cap, applied live to running downloads. A changed limit takes effect on the next _fresh_ yt-dlp download, not a resumed fragmented one (yt-dlp keeps the original throttle on resume); aria2 resumes apply the new limit immediately
 - **Smart features (v1.0, Settings > Smart — every feature has its own switch)**
@@ -96,7 +96,7 @@ src/renderer/     React UI: Home, DownloadCard, Settings, AddDownloadDialog, EN/
 extension/        browser extension (Manifest V3): background, content script, popup, options
 resources/bin/    engine binaries (git-ignored)
 scripts/          fetch-binaries.cjs, build-extension.cjs, build-aria2.sh
-docs/             phase test reports, benchmark.md, screenshots/
+docs/             phase test reports, benchmark.md, screenshots/, local-api.md (Local API reference)
 ```
 
 ## DRM note

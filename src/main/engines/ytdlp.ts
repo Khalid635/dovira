@@ -2,6 +2,9 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { logMain } from '../logger'
+import { parseMediaItems, type YtDlpMediaItem } from '../util/mediaItems'
+
+export type { YtDlpMediaItem } from '../util/mediaItems'
 
 export interface YtDlpFormat {
   id: string
@@ -31,7 +34,11 @@ export interface YtDlpInfo {
   extractor: string | null
   /** Phase 7: yt-dlp categories[0], e.g. "Music" (file organizer). */
   ytCategory: string | null
+  /** Cobalt-inspired multi-media picker: >1 when the URL is a multi-media post. */
+  mediaItems: YtDlpMediaItem[]
 }
+
+
 
 /** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
 export interface PlaylistEntry {
@@ -583,7 +590,8 @@ export class YtDlpManager {
       ytCategory:
         Array.isArray(json['categories']) && typeof json['categories'][0] === 'string'
           ? (json['categories'][0] as string)
-          : null
+          : null,
+      mediaItems: parseMediaItems(json)
     }
   }
 

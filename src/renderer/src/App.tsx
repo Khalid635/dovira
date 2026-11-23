@@ -50,6 +50,8 @@ function App(): React.JSX.Element {
   const settings = useStore((s) => s.settings)
   const toast = useStore((s) => s.toast)
   const openDialog = useStore((s) => s.openDialog)
+  const quickPasteDownload = useStore((s) => s.quickPasteDownload)
+  const quickPasteBusy = useStore((s) => s.quickPasteBusy)
   const openGrabber = useStore((s) => s.openGrabber)
   const wizardOpen = useStore((s) => s.wizardOpen)
   const pause = useStore((s) => s.pause)
@@ -186,6 +188,15 @@ function App(): React.JSX.Element {
               </div>
               {/* One-click toolbar (IDM-style): acts on the visible list. */}
               <div className="mt-2 flex items-center gap-1">
+                <button
+                  className="toolbar-btn"
+                  disabled={quickPasteBusy}
+                  onClick={() => void quickPasteDownload()}
+                  title={t('quickPaste.pasteDownload')}
+                >
+                  <IconDownload size={14} />
+                  {t('quickPaste.pasteDownload')}
+                </button>
                 <button
                   className="toolbar-btn"
                   onClick={() => openDialog('')}

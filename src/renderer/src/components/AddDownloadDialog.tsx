@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AddOptions, PlainFileInfo, VideoInfo } from '../../../main/types'
 import { useStore, useT } from '../store'
 import { formatBytes, formatEta } from '../util/format'
+import { buildMediaOptions } from '../util/quickAdd'
 import { IconAlert, IconClose, IconFolder } from './icons'
 
 const HEIGHTS = [2160, 1080, 720, 480, 360]
@@ -125,6 +126,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const [thumbnailOnly, setThumbnailOnly] = useState(false)
   // Phase 4: playlist selection (all selected by default).
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Cobalt-inspired multi-media picker (all selected by default).
+  const [selectedMediaIds, setSelectedMediaIds] = useState<Set<string>>(new Set())
+  const [prevMediaUrl, setPrevMediaUrl] = useState('')
   const [prevPlaylistUrl, setPrevPlaylistUrl] = useState('')
   // Phase 4: batch mode.
   const [batchText, setBatchText] = useState('')
@@ -170,6 +174,8 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setAutoSubs(false)
     setThumbnailOnly(false)
     setSelectedIds(new Set())
+    setSelectedMediaIds(new Set())
+    setPrevMediaUrl('')
     setBatchText('')
     setBatchLines([])
     setBatchChecking(false)
@@ -187,6 +193,17 @@ export default function AddDownloadDialog(): React.JSX.Element {
   }
   if (!dialogPlaylist && prevPlaylistUrl) {
     setPrevPlaylistUrl('')
+  }
+  // Cobalt-inspired multi-media picker: a fresh multi-media post defaults
+  // to all items selected (same pattern as the playlist above).
+  const mediaItems =
+    dialogInfo?.mediaItems && dialogInfo.mediaItems.length > 1 ? dialogInfo.mediaItems : null
+  if (mediaItems && prevMediaUrl !== dialogInfo?.url) {
+    setPrevMediaUrl(dialogInfo?.url ?? '')
+    setSelectedMediaIds(new Set(mediaItems.map((m) => m.id)))
+  }
+  if (!mediaItems && prevMediaUrl) {
+    setPrevMediaUrl('')
   }
   if (!dialogOpen && prevDialog.open) {
     setPrevDialog({ open: false, url: '' })
@@ -263,7 +280,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
       ? readyCount === 0 || batchChecking
       : dialogPlaylist
         ? selectedIds.size === 0
-        : clipEnabled && dialogInfo !== null && !thumbnailOnly && !clipValid)
+        : mediaItems
+          ? selectedMediaIds.size === 0
+          : clipEnabled && dialogInfo !== null && !thumbnailOnly && !clipValid)
 
   // Phase 7: organizer + smart name — runs once per fetched info/tab/quality.
   // (Hooks must live above the early return below.)
@@ -331,7 +350,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
   const filename = smartName && useSmartName && dialogInfo ? smartName : baseFilename
   // Playlist/batch show the folder (each entry gets its own filename).
   const savePath =
-    dialogPlaylist || mode === 'batch'
+    dialogPlaylist || mode === 'batch' || mediaItems
       ? saveDir || settings?.downloadDir || ''
       : saveDir
         ? `${saveDir}\\${filename}`
@@ -440,6 +459,11 @@ export default function AddDownloadDialog(): React.JSX.Element {
       const res = await addThumbnailOnly(dialogInfo.url, saveDir ? saveDir : undefined)
       setBusy(false)
       if (!res.ok) setSubmitError(res.error ?? 'unknown')
+      return
+    }
+    // Cobalt-inspired multi-media picker — the selected items, one quality for all.
+    if (dialogInfo?.mediaItems && dialogInfo.mediaItems.length > 1) {
+      await submitMediaItems()
       return
     }
     if (!dialogInfo && !dialogPlainFile) {
@@ -591,6 +615,62 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setBusy(true)
     await addPlaylist(items)
     setBusy(false)
+  }
+
+  // Cobalt-inspired multi-media picker submit — every selected item gets
+  // its own info fetch (its own title/thumbnail/formats) and is added with
+  // the dialog's quality; plain-file items go through addDownload.
+  // All added → close + one toast; none added → stay open with the error
+  // (a duplicate is reported as a duplicate, not a failure).
+  const submitMediaItems = async (): Promise<void> => {
+    if (!dialogInfo?.mediaItems || busy) return
+    const selected = dialogInfo.mediaItems.filter((m) => selectedMediaIds.has(m.id))
+    if (selected.length === 0) return
+    setBusy(true)
+    let added = 0
+    let failed = 0
+    let duplicates = 0
+    for (const item of selected) {
+      try {
+        const res = await window.dovira.fetchInfo(item.url)
+        if (res.ok && res.info) {
+          const addRes = await window.dovira.addWithOptions(
+            buildMediaOptions({
+              info: res.info,
+              settings,
+              height,
+              bitrate,
+              saveDir: saveDir || settings?.downloadDir || '',
+              kind: tab
+            })
+          )
+          if (addRes.ok) added++
+          else if (addRes.error === 'duplicate') duplicates++
+          else failed++
+        } else if (res.ok && res.plainFile) {
+          const addRes = await window.dovira.addDownload(item.url, saveDir ? saveDir : undefined)
+          if (addRes.ok) added++
+          else if (addRes.error === 'duplicate') duplicates++
+          else failed++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+    }
+    setBusy(false)
+    if (added > 0) {
+      closeDialog()
+      await refresh()
+      showToast('toast.playlistAdded', { n: added })
+      return
+    }
+    if (duplicates > 0 && failed === 0) {
+      setSubmitError('duplicate')
+      return
+    }
+    setSubmitError('unknown')
   }
 
   // Phase 4: batch "Check links" — fetchInfo for up to 5 lines in parallel.
@@ -956,6 +1036,73 @@ export default function AddDownloadDialog(): React.JSX.Element {
                   />
                   {t('add.smartNameUse')}
                 </label>
+              </div>
+            )}
+
+            {mediaItems && (
+              <div className="mt-4">
+                <div className="text-[13px] font-semibold">{t('dialog.mediaItems')}</div>
+                <div className="mt-1 text-[12px] text-[var(--muted)]">
+                  {t('dialog.mediaItemsHint', { n: mediaItems.length })}
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-[13px]">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() =>
+                      setSelectedMediaIds(
+                        new Set((dialogInfo?.mediaItems ?? []).map((m) => m.id))
+                      )
+                    }
+                  >
+                    {t('dialog.selectAll')}
+                  </button>
+                  <button className="btn btn-sm" onClick={() => setSelectedMediaIds(new Set())}>
+                    {t('dialog.selectNone')}
+                  </button>
+                  <span className="text-[var(--muted)]">
+                    {t('dialog.selectedCount', {
+                      n: selectedMediaIds.size,
+                      total: mediaItems.length
+                    })}
+                  </span>
+                </div>
+                <div className="mt-2 max-h-[220px] space-y-1 overflow-y-auto pr-1">
+                  {mediaItems.map((m) => (
+                    <label
+                      key={m.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedMediaIds.has(m.id)}
+                        onChange={(ev) => {
+                          const next = new Set(selectedMediaIds)
+                          if (ev.target.checked) next.add(m.id)
+                          else next.delete(m.id)
+                          setSelectedMediaIds(next)
+                        }}
+                      />
+                      {m.thumbnail && (
+                        <img
+                          src={m.thumbnail}
+                          alt=""
+                          className="h-[36px] w-[64px] shrink-0 rounded object-cover"
+                          onError={(e) => {
+                            ;(e.target as HTMLImageElement).style.display = 'none'
+                          }}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate" title={m.title}>
+                        {m.title}
+                      </span>
+                      {m.duration !== null && (
+                        <span className="shrink-0 tabular-nums text-[var(--muted)]">
+                          {formatEta(m.duration)}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
 

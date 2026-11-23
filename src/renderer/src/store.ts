@@ -16,6 +16,7 @@ import type {
   VideoInfo
 } from '../../main/types'
 import { t, type Language } from './i18n'
+import { buildMediaOptions, defaultHeightFor, looksLikeUrl } from './util/quickAdd'
 
 export type Filter = 'all' | 'downloading' | 'queued' | 'completed' | 'video' | 'audio' | 'files'
 export type View = 'home' | 'history' | 'settings' | 'assistant'
@@ -88,6 +89,9 @@ interface Store {
   dialogErrorDetail: string | null
   openDialog: (url?: string) => void
   closeDialog: () => void
+  // One-click paste-and-download (Cobalt-inspired).
+  quickPasteBusy: boolean
+  quickPasteDownload: () => void
   // Phase 7: site grabber dialog (opened from the Sidebar).
   grabberOpen: boolean
   openGrabber: () => void
@@ -150,6 +154,7 @@ export const useStore = create<Store>()((set, get) => ({
   dialogTorrent: null,
   dialogError: null,
   dialogErrorDetail: null,
+  quickPasteBusy: false,
   engines: [],
   enginesLoading: false,
   appUpdate: { state: 'idle', version: null, progress: null, error: null },
@@ -427,6 +432,77 @@ export const useStore = create<Store>()((set, get) => ({
       dialogLoading: false
     })
     if (url.trim()) void get().fetchInfo(url)
+  },
+  // One-click paste-and-download (Cobalt-inspired): read the clipboard,
+  // fetch info, and start the download with the app's defaults. A playlist,
+  // a torrent, or a multi-media post opens the picker dialog instead of
+  // guessing — and a failed fetch opens the dialog too, so the user sees
+  // the error and can Retry.
+  quickPasteDownload: async () => {
+    if (get().quickPasteBusy || !get().settings) return
+    set({ quickPasteBusy: true })
+    let url = ''
+    try {
+      url = (await navigator.clipboard.readText()).trim()
+    } catch {
+      get().showToast('quickPaste.noClipboard')
+      set({ quickPasteBusy: false })
+      return
+    }
+    if (!looksLikeUrl(url)) {
+      get().showToast('quickPaste.invalid')
+      set({ quickPasteBusy: false })
+      return
+    }
+    try {
+      const res = await window.dovira.fetchInfo(url)
+      const current = get()
+      if (!res.ok) {
+        current.openDialog(url)
+        return
+      }
+      if (
+        res.playlist ||
+        res.torrent ||
+        (res.info?.mediaItems && res.info.mediaItems.length > 1)
+      ) {
+        current.openDialog(url)
+        return
+      }
+      if (res.plainFile) {
+        const addRes = await window.dovira.addDownload(url, current.settings?.downloadDir)
+        if (addRes.ok) {
+          await current.refresh()
+          get().showToast('toast.added')
+        } else if (addRes.error === 'duplicate') {
+          get().showToast('error.duplicate')
+        } else {
+          get().showToast('toast.infoFailed')
+        }
+        return
+      }
+      if (res.info) {
+        const addRes = await current.addWithOptions(
+          buildMediaOptions({
+            info: res.info,
+            settings: current.settings,
+            height: defaultHeightFor(res.info, current.settings),
+            bitrate: current.settings?.defaultAudioBitrate ?? '192',
+            saveDir: current.settings?.downloadDir ?? ''
+          })
+        )
+        if (!addRes.ok && addRes.error === 'duplicate') {
+          get().showToast('error.duplicate')
+        }
+        // Success toasts 'toast.added' inside addWithOptions.
+        return
+      }
+      current.openDialog(url)
+    } catch {
+      get().openDialog(url)
+    } finally {
+      set({ quickPasteBusy: false })
+    }
   },
 
   closeDialog: () => {

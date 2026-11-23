@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
 import type { ExtensionApiStatus, SchedulerStatus, Settings } from '../../../main/types'
 import { IconCheck } from './icons'
+import { presetIdForTemplate, presetTemplate, type NamePresetId } from '../util/namePresets'
 import ExtensionSetup from './ExtensionSetup'
 import DiagnosticsSection from './DiagnosticsSection'
 
@@ -874,12 +875,43 @@ export default function SettingsPage(): React.JSX.Element {
             <div className="settings-field">
               <label className="block">
                 <span className="mb-1 block text-[13px] text-[var(--muted)]">
+                  {t('settings.namePreset')}
+                </span>
+                <select
+                  className="input w-full"
+                  value={settings.nameTemplatePreset}
+                  onChange={(e) => {
+                    const id = e.target.value as NamePresetId
+                    if (id === 'custom') set({ nameTemplatePreset: 'custom' })
+                    else set({ nameTemplatePreset: id, nameTemplate: presetTemplate(id) })
+                  }}
+                >
+                  <option value="title-quality">{t('settings.namePresetTitleQuality')}</option>
+                  <option value="title">{t('settings.namePresetTitle')}</option>
+                  <option value="title-uploader">{t('settings.namePresetTitleUploader')}</option>
+                  <option value="uploader-title-quality">
+                    {t('settings.namePresetUploaderTitleQuality')}
+                  </option>
+                  <option value="title-date">{t('settings.namePresetTitleDate')}</option>
+                  <option value="custom">{t('settings.namePresetCustom')}</option>
+                </select>
+              </label>
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
+                {t('settings.namePresetHint')}
+              </p>
+              <label className="mt-3 block">
+                <span className="mb-1 block text-[13px] text-[var(--muted)]">
                   {t('settings.nameTemplate')}
                 </span>
                 <input
                   className="input w-full font-mono"
                   value={settings.nameTemplate}
-                  onChange={(e) => set({ nameTemplate: e.target.value })}
+                  onChange={(e) =>
+                    set({
+                      nameTemplate: e.target.value,
+                      nameTemplatePreset: presetIdForTemplate(e.target.value)
+                    })
+                  }
                 />
               </label>
               <p className="mt-1 text-[12px] text-[var(--muted)]">

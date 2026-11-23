@@ -382,6 +382,13 @@ export function registerIpc(deps: IpcDeps): void {
     void shell.openPath(dir)
     return true
   })
+  // Cobalt-inspired Local API docs (docs/local-api.md) — linked from
+  // Settings > Setup & diagnostics. The URL is a constant: the handler
+  // never opens an arbitrary link.
+  ipcMain.handle('dovira:docs:openLocalApi', () => {
+    void shell.openExternal('https://github.com/Khalid635/dovira/blob/main/docs/local-api.md')
+    return true
+  })
   // The four --version spawns used to run sequentially, so startup init()
   // waited the SUM of four cold process spawns (several seconds under
   // Defender) and Home sat on its loading state. They are independent —

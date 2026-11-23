@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
 import type { ExtensionApiStatus, Settings } from '../../../main/types'
+import { IconExternal } from './icons'
 
 /**
  * v1.2.0: guided browser-extension install + live status + behaviour
@@ -228,6 +229,15 @@ export default function ExtensionSetup(): React.JSX.Element {
       </div>
 
       <p className="text-[12px] text-[var(--muted)]">{t('extension.noteDevMode')}</p>
+
+      <button
+        className="btn btn-sm"
+        onClick={() => void window.dovira.openLocalApiDocs()}
+        title={t('extension.apiDocsHint')}
+      >
+        <IconExternal size={14} />
+        {t('extension.apiDocs')}
+      </button>
     </div>
   )
 }

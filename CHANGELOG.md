@@ -4,6 +4,13 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
 ## [Unreleased]
 
+### Added
+
+- One-click paste-and-download: a "Paste & download" button in the home toolbar reads the link from the clipboard, fetches its info and starts the download with the app's defaults. Playlists, torrents and multi-media posts open the Add dialog instead of guessing.
+- Filename style presets in Settings > Smart: Title + quality (default), Title only, Title + uploader, Uploader + title + quality, Title + date, or Custom. Picking a preset sets the filename template; editing the template by hand switches the preset to Custom.
+- Multi-media picker: when a link resolves to several media items (e.g. a gallery/carousel post), the Add dialog lists them with thumbnails and durations — pick the ones to download, at one quality for all.
+- Local API documentation: `docs/local-api.md` covers the endpoints, Bearer token auth, the Origin rule, request/response examples and error codes; linked from Settings > Setup & diagnostics (Browser extension section).
+
 ### Fixed
 
 - fetchInfo results are now cached in memory for 5 minutes, so re-opening

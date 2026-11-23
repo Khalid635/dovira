@@ -1,5 +1,6 @@
 import type { DoviraDb } from './db'
 import type { Settings } from './types'
+import { isNamePresetId } from './smart/namePresets'
 import { getDefaultDownloadDir } from './util/paths'
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -53,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   organizerOverrides: {},
   smartNaming: true,
   nameTemplate: '{title} [{height}p]',
+  nameTemplatePreset: 'title-quality',
   smartDuplicates: true,
   smartDownload: true,
   localModelEnabled: false,
@@ -155,6 +157,7 @@ function normalizeSettings(next: Settings): Settings {
   } else {
     next.nameTemplate = next.nameTemplate.trim().slice(0, 120)
   }
+  if (!isNamePresetId(next.nameTemplatePreset)) next.nameTemplatePreset = 'title-quality'
   next.smartDuplicates = next.smartDuplicates === true
   next.smartDownload = next.smartDownload === true
   next.localModelEnabled = next.localModelEnabled === true

@@ -119,6 +119,8 @@ export interface DoviraAPI {
   runDiagnostics(): Promise<DiagnosticsResult>
   extensionFolderPath(): Promise<string | null>
   openExtensionFolder(): Promise<boolean>
+  // Cobalt-inspired Local API docs — opens docs/local-api.md on GitHub.
+  openLocalApiDocs(): Promise<boolean>
   // Phase 6: app auto-update (electron-updater + GitHub Releases).
   getAppUpdateState(): Promise<AppUpdateState>
   checkAppUpdate(): Promise<AppUpdateState>
@@ -197,6 +199,7 @@ const api: DoviraAPI = {
   runDiagnostics: () => ipcRenderer.invoke('dovira:diagnostics:run'),
   extensionFolderPath: () => ipcRenderer.invoke('dovira:extension:folderPath'),
   openExtensionFolder: () => ipcRenderer.invoke('dovira:extension:openFolder'),
+  openLocalApiDocs: () => ipcRenderer.invoke('dovira:docs:openLocalApi'),
   // Phase 6
   getAppUpdateState: () => ipcRenderer.invoke('dovira:update:state'),
   checkAppUpdate: () => ipcRenderer.invoke('dovira:update:check'),

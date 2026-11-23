@@ -1,4 +1,5 @@
 import type { NetworkClass } from './smart/adaptive'
+import type { NamePresetId } from './smart/namePresets'
 
 export type { NetworkClass }
 
@@ -117,6 +118,8 @@ export interface Settings {
   smartNaming: boolean
   /** Phase 7: filename template, e.g. "{title} [{height}p]". */
   nameTemplate: string
+  /** Filename style preset (Settings > Smart) — sets nameTemplate. 'custom' = hand-edited. */
+  nameTemplatePreset: NamePresetId
   /** Phase 7: Duplicate Detection — warn when the file/URL was downloaded before. */
   smartDuplicates: boolean
   /** Phase 7: Smart Download — adapt aria2 connections / yt-dlp fragments to measured speed. */
@@ -227,6 +230,19 @@ export interface VideoFormat {
   combined: boolean
 }
 
+/**
+ * Cobalt-inspired multi-media picker: one item of a multi-media post
+ * (e.g. an Instagram carousel, an X post with several photos). Same
+ * shape as PlaylistEntry — a single downloadable item with its own URL.
+ */
+export interface MediaItem {
+  id: string
+  title: string
+  thumbnail: string | null
+  url: string
+  duration: number | null
+}
+
 export interface VideoInfo {
   url: string
   title: string
@@ -247,6 +263,8 @@ export interface VideoInfo {
   extractor: string | null
   /** Phase 7: yt-dlp categories[0], e.g. "Music" — drives the organizer. */
   ytCategory: string | null
+  /** Multi-media picker: present when the URL resolves to several media items. */
+  mediaItems?: MediaItem[]
 }
 
 /** Phase 4: one flat-playlist entry (no formats — quality is chosen once). */
