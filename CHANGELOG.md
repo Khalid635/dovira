@@ -2,7 +2,7 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
-## [Unreleased]
+## [1.3.0] - 2026-11-23
 
 ### Added
 
