@@ -7,6 +7,7 @@ import StatusBar from './components/StatusBar'
 import SettingsPage from './components/SettingsPage'
 import AddDownloadDialog from './components/AddDownloadDialog'
 import SiteGrabberDialog from './components/SiteGrabberDialog'
+import SetupWizard from './components/SetupWizard'
 import StatsRow from './components/StatsRow'
 import {
   IconAlert,
@@ -50,6 +51,7 @@ function App(): React.JSX.Element {
   const toast = useStore((s) => s.toast)
   const openDialog = useStore((s) => s.openDialog)
   const openGrabber = useStore((s) => s.openGrabber)
+  const wizardOpen = useStore((s) => s.wizardOpen)
   const pause = useStore((s) => s.pause)
   const resume = useStore((s) => s.resume)
   const remove = useStore((s) => s.remove)
@@ -347,6 +349,9 @@ function App(): React.JSX.Element {
 
       <AddDownloadDialog />
       <SiteGrabberDialog />
+
+      {/* v1.2.0: first-run setup wizard (also re-openable from Settings). */}
+      {loaded && settings && (!settings.setupCompleted || wizardOpen) && <SetupWizard />}
 
       {toast && (
         <div className="fixed bottom-12 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2 text-[13px] shadow-xl">

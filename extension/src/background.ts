@@ -12,6 +12,11 @@
  * the app's Local API (http://127.0.0.1:<port>). The content script
  * and popup never fetch the API directly — a content script's Origin
  * would be the page's origin, and the API rejects web-page origins.
+ *
+ * v1.2.0: the worker also pings the app every minute (chrome.alarms),
+ * so the app can show a live "extension connected" status, and syncs
+ * the floating-button / intercept switches FROM the app — the app is
+ * the single source of truth for them (Settings > Setup & diagnostics).
  */
 
 const DEFAULT_PORT = 17530
@@ -74,6 +79,59 @@ async function notify(title: string, message: string): Promise<void> {
   } catch {
     // Notifications are best-effort — a failed toast must not lose the download.
   }
+}
+
+/**
+ * v1.2.0: one ping against the app's /status. Shared by the periodic
+ * alarm, startup, install, and the popup/options "Test connection".
+ */
+async function pingApp(): Promise<{ ok: boolean; error?: string }> {
+  const settings = await loadSettings()
+  if (!settings.token) return { ok: false, error: 'unauthorized' }
+  try {
+    const res = await fetch(`http://127.0.0.1:${settings.port}/status`, {
+      headers: { Authorization: `Bearer ${settings.token}` }
+    })
+    return {
+      ok: res.ok,
+      error: res.ok ? undefined : res.status === 401 ? 'unauthorized' : 'failed'
+    }
+  } catch {
+    return { ok: false, error: 'app-not-running' }
+  }
+}
+
+/**
+ * v1.2.0: pull the floating-button / intercept switches from the app
+ * (GET /extension-settings, token-authenticated). The options page no
+ * longer owns them. A failed fetch keeps the cached values.
+ */
+async function syncExtensionSettings(): Promise<void> {
+  const settings = await loadSettings()
+  if (!settings.token) return
+  try {
+    const res = await fetch(`http://127.0.0.1:${settings.port}/extension-settings`, {
+      headers: { Authorization: `Bearer ${settings.token}` }
+    })
+    if (!res.ok) return
+    const data = (await res.json()) as {
+      ok?: boolean
+      floatingButton?: boolean
+      interceptDownloads?: boolean
+    }
+    if (!data.ok) return
+    await chrome.storage.local.set({
+      floatingButton: data.floatingButton === true,
+      interceptDownloads: data.interceptDownloads === true
+    })
+  } catch {
+    // App not running — keep the cached values.
+  }
+}
+
+async function pingAndSync(): Promise<void> {
+  const r = await pingApp()
+  if (r.ok) await syncExtensionSettings()
 }
 
 type SendError = 'app-not-running' | 'unauthorized' | 'failed' | string
@@ -161,6 +219,18 @@ chrome.runtime.onInstalled.addListener(() => {
       contexts: ['page', 'video']
     })
   })
+  // v1.2.0: check in with the app every minute (status + behaviour sync).
+  chrome.alarms.create('dovira-sync', { periodInMinutes: 1 })
+  void pingAndSync()
+})
+
+chrome.runtime.onStartup.addListener(() => {
+  void pingAndSync()
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== 'dovira-sync') return
+  void pingAndSync()
 })
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -181,22 +251,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (msg.type === 'dovira-ping') {
     void (async () => {
-      const settings = await loadSettings()
-      if (!settings.token) {
-        sendResponse({ ok: false, error: 'unauthorized' })
-        return
-      }
-      try {
-        const res = await fetch(`http://127.0.0.1:${settings.port}/status`, {
-          headers: { Authorization: `Bearer ${settings.token}` }
-        })
-        sendResponse({
-          ok: res.ok,
-          error: res.ok ? undefined : res.status === 401 ? 'unauthorized' : 'failed'
-        })
-      } catch {
-        sendResponse({ ok: false, error: 'app-not-running' })
-      }
+      const r = await pingApp()
+      if (r.ok) await syncExtensionSettings()
+      sendResponse(r)
     })()
     return true // async response
   }

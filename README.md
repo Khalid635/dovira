@@ -6,7 +6,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux �
 
 ## Status
 
-**v1.0.0 — Phases 0–7 (done).** Everything in the master plan through v1.0 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
+**v1.2.0 — Phases 0–7 + guided setup (done).** Everything in the master plan through v1.2 is built, tested and released: aria2 downloads with pause/resume/cancel/retry, queue (max 3 concurrent), SQLite history with migrations, disk-space checks, Settings, EN/BN interface, dark + light themes (Mint light is the default), Windows completion notifications, yt-dlp video/audio downloads with quality choice, Add Download Dialog with real format list + sizes, subtitles + thumbnail embed options, per-engine version info and yt-dlp one-click update (backup + smoke test + rollback), plain-language error messages, yt-dlp resume with the same format only (never a silent restart), History page, cookies support, scheduler and tray, playlist/channel download, batch download, clip download, metadata + subtitle options, thumbnail-only download, torrent/magnet support, browser extension with a token-authenticated Local API, site grabber + speed limiter, macOS/Linux installers + auto-update with mandatory checksum verification, and the Phase 7 Smart features below.
 
 ## Screenshots
 
@@ -38,7 +38,7 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
 - **Playlists & batch** — download a whole playlist/channel (pick the entries, one quality for all) or paste many links at once; already-downloaded videos can be skipped via the download archive
 - **Clips, metadata & subtitles** — download just a time range of a video, embed title/artist metadata and thumbnails, or save subtitles as .srt (including auto-generated captions)
 - **Torrents** — magnet links and .torrent files via aria2 (DHT on, never seeds after a download finishes)
-- **Browser extension** — right-click "Download with DOVIRA", toolbar popup, floating download button on video pages, optional download intercept (off by default). Pairs with the app over a token-authenticated Local API on 127.0.0.1. See `extension/README.md` — Firefox (AMO) first; Chrome via Load unpacked. Do NOT submit the YouTube-download capability to the Chrome Web Store (its policy prohibits it).
+- **Browser extension** — right-click "Download with DOVIRA", toolbar popup, floating download button on video pages, optional download intercept (off by default). Pairs with the app over a token-authenticated Local API on 127.0.0.1 — guided install, live status and diagnostics are in the app (Settings > Setup & diagnostics). See `extension/README.md` — Firefox (AMO) first; Chrome via Load unpacked. Do NOT submit the YouTube-download capability to the Chrome Web Store (its policy prohibits it).
 - **Site grabber** — scan a page for downloadable files (images, documents, media) and queue the ones you pick
 - **Speed limiter** — a global cap plus a per-download cap, applied live to running downloads. A changed limit takes effect on the next _fresh_ yt-dlp download, not a resumed fragmented one (yt-dlp keeps the original throttle on resume); aria2 resumes apply the new limit immediately
 - **Smart features (v1.0, Settings > Smart — every feature has its own switch)**
@@ -47,11 +47,11 @@ Get the installer for your OS from the [Releases page](https://github.com/Khalid
   - **Duplicate Detection** — checks the history for the same URL or the same video + format, and the destination folder for the same name + size. If found, the dialog offers Re-download / Skip / Keep both
   - **Smart Download** — measures your running speed and adapts: more aria2 connections and yt-dlp fragments when fast and stable, fewer (and longer retry gaps) when slow or unstable
   - **Local AI model (optional, off by default)** — for the downloads the rules cannot categorize, an Ollama or LM Studio model running on your machine can be asked instead. No model is bundled; nothing leaves your machine
-- **AI Assistant** — planned after v1.0 (optional local model, off by default)
+- **AI Assistant** — done in v1.1.0 (optional local model, off by default)
 
 Engines: aria2, yt-dlp, ffmpeg and Deno (all bundled).
 
-## Limitations (v1.0.0)
+## Limitations (v1.2.0)
 
 - Login-only videos need cookies — set them in Settings > Browser & Cookies (the app says so instead of failing silently).
 - DRM-protected sites (Netflix, Prime Video, Disney+) can never be supported.

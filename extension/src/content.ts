@@ -105,18 +105,29 @@ function scan(): void {
   createButton()
 }
 
-scan()
-
-// Pages that load videos late (YouTube SPA, infinite scroll) — re-scan
-// whenever the DOM changes, cheaply: the button is created at most once.
-const observer = new MutationObserver(() => {
-  if (document.getElementById(BUTTON_ID) === null) scan()
-})
-if (document.body) {
-  observer.observe(document.body, { childList: true, subtree: true })
-} else {
-  document.addEventListener('DOMContentLoaded', () => {
-    observer.observe(document.body, { childList: true, subtree: true })
-    scan()
+// v1.2.0: the floating button is OFF by default — the app owns the
+// switch (Settings > Setup & diagnostics). Only start when it is
+// enabled; the flag syncs from the app on every background ping
+// (at most a minute after the user flips it). A page already open
+// needs a reload to pick the change up.
+function start(): void {
+  scan()
+  // Pages that load videos late (YouTube SPA, infinite scroll) —
+  // re-scan whenever the DOM changes, cheaply: the button is created
+  // at most once.
+  const observer = new MutationObserver(() => {
+    if (document.getElementById(BUTTON_ID) === null) scan()
   })
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true })
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true })
+      scan()
+    })
+  }
 }
+
+void chrome.storage.local.get('floatingButton').then((items) => {
+  if (items['floatingButton'] === true) start()
+})

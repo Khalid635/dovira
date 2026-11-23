@@ -35,6 +35,7 @@ export type HowtoTopic =
   | 'update'
   | 'folder'
   | 'resume'
+  | 'diagnose'
 
 export interface AssistantSnapshot {
   downloads: DownloadInfo[]
@@ -224,7 +225,28 @@ const HOWTO_TOPICS: { topic: HowtoTopic; words: string[] }[] = [
   },
   { topic: 'update', words: ['update yt-dlp', 'update engine', 'yt-dlp update', 'আপডেট'] },
   { topic: 'folder', words: ['folder', 'directory', 'save', 'ফোল্ডার', 'সেভ'] },
-  { topic: 'resume', words: ['resume', 'pause', 'পজ', 'রিজিউম', 'থামা'] }
+  { topic: 'resume', words: ['resume', 'pause', 'পজ', 'রিজিউম', 'থামা'] },
+  // v1.2.0: last — specific topics above win ("extension is not working"
+  // is an extension question, not a diagnostics one).
+  {
+    topic: 'diagnose',
+    words: [
+      'diagnose',
+      'diagnostics',
+      'diagnostic',
+      'problem',
+      'wrong',
+      'not working',
+      'broken',
+      'issue',
+      'সমস্যা',
+      'ডায়াগনস',
+      'ডায়াগনস্টিক',
+      'ঠিক হচ্ছে না',
+      'কাজ করছে না',
+      'গণ্ডগোল'
+    ]
+  }
 ]
 
 /** Lowercase, strip punctuation, collapse spaces. */
@@ -565,7 +587,8 @@ function answerHowto(det: DetectedIntent): AssistantLine[] {
     smart: 'assistant.howtoSmart',
     update: 'assistant.howtoUpdate',
     folder: 'assistant.howtoFolder',
-    resume: 'assistant.howtoResume'
+    resume: 'assistant.howtoResume',
+    diagnose: 'assistant.howtoDiagnose'
   }
   return [{ key: keyByTopic[det.topic] }]
 }

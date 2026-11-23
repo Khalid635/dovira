@@ -15,7 +15,7 @@ What the extension sends per link: the URL, the page's cookies for that URL (Net
 
 ## Pairing (2 minutes)
 
-1. Open the DOVIRA app → **Settings → Browser & Cookies → Browser extension**.
+1. Open the DOVIRA app → **Settings → Setup & diagnostics** — the guided extension install there walks you through pairing (copy folder path, load unpacked, copy token) and shows the live connection status.
 2. Copy the **pairing token** (Show → Copy).
 3. Open the extension's **Options** page and paste the token. Port is 17530 by default — change it only if the app reports a different port in Settings.
 4. Click **Test connection** — it should say "Connected to the DOVIRA app".
@@ -26,8 +26,8 @@ If the token ever leaks, press **Regenerate token** in the app and paste the new
 
 - **Right-click menu** — "Download with DOVIRA" on links, and "Download this page with DOVIRA" on pages/videos.
 - **Toolbar popup** — lists the current page's links (max 50) with a "Send to app" button per link, plus the app-connected status.
-- **Floating download button** — on any page with a `<video>` element (YouTube etc.), a small button appears at the bottom-right. Click it to send that page's video to the app. Dismissible with the × (hidden for the rest of the tab session). It never changes the page layout — one fixed-position element, nothing else.
-- **Intercept downloads (optional, OFF by default)** — in Options, turn on "Send browser downloads to DOVIRA instead". Every download the browser starts is then cancelled and sent to the app.
+- **Floating download button** — on any page with a `<video>` element (YouTube etc.), a small button appears at the bottom-right. Click it to send that page's video to the app. Dismissible with the × (hidden for the rest of the tab session). It never changes the page layout — one fixed-position element, nothing else. Turn it on in the app: **Settings → Setup & diagnostics** (off by default); a page already open needs a reload after you turn it on.
+- **Intercept downloads (optional, OFF by default)** — in the app (**Settings → Setup & diagnostics**), turn on "Send browser downloads to DOVIRA instead". Every download the browser starts is then cancelled and sent to the app. Both switches live in the app and sync to the extension automatically — they are not set in the extension options page.
 - **Playlist links** — the extension refuses playlist URLs with a clear message; picking entries needs the app's Add dialog.
 
 The extension UI is English-only in v0.4.0 (Bangla support is a follow-up).
@@ -71,7 +71,7 @@ extension/
     background.ts        Service worker: context menu, popup messages, intercept
     content.ts           Floating download button (video pages)
     popup.html/.ts       Toolbar popup: page links + Send to app
-    options.html/.ts     Pairing token, port, intercept switch
+    options.html/.ts     Pairing token, port (floating button + intercept live in the app)
     lib.ts               Shared pure helpers (cookies, URL checks)
     chrome.d.ts          Minimal typed chrome.* declarations
   icons/icon.png         App logo

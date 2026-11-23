@@ -126,3 +126,16 @@ export function diskFreeBytes(dir: string): number | null {
     }
   }
 }
+
+/**
+ * v1.2.0: the built browser extension folder the user loads unpacked.
+ * Dev: <project>/extension/dist. Packaged: <resources>/extension
+ * (electron-builder extraResources). Null when neither exists.
+ */
+export function getExtensionDir(appPath: string, resourcesPath: string): string | null {
+  const candidates = [join(appPath, 'extension', 'dist'), join(resourcesPath, 'extension')]
+  for (const c of candidates) {
+    if (existsSync(c)) return c
+  }
+  return null
+}

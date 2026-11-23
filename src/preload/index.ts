@@ -4,6 +4,7 @@ import type {
   AddOptions,
   AppInfo,
   AppUpdateState,
+  DiagnosticsResult,
   DownloadInfo,
   EngineInfo,
   ExtensionApiStatus,
@@ -106,6 +107,10 @@ export interface DoviraAPI {
   // Phase 5: browser extension pairing (Local API status + token).
   extensionStatus(): Promise<ExtensionApiStatus>
   regenerateExtensionToken(): Promise<string>
+  // v1.2.0: guided setup + diagnostics.
+  runDiagnostics(): Promise<DiagnosticsResult>
+  extensionFolderPath(): Promise<string | null>
+  openExtensionFolder(): Promise<boolean>
   // Phase 6: app auto-update (electron-updater + GitHub Releases).
   getAppUpdateState(): Promise<AppUpdateState>
   checkAppUpdate(): Promise<AppUpdateState>
@@ -178,6 +183,10 @@ const api: DoviraAPI = {
   // Phase 5
   extensionStatus: () => ipcRenderer.invoke('dovira:extension:status'),
   regenerateExtensionToken: () => ipcRenderer.invoke('dovira:extension:regenerateToken'),
+  // v1.2.0
+  runDiagnostics: () => ipcRenderer.invoke('dovira:diagnostics:run'),
+  extensionFolderPath: () => ipcRenderer.invoke('dovira:extension:folderPath'),
+  openExtensionFolder: () => ipcRenderer.invoke('dovira:extension:openFolder'),
   // Phase 6
   getAppUpdateState: () => ipcRenderer.invoke('dovira:update:state'),
   checkAppUpdate: () => ipcRenderer.invoke('dovira:update:check'),

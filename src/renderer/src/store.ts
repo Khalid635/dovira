@@ -110,6 +110,10 @@ interface Store {
   checkAppUpdate: () => Promise<void>
   downloadAppUpdate: () => Promise<void>
   installAppUpdate: () => Promise<void>
+  // v1.2.0: first-run setup wizard (also re-openable from Settings).
+  wizardOpen: boolean
+  openWizard: () => void
+  closeWizard: () => void
 }
 
 // Event listeners + the 5s refresh interval are attached once per renderer
@@ -129,6 +133,7 @@ export const useStore = create<Store>()((set, get) => ({
   toast: null,
   dialogOpen: false,
   grabberOpen: false,
+  wizardOpen: false,
   dialogUrl: '',
   dialogLoading: false,
   dialogInfo: null,
@@ -420,6 +425,9 @@ export const useStore = create<Store>()((set, get) => ({
 
   openGrabber: () => set({ grabberOpen: true }),
   closeGrabber: () => set({ grabberOpen: false }),
+
+  openWizard: () => set({ wizardOpen: true }),
+  closeWizard: () => set({ wizardOpen: false }),
 
   setDownloadSpeedLimit: async (id, kbps) => {
     try {

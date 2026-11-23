@@ -332,6 +332,7 @@ app.whenReady().then(() => {
     queue,
     settings,
     db,
+    aria2,
     aria2Binary,
     ytDlpBinary,
     ffmpegBinary,

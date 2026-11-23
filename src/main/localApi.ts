@@ -108,6 +108,8 @@ export class LocalApiServer {
   private server: Server | null = null
   private port: number | null = null
   private token = ''
+  /** v1.2.0: epoch ms of the last request from the extension (null = never seen). */
+  private lastExtensionSeenAt: number | null = null
 
   constructor(
     private settings: SettingsManager,
@@ -184,7 +186,12 @@ export class LocalApiServer {
   }
 
   getStatus(): ExtensionApiStatus {
-    return { running: this.isRunning(), port: this.port, token: this.token }
+    return {
+      running: this.isRunning(),
+      port: this.port,
+      token: this.token,
+      extensionSeenAt: this.lastExtensionSeenAt
+    }
   }
 
   /** New token (Settings > Regenerate). Persisted; the old one stops working at once. */
@@ -241,6 +248,27 @@ export class LocalApiServer {
     if (!this.isAuthorized(req)) {
       logMain('warn', `local-api: rejected ${method} ${path} — bad or missing token`)
       this.send(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
+    // v1.2.0: remember the last time the extension talked to us — the
+    // app's Extension section shows "connected" from this timestamp.
+    // Only extension origins count (a curl probe must not fake it).
+    const origin = req.headers['origin']
+    if (
+      typeof origin === 'string' &&
+      (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))
+    ) {
+      this.lastExtensionSeenAt = Date.now()
+    }
+    if (method === 'GET' && path === '/extension-settings') {
+      // v1.2.0: the extension syncs its behaviour switches from the app
+      // (single source of truth — the options page no longer owns them).
+      const s = this.settings.get()
+      this.send(res, 200, {
+        ok: true,
+        floatingButton: s.extensionFloatingButton,
+        interceptDownloads: s.extensionIntercept
+      })
       return
     }
     if (method === 'GET' && path === '/status') {

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useStore, useT } from '../store'
 import type { ExtensionApiStatus, SchedulerStatus, Settings } from '../../../main/types'
 import { IconCheck } from './icons'
+import ExtensionSetup from './ExtensionSetup'
+import DiagnosticsSection from './DiagnosticsSection'
 
 const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
 
@@ -29,6 +31,7 @@ const SECTIONS = [
   { id: 'settings-general', labelKey: 'settings.navGeneral' },
   { id: 'settings-network', labelKey: 'settings.navNetwork' },
   { id: 'settings-browser', labelKey: 'settings.navBrowser' },
+  { id: 'settings-setup', labelKey: 'settings.navSetup' },
   { id: 'settings-scheduler', labelKey: 'settings.navScheduler' },
   { id: 'settings-video-audio', labelKey: 'settings.navVideoAudio' },
   { id: 'settings-smart', labelKey: 'settings.navSmart' },
@@ -55,6 +58,8 @@ export default function SettingsPage(): React.JSX.Element {
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate)
   const installAppUpdate = useStore((s) => s.installAppUpdate)
   const clearDownloadArchive = useStore((s) => s.clearDownloadArchive)
+  // v1.2.0: re-open the first-run setup wizard.
+  const openWizard = useStore((s) => s.openWizard)
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id)
   // Phase 3: scheduler status (next run / last run) for the Scheduler section.
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
@@ -117,7 +122,9 @@ export default function SettingsPage(): React.JSX.Element {
 
   const regenerateToken = async (): Promise<void> => {
     const token = await window.dovira.regenerateExtensionToken()
-    setExtStatus((prev) => (prev ? { ...prev, token } : { running: false, port: null, token }))
+    setExtStatus((prev) =>
+      prev ? { ...prev, token } : { running: false, port: null, token, extensionSeenAt: null }
+    )
   }
 
   // Phase 7: live template preview — same code path as the real naming
@@ -562,6 +569,25 @@ export default function SettingsPage(): React.JSX.Element {
               </span>
             </label>
             <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.extensionHint')}</p>
+          </div>
+        </section>
+
+        {/* v1.2.0: Setup & diagnostics — first-run wizard re-run, guided extension install, self-checks. */}
+        <section id="settings-setup" className="card scroll-mt-6">
+          <div className="settings-head">
+            <h2 className="text-[14px] font-semibold">{t('settings.setupTitle')}</h2>
+          </div>
+          <div className="settings-field">
+            <button className="btn btn-sm" onClick={openWizard}>
+              {t('settings.setupRerun')}
+            </button>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.setupRerunHint')}</p>
+          </div>
+          <div className="settings-field">
+            <ExtensionSetup />
+          </div>
+          <div className="settings-field">
+            <DiagnosticsSection />
           </div>
         </section>
 

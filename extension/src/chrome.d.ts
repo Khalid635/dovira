@@ -41,6 +41,13 @@ declare global {
     [key: string]: unknown
   }
 
+  // v1.2.0: the 1-minute ping that keeps the app's extension status live.
+  interface ChromeAlarm {
+    name: string
+    scheduledTime: number
+    periodInMinutes?: number
+  }
+
   const chrome: {
     runtime: {
       lastError?: { message: string }
@@ -55,6 +62,12 @@ declare global {
         ) => void
       }
       onInstalled: { addListener: (cb: (details: { reason: string }) => void) => void }
+      // v1.2.0: check in with the app right after the browser starts.
+      onStartup: { addListener: (cb: () => void) => void }
+    }
+    alarms: {
+      create: (name: string, info: { periodInMinutes: number }) => void
+      onAlarm: { addListener: (cb: (alarm: ChromeAlarm) => void) => void }
     }
     tabs: {
       query: (query: { active: boolean; currentWindow: boolean }) => Promise<ChromeTab[]>

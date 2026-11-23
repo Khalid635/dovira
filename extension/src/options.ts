@@ -8,7 +8,6 @@ const DEFAULT_API_PORT = 17530
 
 const tokenEl = document.getElementById('token') as HTMLInputElement
 const portEl = document.getElementById('port') as HTMLInputElement
-const interceptEl = document.getElementById('intercept') as HTMLInputElement
 const statusEl = document.getElementById('status') as HTMLDivElement
 const saveBtn = document.getElementById('save') as HTMLButtonElement
 const testBtn = document.getElementById('test') as HTMLButtonElement
@@ -19,20 +18,21 @@ function setStatus(text: string, ok: boolean | null): void {
 }
 
 async function load(): Promise<void> {
-  const items = await chrome.storage.local.get(['token', 'port', 'interceptDownloads'])
+  const items = await chrome.storage.local.get(['token', 'port'])
   tokenEl.value = typeof items['token'] === 'string' ? (items['token'] as string) : ''
   portEl.value = String(
     typeof items['port'] === 'number' ? (items['port'] as number) : DEFAULT_API_PORT
   )
-  interceptEl.checked = items['interceptDownloads'] === true
 }
 
 async function save(): Promise<void> {
   const port = Number(portEl.value)
+  // v1.2.0: token + port only. The floating-button / intercept switches
+  // live in the app (Settings > Setup & diagnostics) and sync here —
+  // saving must not overwrite them.
   await chrome.storage.local.set({
     token: tokenEl.value.trim(),
-    port: Number.isFinite(port) && port > 0 && port <= 65535 ? Math.floor(port) : DEFAULT_API_PORT,
-    interceptDownloads: interceptEl.checked
+    port: Number.isFinite(port) && port > 0 && port <= 65535 ? Math.floor(port) : DEFAULT_API_PORT
   })
   setStatus('Saved.', true)
 }

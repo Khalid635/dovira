@@ -2,6 +2,40 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [1.2.0]
+
+### Added
+
+- First-run setup wizard (Bangla + English): welcome with language picker, download
+  folder pick with free-space display, guided browser-extension install, done screen.
+  Skippable; re-openable from Settings > Setup & diagnostics.
+- Guided in-app extension install: live connection status (extension last seen), copy
+  folder path / open folder, copy `chrome://extensions` address, load-unpacked
+  walkthrough, token copy + regenerate, Test connection button. The extension now
+  checks in with the app every minute (chrome.alarms) and syncs the floating-button
+  and download-intercept switches from the app — the app is the single source of
+  truth; both default OFF.
+- In-app diagnostics (Settings > Setup & diagnostics): Local API, yt-dlp (version +
+  update available), aria2, extension connection, and download folder (missing folder
+  is created, under 1 GB free space warns), each with a plain-language Bangla/English
+  explanation and a one-click fix where one exists (update yt-dlp, open setup,
+  choose folder).
+- New `dovira:diagnostics:run`, `dovira:extension:folderPath`, and
+  `dovira:extension:openFolder` IPC channels; Local API `GET /extension-settings`
+  (floating button + intercept, token-authenticated); `ExtensionApiStatus` now
+  includes `extensionSeenAt`.
+- AI Assistant: new "diagnose" topic — "my download is not working / সমস্যা" points
+  at Settings > Setup & diagnostics and its one-click fixes.
+- Settings now include `setupCompleted`, `extensionFloatingButton`, and
+  `extensionIntercept` (all default false/off).
+
+### Changed
+
+- Extension options page no longer has the download-intercept checkbox — the switch
+  lives in the app and syncs to the extension. The floating button is also gated on
+  the app switch (default off); a page already open needs a reload after enabling.
+- Extension version 1.2.0.
+
 ## [1.1.0] - 2026-11-23
 
 AI Assistant (post-v1.0, plan §16) — chat helper in the sidebar.

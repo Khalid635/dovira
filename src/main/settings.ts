@@ -60,7 +60,11 @@ export const DEFAULT_SETTINGS: Settings = {
   // AI Assistant (post-v1.0, v1.1.0) — rule-based first; the local model
   // is an opt-in enhancement, default OFF.
   assistantEnabled: true,
-  assistantLocalModel: false
+  assistantLocalModel: false,
+  // v1.2.0: guided in-app setup — first-run wizard, extension section, diagnostics.
+  setupCompleted: false,
+  extensionFloatingButton: false,
+  extensionIntercept: false
 }
 
 const COOKIE_BROWSERS = ['none', 'chrome', 'edge', 'firefox', 'brave'] as const
@@ -168,6 +172,10 @@ function normalizeSettings(next: Settings): Settings {
   // AI Assistant (post-v1.0, v1.1.0).
   next.assistantEnabled = next.assistantEnabled === true
   next.assistantLocalModel = next.assistantLocalModel === true
+  // v1.2.0: guided setup.
+  next.setupCompleted = next.setupCompleted === true
+  next.extensionFloatingButton = next.extensionFloatingButton === true
+  next.extensionIntercept = next.extensionIntercept === true
   return next
 }
 

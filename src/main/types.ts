@@ -120,6 +120,12 @@ export interface Settings {
   assistantEnabled: boolean
   /** AI Assistant: send unmatched questions to the local model (Ollama/LM Studio). Default OFF. */
   assistantLocalModel: boolean
+  /** v1.2.0: first-run setup wizard completed. False = the wizard shows on launch. */
+  setupCompleted: boolean
+  /** v1.2.0: browser extension floating download button (default OFF). */
+  extensionFloatingButton: boolean
+  /** v1.2.0: browser extension intercepts browser downloads (default OFF). */
+  extensionIntercept: boolean
 }
 
 /** Phase 6: app auto-update state, shown in Settings > App updates. */
@@ -338,4 +344,27 @@ export interface ExtensionApiStatus {
   port: number | null
   /** The pairing token (shown so the user can copy it into the extension). */
   token: string
+  /** v1.2.0: epoch ms of the last request from the extension (null = never seen). */
+  extensionSeenAt: number | null
+}
+
+/**
+ * v1.2.0: one self-check row from the Setup & diagnostics section.
+ * detailKey is an i18n key; the renderer translates it with detailParams.
+ */
+export type DiagnosticId = 'localApi' | 'ytdlp' | 'aria2' | 'extension' | 'downloadDir'
+export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
+export type DiagnosticFix = 'updateYtdlp' | 'openSetup' | 'chooseFolder'
+
+export interface DiagnosticCheck {
+  id: DiagnosticId
+  status: DiagnosticStatus
+  detailKey: string
+  detailParams?: Record<string, string | number>
+  fix: DiagnosticFix | null
+}
+
+export interface DiagnosticsResult {
+  checks: DiagnosticCheck[]
+  ranAt: number
 }

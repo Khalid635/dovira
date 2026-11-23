@@ -14,7 +14,7 @@ import {
   updateYtDlp,
   type EngineSpec
 } from './engines/versions'
-import { diskFreeBytes } from './util/paths'
+import { diskFreeBytes, getExtensionDir } from './util/paths'
 import { scanPage } from './grabber'
 import type {
   AddOptions,
@@ -24,6 +24,8 @@ import type {
   Settings
 } from './types'
 import { logMain } from './logger'
+import { runDiagnostics } from './diagnostics'
+import type { Aria2Manager } from './engines/aria2'
 import type { SchedulerManager } from './scheduler'
 import type { LocalApiServer } from './localApi'
 import type { AppUpdater } from './updater'
@@ -34,6 +36,8 @@ export interface IpcDeps {
   db: DoviraDb
   /** Phase 6: null on macOS/Linux when no source-built aria2c is bundled. */
   aria2Binary: string | null
+  /** v1.2.0: aria2 daemon (null on macOS/Linux when no source-built aria2c is bundled). */
+  aria2: Aria2Manager | null
   ytDlpBinary: string | null
   ffmpegBinary: string | null
   denoBinary: string | null
@@ -317,6 +321,29 @@ export function registerIpc(deps: IpcDeps): void {
   // can copy it into the extension's options page.
   ipcMain.handle('dovira:extension:status', (): ExtensionApiStatus => deps.localApi.getStatus())
   ipcMain.handle('dovira:extension:regenerateToken', (): string => deps.localApi.regenerateToken())
+  // v1.2.0: guided setup + diagnostics.
+  ipcMain.handle('dovira:diagnostics:run', async () => {
+    const s = settings.get()
+    return runDiagnostics({
+      localApi: deps.localApi,
+      aria2: deps.aria2,
+      aria2Binary: deps.aria2Binary,
+      ytDlpBinary: deps.ytDlpBinary,
+      downloadDir: s.downloadDir,
+      freeBytes: diskFreeBytes(s.downloadDir),
+      isWindows: process.platform === 'win32'
+    })
+  })
+  // v1.2.0: the built extension folder the user loads unpacked in Chrome.
+  ipcMain.handle('dovira:extension:folderPath', () =>
+    getExtensionDir(app.getAppPath(), process.resourcesPath)
+  )
+  ipcMain.handle('dovira:extension:openFolder', () => {
+    const dir = getExtensionDir(app.getAppPath(), process.resourcesPath)
+    if (!dir) return false
+    void shell.openPath(dir)
+    return true
+  })
   // The four --version spawns used to run sequentially, so startup init()
   // waited the SUM of four cold process spawns (several seconds under
   // Defender) and Home sat on its loading state. They are independent —
