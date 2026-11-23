@@ -2,9 +2,9 @@ import { BrowserWindow, Notification, dialog, ipcMain, shell, app } from 'electr
 import type { OpenDialogOptions } from 'electron'
 import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import type { DoviraDb } from './db'
-import type { SettingsManager } from './settings'
-import type { QueueManager } from './queue'
+import type { DoviraDb } from './db.ts'
+import type { SettingsManager } from './settings.ts'
+import type { QueueManager } from './queue.ts'
 import {
   getAria2Version,
   getDenoVersion,
@@ -13,32 +13,32 @@ import {
   listEngines,
   updateYtDlp,
   type EngineSpec
-} from './engines/versions'
-import { diskFreeBytes, getExtensionDir, ENGINE_FILES } from './util/paths'
-import { sha256File } from './checksum'
-import { recordEngineHashOverride } from './security'
-import { scanPage } from './grabber'
-import { mimeForPreview } from './localApi'
+} from './engines/versions.ts'
+import { diskFreeBytes, getExtensionDir, ENGINE_FILES } from './util/paths.ts'
+import { sha256File } from './checksum.ts'
+import { recordEngineHashOverride } from './security.ts'
+import { scanPage } from './grabber.ts'
+import { mimeForPreview } from './localApi.ts'
 import {
   discardExtensionRequest,
   peekAnyExtensionRequest,
   peekExtensionRequest,
   takeExtensionRequest
-} from './extensionRequests'
-import type { SubscriptionManager } from './smart/subscriptions'
+} from './extensionRequests.ts'
+import type { SubscriptionManager } from './smart/subscriptions.ts'
 import type {
   AddOptions,
   AppUpdateState,
   ExtensionApiStatus,
   GrabberScanResult,
   Settings
-} from './types'
-import { logMain } from './logger'
-import { runDiagnostics } from './diagnostics'
-import type { Aria2Manager } from './engines/aria2'
-import type { SchedulerManager } from './scheduler'
-import type { LocalApiServer } from './localApi'
-import type { AppUpdater } from './updater'
+} from './types.ts'
+import { logMain } from './logger.ts'
+import { runDiagnostics } from './diagnostics.ts'
+import type { Aria2Manager } from './engines/aria2.ts'
+import type { SchedulerManager } from './scheduler.ts'
+import type { LocalApiServer } from './localApi.ts'
+import type { AppUpdater } from './updater.ts'
 
 export interface IpcDeps {
   queue: QueueManager

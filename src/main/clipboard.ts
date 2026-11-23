@@ -1,5 +1,5 @@
 import { clipboard } from 'electron'
-import type { QueueManager } from './queue'
+import type { QueueManager } from './queue.ts'
 
 /**
  * Phase 3: clipboard watch (AI Link Detection). Polls the clipboard once

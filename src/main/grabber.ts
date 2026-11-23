@@ -1,5 +1,5 @@
-import { filenameFromUrl } from './util/filename'
-import type { GrabberItem, GrabberKind, GrabberScanResult } from './types'
+import { filenameFromUrl } from './util/filename.ts'
+import type { GrabberItem, GrabberKind, GrabberScanResult } from './types.ts'
 
 const MAX_ITEMS = 200
 const MAX_PAGE_BYTES = 5 * 1024 * 1024

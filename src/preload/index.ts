@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AssistantAnswer } from '../main/smart/assistant'
+import type { AssistantAnswer } from '../main/smart/assistant.ts'
 import type {
   AddOptions,
   AppInfo,
@@ -21,7 +21,7 @@ import type {
   SubscriptionVideo,
   ToastEvent,
   VideoInfo
-} from '../main/types'
+} from '../main/types.ts'
 
 export interface DoviraAPI {
   listDownloads(): Promise<DownloadInfo[]>

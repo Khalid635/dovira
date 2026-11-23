@@ -11,12 +11,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join } from 'node:path'
 import { app } from 'electron'
 import { safeStorage } from 'electron'
-import { loadExtensionToken, storeExtensionToken, type TokenCrypto } from './tokenStore'
-import type { QueueManager } from './queue'
-import type { SettingsManager } from './settings'
-import type { ExtensionApiStatus, ExtensionDownloadRequest, LocalApiHooks } from './types'
-import { discardPendingExtensionRequest, setExtensionRequest } from './extensionRequests'
-import { logMain } from './logger'
+import { loadExtensionToken, storeExtensionToken, type TokenCrypto } from './tokenStore.ts'
+import type { QueueManager } from './queue.ts'
+import type { SettingsManager } from './settings.ts'
+import type { ExtensionApiStatus, ExtensionDownloadRequest, LocalApiHooks } from './types.ts'
+import { discardPendingExtensionRequest, setExtensionRequest } from './extensionRequests.ts'
+import { logMain } from './logger.ts'
 import { isValidExtensionOptionsUrl } from './util/extensionOptions.ts'
 
 /**

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import type { QueueManager } from './queue'
-import type { SettingsManager } from './settings'
-import type { SchedulerAction, SchedulerCountdown, SchedulerStatus, StatusEvent } from './types'
+import type { QueueManager } from './queue.ts'
+import type { SettingsManager } from './settings.ts'
+import type { SchedulerAction, SchedulerCountdown, SchedulerStatus, StatusEvent } from './types.ts'
 
 /**
  * Phase 3: timed queue start + optional shutdown/sleep after the run.

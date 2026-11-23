@@ -7,7 +7,7 @@ import type {
   DownloadStatus,
   Subscription,
   SubscriptionVideo
-} from './types'
+} from './types.ts'
 
 interface DownloadRow {
   id: string

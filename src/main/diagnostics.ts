@@ -7,17 +7,17 @@
  * for --version and creating the download folder when it is missing.
  */
 import { existsSync, mkdirSync } from 'node:fs'
-import type { Aria2Manager } from './engines/aria2'
-import { checkLatest, getAria2Version, getYtDlpVersion } from './engines/versions'
-import type { LocalApiServer } from './localApi'
-import type { DiagnosticCheck, DiagnosticsResult } from './types'
-import { currentPlatform } from './util/paths'
+import type { Aria2Manager } from './engines/aria2.ts'
+import { checkLatest, getAria2Version, getYtDlpVersion } from './engines/versions.ts'
+import type { LocalApiServer } from './localApi.ts'
+import type { DiagnosticCheck, DiagnosticsResult } from './types.ts'
+import { currentPlatform } from './util/paths.ts'
 import {
   getExpectedBinaryHashes,
   loadEngineHashOverrides,
   verifyEngineBinaries,
   type EngineBinaryInput
-} from './security'
+} from './security.ts'
 
 export interface DiagnosticsDeps {
   localApi: LocalApiServer

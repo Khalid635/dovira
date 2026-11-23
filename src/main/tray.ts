@@ -1,5 +1,5 @@
 import { Menu, Tray, type BrowserWindow } from 'electron'
-import type { QueueManager } from './queue'
+import type { QueueManager } from './queue.ts'
 
 /**
  * Phase 3: system tray. Double-click shows the window; the menu has

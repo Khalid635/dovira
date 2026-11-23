@@ -16,9 +16,9 @@ import type {
   SubscriptionVideo,
   ToastEvent,
   VideoInfo
-} from '../../main/types'
+} from '../../main/types.ts'
 import { t, type Language } from './i18n'
-import { buildMediaOptions, defaultHeightFor, looksLikeUrl } from './util/quickAdd'
+import { buildMediaOptions, defaultHeightFor, looksLikeUrl } from './util/quickAdd.ts'
 
 export type Filter = 'all' | 'downloading' | 'queued' | 'completed' | 'video' | 'audio' | 'files'
 export type View = 'home' | 'history' | 'settings' | 'assistant' | 'subscriptions'

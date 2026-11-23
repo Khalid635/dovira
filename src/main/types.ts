@@ -1,5 +1,5 @@
-import type { NetworkClass } from './smart/adaptive'
-import type { NamePresetId } from './smart/namePresets'
+import type { NetworkClass } from './smart/adaptive.ts'
+import type { NamePresetId } from './smart/namePresets.ts'
 
 export type { NetworkClass }
 

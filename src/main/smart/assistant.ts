@@ -14,14 +14,14 @@
  * model (Ollama / LM Studio) only ever sees the compact prompt built by
  * buildModelPrompt() — download metadata only, no file paths, no URLs.
  */
-import type { DownloadInfo, Settings } from '../types'
+import type { DownloadInfo, Settings } from '../types.ts'
 import {
   detectCommand,
   extractUrls,
   hasDownloadVerb,
   normalizeCommand,
   type AssistantCommand
-} from './assistantCommands'
+} from './assistantCommands.ts'
 
 export type AssistantIntent =
   'status' | 'failed' | 'find' | 'howto' | 'greeting' | 'fallback' | 'command'

@@ -1,8 +1,8 @@
 import { app } from 'electron'
 import { autoUpdater, type UpdateDownloadedEvent } from 'electron-updater'
-import { logMain } from './logger'
-import { verifyFileAgainstChecksums } from './checksum'
-import type { AppUpdateState, Settings } from './types'
+import { logMain } from './logger.ts'
+import { verifyFileAgainstChecksums } from './checksum.ts'
+import type { AppUpdateState, Settings } from './types.ts'
 
 /**
  * Phase 6: app auto-update via electron-updater + GitHub Releases.

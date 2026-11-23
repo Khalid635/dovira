@@ -17,7 +17,7 @@
  * Pure functions over the download list — no I/O, unit-tested in
  * tests/assistant-commands.test.ts.
  */
-import type { DownloadInfo } from '../types'
+import type { DownloadInfo } from '../types.ts'
 
 export type AssistantCommand =
   | { type: 'download'; url: string }

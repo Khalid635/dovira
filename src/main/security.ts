@@ -11,8 +11,8 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { sha256File } from './checksum'
-import expectedBinaryHashes from './binary-hashes.json'
+import { sha256File } from './checksum.ts'
+import expectedBinaryHashes from './binary-hashes.json' with { type: 'json' }
 
 export type DefenderScanResult = 'clean' | 'threat' | 'unknown' | 'unavailable' | 'skipped'
 

@@ -12,7 +12,7 @@
  * through the SettingsManager shape, so this compiles standalone.
  */
 import { randomBytes } from 'node:crypto'
-import type { Settings } from './types'
+import type { Settings } from './types.ts'
 
 export interface TokenCrypto {
   isAvailable(): boolean

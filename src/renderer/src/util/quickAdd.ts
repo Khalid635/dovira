@@ -1,4 +1,4 @@
-import type { AddOptions, Settings, VideoInfo } from '../../../main/types'
+import type { AddOptions, Settings, VideoInfo } from '../../../main/types.ts'
 import { pickSubtitles } from './autoPick.ts'
 
 /**

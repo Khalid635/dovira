@@ -3,29 +3,29 @@ import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { DoviraDb } from './db'
-import { SettingsManager } from './settings'
-import type { ExtensionDownloadRequest, Settings } from './types'
-import { Aria2Manager } from './engines/aria2'
-import { YtDlpManager } from './engines/ytdlp'
-import { QueueManager } from './queue'
-import { SchedulerManager } from './scheduler'
-import { TrayManager } from './tray'
-import { ClipboardWatcher } from './clipboard'
-import { registerIpc } from './ipc'
-import { LocalApiServer } from './localApi'
-import { SubscriptionManager } from './smart/subscriptions'
+import { DoviraDb } from './db.ts'
+import { SettingsManager } from './settings.ts'
+import type { ExtensionDownloadRequest, Settings } from './types.ts'
+import { Aria2Manager } from './engines/aria2.ts'
+import { YtDlpManager } from './engines/ytdlp.ts'
+import { QueueManager } from './queue.ts'
+import { SchedulerManager } from './scheduler.ts'
+import { TrayManager } from './tray.ts'
+import { ClipboardWatcher } from './clipboard.ts'
+import { registerIpc } from './ipc.ts'
+import { LocalApiServer } from './localApi.ts'
+import { SubscriptionManager } from './smart/subscriptions.ts'
 import {
   findBinary,
   ensureExecutable,
   ENGINE_FILES,
   platformDirName,
   currentPlatform
-} from './util/paths'
-import { getExpectedBinaryHashes, loadEngineHashOverrides, verifyEngineBinaries } from './security'
-import { AppUpdater } from './updater'
-import { getYtDlpVersion } from './engines/versions'
-import { initLogger, logMain } from './logger'
+} from './util/paths.ts'
+import { getExpectedBinaryHashes, loadEngineHashOverrides, verifyEngineBinaries } from './security.ts'
+import { AppUpdater } from './updater.ts'
+import { getYtDlpVersion } from './engines/versions.ts'
+import { initLogger, logMain } from './logger.ts'
 
 let mainWindow: BrowserWindow | null = null
 let db: DoviraDb | null = null

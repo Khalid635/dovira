@@ -14,7 +14,7 @@
  * so it is unit-testable with a fake db (tests/subscriptions.test.ts).
  */
 import { randomUUID } from 'node:crypto'
-import type { PlaylistInfo, Subscription, SubscriptionVideo } from '../types'
+import type { PlaylistInfo, Subscription, SubscriptionVideo } from '../types.ts'
 
 export type SubscriptionError =
   | 'invalid-url'

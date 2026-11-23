@@ -14,7 +14,7 @@
  * it is unit-testable in tests/extension-dialog-handoff.test.ts.
  */
 import { existsSync, unlinkSync } from 'node:fs'
-import type { ExtensionDownloadRequest } from './types'
+import type { ExtensionDownloadRequest } from './types.ts'
 
 export type { ExtensionDownloadRequest }
 

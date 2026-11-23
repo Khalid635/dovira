@@ -1,4 +1,4 @@
-import type { DoviraAPI } from './index'
+import type { DoviraAPI } from './index.ts'
 
 declare global {
   interface Window {

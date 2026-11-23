@@ -7,7 +7,7 @@
  * Pure functions; the template is applied in main and previewed in the
  * Add dialog before anything is downloaded.
  */
-import { sanitizeFilename } from '../util/filename'
+import { sanitizeFilename } from '../util/filename.ts'
 
 export interface NameTemplateVars {
   title: string

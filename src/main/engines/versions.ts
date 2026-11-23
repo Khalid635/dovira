@@ -10,8 +10,8 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { get } from 'node:https'
-import type { EngineInfo } from '../types'
-import { currentPlatform, ENGINE_FILES, ensureExecutable } from '../util/paths'
+import type { EngineInfo } from '../types.ts'
+import { currentPlatform, ENGINE_FILES, ensureExecutable } from '../util/paths.ts'
 
 function runVersion(binaryPath: string, args: string[], re: RegExp): Promise<string | null> {
   return new Promise((resolve) => {

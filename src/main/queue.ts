@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { app } from 'electron'
 import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
-import type { DoviraDb } from './db'
-import type { SettingsManager } from './settings'
-import type { Aria2Manager } from './engines/aria2'
-import { pickHeight, pickSubtitles } from './smart/autoPick'
-import type { AssistantCommand } from './smart/assistantCommands'
+import type { DoviraDb } from './db.ts'
+import type { SettingsManager } from './settings.ts'
+import type { Aria2Manager } from './engines/aria2.ts'
+import { pickHeight, pickSubtitles } from './smart/autoPick.ts'
+import type { AssistantCommand } from './smart/assistantCommands.ts'
 import {
   YtDlpManager,
   YtDlpError,
@@ -15,34 +15,34 @@ import {
   ytdlpPartFiles,
   type YtDlpDownload,
   type YtDlpDownloadOpts
-} from './engines/ytdlp'
-import { categorize, organizeDir, type Category } from './smart/categorize'
-import { suggestName } from './smart/naming'
-import { AdaptiveNet } from './smart/adaptive'
-import { cookiesFileHash, FetchInfoCache } from './util/fetchInfoCache'
+} from './engines/ytdlp.ts'
+import { categorize, organizeDir, type Category } from './smart/categorize.ts'
+import { suggestName } from './smart/naming.ts'
+import { AdaptiveNet } from './smart/adaptive.ts'
+import { cookiesFileHash, FetchInfoCache } from './util/fetchInfoCache.ts'
 import {
   askCategory,
   askLocalModel,
   testLocalModel,
   type LocalModelSettings
-} from './smart/localModel'
+} from './smart/localModel.ts'
 import {
   answerQuestion,
   buildModelPrompt,
   type AssistantAnswer,
   type AssistantSnapshot
-} from './smart/assistant'
-import { findFileDuplicate, type DuplicateInfo } from './smart/duplicates'
+} from './smart/assistant.ts'
+import { findFileDuplicate, type DuplicateInfo } from './smart/duplicates.ts'
 import {
   sanitizeFilename,
   resolveUniquePath,
   resolveDownloadPath,
   filenameFromUrl
-} from './util/filename'
-import { applyPostDownloadSecurity, findMpCmdRun } from './security'
-import { mapEngineError } from './util/errors'
-import { diskFreeBytes } from './util/paths'
-import { logMain } from './logger'
+} from './util/filename.ts'
+import { applyPostDownloadSecurity, findMpCmdRun } from './security.ts'
+import { mapEngineError } from './util/errors.ts'
+import { diskFreeBytes } from './util/paths.ts'
+import { logMain } from './logger.ts'
 import type {
   AddOptions,
   DownloadInfo,
@@ -52,7 +52,7 @@ import type {
   ProgressEvent,
   StatusEvent,
   ToastEvent
-} from './types'
+} from './types.ts'
 
 interface ActiveEntry {
   gid?: string
@@ -67,13 +67,13 @@ const MAX_ARIA2_RESTARTS = 3
 const RETRY_DELAYS_MS = [2000, 5000, 15000]
 
 // Phase 7: same folder, ignoring a trailing slash and Windows case.
-function sameDir(a: string, b: string): boolean {
+export function sameDir(a: string, b: string): boolean {
   const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
   return norm(a) === norm(b)
 }
 
 /** Phase 4: magnet: links and .torrent file URLs go to aria2 as torrents. */
-function isTorrentUrl(url: string): boolean {
+export function isTorrentUrl(url: string): boolean {
   if (url.startsWith('magnet:')) return true
   try {
     return new URL(url).pathname.toLowerCase().endsWith('.torrent')
@@ -83,7 +83,7 @@ function isTorrentUrl(url: string): boolean {
 }
 
 /** Phase 4: torrent name from a magnet link's dn= param, else a default. */
-function magnetName(url: string): string {
+export function magnetName(url: string): string {
   try {
     const dn = new URL(url).searchParams.get('dn')
     if (dn) return dn
@@ -94,7 +94,7 @@ function magnetName(url: string): string {
 }
 
 /** Phase 4: playlist/channel-looking URLs get a flat-playlist fetch first. */
-function looksLikePlaylist(url: string): boolean {
+export function looksLikePlaylist(url: string): boolean {
   try {
     const parsed = new URL(url)
     // v0.6.1: a watch URL with a video id is ONE video, even when it
@@ -165,7 +165,7 @@ const FILE_EXTS = new Set([
   'json'
 ])
 
-function kindFromCategory(filename: string): DownloadKind {
+export function kindFromCategory(filename: string): DownloadKind {
   const category = categorize({ filename })
   if (category === 'Video') return 'video'
   if (category === 'Music') return 'audio'
@@ -203,7 +203,7 @@ interface YtDlpState {
   referer?: string | null
 }
 
-function parseYtDlpState(raw: string | null): YtDlpState | null {
+export function parseYtDlpState(raw: string | null): YtDlpState | null {
   if (!raw) return null
   try {
     return JSON.parse(raw) as YtDlpState

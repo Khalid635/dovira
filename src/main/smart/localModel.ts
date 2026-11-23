@@ -7,8 +7,8 @@
  * back to the rules silently. Nothing leaves the machine: the endpoint is
  * localhost by default.
  */
-import { CATEGORIES, type Category } from './categorize'
-import { classifyLocalModelTestError } from '../util/errors'
+import { CATEGORIES, type Category } from './categorize.ts'
+import { classifyLocalModelTestError } from '../util/errors.ts'
 
 export interface LocalModelSettings {
   enabled: boolean

@@ -1,7 +1,7 @@
-import type { DoviraDb } from './db'
-import type { Settings } from './types'
-import { isNamePresetId } from './smart/namePresets'
-import { getDefaultDownloadDir } from './util/paths'
+import type { DoviraDb } from './db.ts'
+import type { Settings } from './types.ts'
+import { isNamePresetId } from './smart/namePresets.ts'
+import { getDefaultDownloadDir } from './util/paths.ts'
 
 export const DEFAULT_SETTINGS: Settings = {
   downloadDir: getDefaultDownloadDir(),
