@@ -8,6 +8,7 @@
  * localhost by default.
  */
 import { CATEGORIES, type Category } from './categorize'
+import { classifyLocalModelTestError } from '../util/errors'
 
 export interface LocalModelSettings {
   enabled: boolean
@@ -75,12 +76,54 @@ export async function askCategory(s: LocalModelSettings, title: string): Promise
   return match ?? null
 }
 
-/** Settings > Smart "Test" button: is a model reachable at this endpoint? */
+/**
+ * Settings > Smart "Test" button: is a model reachable at this endpoint?
+ * Issue #5: the result now says WHAT failed — no endpoint/model set,
+ * unreachable, timed out, server error, or a bad (empty/unusable) answer —
+ * so the Settings status line can name it instead of showing only ok/fail.
+ * Same request shape as askLocalModel, but with the failure classified
+ * instead of collapsed to null.
+ */
 export async function testLocalModel(
   s: LocalModelSettings
 ): Promise<{ ok: boolean; error?: string }> {
   if (!s.endpoint) return { ok: false, error: 'no-endpoint' }
-  const answer = await askLocalModel({ ...s, enabled: true }, 'Reply with the single word: ok')
-  if (answer === null) return { ok: false, error: 'unreachable' }
+  if (!s.model) return { ok: false, error: 'no-model' }
+  const base = baseUrl(s.endpoint)
+  const isLmStudio = s.provider === 'lmstudio'
+  const url = isLmStudio ? `${base}/v1/chat/completions` : `${base}/api/generate`
+  const body = isLmStudio
+    ? {
+        model: s.model,
+        messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
+        temperature: 0,
+        max_tokens: 64
+      }
+    : { model: s.model, prompt: 'Reply with the single word: ok', stream: false }
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    })
+  } catch (err) {
+    return { ok: false, error: classifyLocalModelTestError(err) }
+  }
+  if (!res.ok) return { ok: false, error: 'http' }
+  let json: unknown
+  try {
+    json = (await res.json()) as unknown
+  } catch {
+    return { ok: false, error: 'bad-answer' }
+  }
+  const content = isLmStudio
+    ? (json as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message
+        ?.content
+    : (json as { response?: unknown } | null)?.response
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    return { ok: false, error: 'bad-answer' }
+  }
   return { ok: true }
 }

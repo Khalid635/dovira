@@ -88,3 +88,16 @@ export function mapEngineError(raw: string): FriendlyError {
   }
   return { code: 'unknown', raw }
 }
+
+/**
+ * Issue #5 — local-model Test failure reasons.
+ * The Test button used to show only ok/fail; the failure reason is now
+ * surfaced (unreachable / timeout / bad answer).
+ */
+export type LocalModelTestError = 'timeout' | 'unreachable' | 'bad-answer'
+
+export function classifyLocalModelTestError(err: unknown): LocalModelTestError {
+  if (err instanceof Error && err.name === 'AbortError') return 'timeout'
+  if (err instanceof SyntaxError) return 'bad-answer'
+  return 'unreachable'
+}

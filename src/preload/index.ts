@@ -22,8 +22,15 @@ import type {
 
 export interface DoviraAPI {
   listDownloads(): Promise<DownloadInfo[]>
-  addDownload(url: string, saveDir?: string): Promise<{ ok: boolean; id?: string; error?: string }>
-  fetchInfo(url: string): Promise<{
+  addDownload(
+    url: string,
+    saveDir?: string,
+    opts?: { skipDuplicateCheck?: boolean }
+  ): Promise<{ ok: boolean; id?: string; error?: string }>
+  fetchInfo(
+    url: string,
+    opts?: { force?: boolean }
+  ): Promise<{
     ok: boolean
     info?: VideoInfo
     plainFile?: PlainFileInfo
@@ -84,6 +91,7 @@ export interface DoviraAPI {
   addGrabbedLinks(urls: string[]): Promise<{ added: number; failed: number; ids: string[] }>
   openFile(id: string): Promise<boolean>
   showInFolder(id: string): Promise<boolean>
+  showPathInFolder(path: string): Promise<boolean>
   getSettings(): Promise<Settings>
   setSettings(patch: Partial<Settings>): Promise<Settings>
   getAppInfo(): Promise<AppInfo>
@@ -135,9 +143,10 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 // Custom APIs for renderer
 const api: DoviraAPI = {
   listDownloads: () => ipcRenderer.invoke('dovira:downloads:list'),
-  addDownload: (url: string, saveDir?: string) =>
-    ipcRenderer.invoke('dovira:downloads:add', url, saveDir),
-  fetchInfo: (url: string) => ipcRenderer.invoke('dovira:info:fetch', url),
+  addDownload: (url: string, saveDir?: string, opts?: { skipDuplicateCheck?: boolean }) =>
+    ipcRenderer.invoke('dovira:downloads:add', url, saveDir, opts ?? null),
+  fetchInfo: (url: string, opts?: { force?: boolean }) =>
+    ipcRenderer.invoke('dovira:info:fetch', url, opts ?? null),
   addWithOptions: (opts: AddOptions) => ipcRenderer.invoke('dovira:downloads:addWithOptions', opts),
   listEngines: (checkForUpdates: boolean) =>
     ipcRenderer.invoke('dovira:engines:list', checkForUpdates),
@@ -161,6 +170,7 @@ const api: DoviraAPI = {
   addGrabbedLinks: (urls: string[]) => ipcRenderer.invoke('dovira:grabber:add', urls),
   openFile: (id: string) => ipcRenderer.invoke('dovira:downloads:openFile', id),
   showInFolder: (id: string) => ipcRenderer.invoke('dovira:downloads:showInFolder', id),
+  showPathInFolder: (path: string) => ipcRenderer.invoke('dovira:downloads:showPathInFolder', path),
   getSettings: () => ipcRenderer.invoke('dovira:settings:get'),
   setSettings: (patch: Partial<Settings>) => ipcRenderer.invoke('dovira:settings:set', patch),
   getAppInfo: () => ipcRenderer.invoke('dovira:app:info'),

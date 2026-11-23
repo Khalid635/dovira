@@ -1,3 +1,7 @@
+import type { NetworkClass } from './smart/adaptive'
+
+export type { NetworkClass }
+
 export type DownloadStatus =
   | 'queued'
   | 'fetching_info'
@@ -183,6 +187,8 @@ export interface ProgressEvent {
   speedBps: number
   etaSeconds: number | null
   status: DownloadStatus
+  /** Issue #7: Smart Download network class at the time of this event. */
+  networkClass?: NetworkClass
 }
 
 export interface StatusEvent {
@@ -190,6 +196,8 @@ export interface StatusEvent {
   status: DownloadStatus
   errorCode?: string | null
   errorMessage?: string | null
+  /** Issue #7: Smart Download network class at the time of this event. */
+  networkClass?: NetworkClass
 }
 
 export interface ToastEvent {
@@ -263,6 +271,21 @@ export interface PlainFileInfo {
   filename: string
   size: number | null
   contentType: string | null
+}
+
+/**
+ * Issue #1: the fetchInfo result — named so the in-memory cache
+ * (src/main/util/fetchInfoCache.ts) can hold it.
+ */
+export interface FetchInfoResult {
+  ok: boolean
+  info?: VideoInfo
+  plainFile?: PlainFileInfo
+  playlist?: PlaylistInfo
+  torrent?: { name: string }
+  error?: string
+  /** v0.6.1: raw failure detail (yt-dlp stderr excerpt) — shown in the dialog. */
+  errorDetail?: string
 }
 
 export interface AddOptions {

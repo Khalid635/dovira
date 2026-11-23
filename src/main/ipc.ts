@@ -74,9 +74,14 @@ export function registerIpc(deps: IpcDeps): void {
   })
 
   ipcMain.handle('dovira:downloads:list', () => queue.list())
-  ipcMain.handle('dovira:downloads:add', (_e, url: unknown, saveDir: unknown) =>
+  // Issue #2: the duplicate panel's Re-download / Keep both pass
+  // skipDuplicateCheck through for plain files (videos already had it).
+  ipcMain.handle('dovira:downloads:add', (_e, url: unknown, saveDir: unknown, opts: unknown) =>
     typeof url === 'string'
-      ? queue.add(url, typeof saveDir === 'string' ? saveDir : undefined)
+      ? queue.add(url, typeof saveDir === 'string' ? saveDir : undefined, {
+          skipDuplicateCheck:
+            (opts as { skipDuplicateCheck?: unknown } | null)?.skipDuplicateCheck === true
+        })
       : { ok: false, error: 'invalid-url' }
   )
   ipcMain.handle('dovira:downloads:pause', (_e, id: unknown) =>
@@ -112,8 +117,21 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return false
   })
-  ipcMain.handle('dovira:info:fetch', (_e, url: unknown) =>
-    typeof url === 'string' ? queue.fetchInfo(url) : { ok: false, error: 'invalid-url' }
+  // Issue #4: the duplicate panel's Open folder button for disk-only
+  // duplicates (no DB row, so no id) — show the file's folder by path.
+  ipcMain.handle('dovira:downloads:showPathInFolder', (_e, path: unknown) => {
+    if (typeof path !== 'string' || !existsSync(path)) return false
+    shell.showItemInFolder(path)
+    return true
+  })
+  // Issues #1 + #8: the dialog's Retry button passes { force: true } to
+  // bypass the fetchInfo cache.
+  ipcMain.handle('dovira:info:fetch', (_e, url: unknown, opts: unknown) =>
+    typeof url === 'string'
+      ? queue.fetchInfo(url, undefined, {
+          force: (opts as { force?: unknown } | null)?.force === true
+        })
+      : { ok: false, error: 'invalid-url' }
   )
   ipcMain.handle('dovira:downloads:addWithOptions', (_e, opts: unknown) => {
     if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) {

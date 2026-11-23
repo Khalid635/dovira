@@ -255,6 +255,15 @@ export default function AddDownloadDialog(): React.JSX.Element {
   // download in yt-dlp — drop it instead, with the hint below.
   const effectiveSubtitles = subtitles && subsAvailable
   const readyCount = batchLines.filter((l) => l.status === 'ready').length
+  // Issue #6: the exact conditions of the footer Download button — the
+  // Ctrl+Enter shortcut only fires when the button would be enabled.
+  const submitDisabled =
+    busy ||
+    (mode === 'batch'
+      ? readyCount === 0 || batchChecking
+      : dialogPlaylist
+        ? selectedIds.size === 0
+        : clipEnabled && dialogInfo !== null && !thumbnailOnly && !clipValid)
 
   // Phase 7: organizer + smart name — runs once per fetched info/tab/quality.
   // (Hooks must live above the early return below.)
@@ -328,7 +337,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
         ? `${saveDir}\\${filename}`
         : filename
 
-  // Phase 7: duplicate pre-check (DB + destination folder).
+  // Phase 7: duplicate pre-check (DB + destination folder). Issue #2: the
+  // plain-file path uses the same check — a re-added .zip shows the panel
+  // instead of only the duplicate error text.
   const checkDup = async (): Promise<{
     duplicate: boolean
     kind?: 'url' | 'remote' | 'file'
@@ -337,19 +348,32 @@ export default function AddDownloadDialog(): React.JSX.Element {
     existingSize?: number | null
     existingCompletedAt?: number | null
   } | null> => {
-    if (!dialogInfo || typeof window.dovira === 'undefined') return null
+    if (typeof window.dovira === 'undefined') return null
     try {
-      return await window.dovira.smartCheckDuplicate({
-        url: dialogInfo.url,
-        filename,
-        saveDir: saveDir || settings?.downloadDir || '',
-        totalBytes: rows.find((r) => r.height === height)?.size ?? null,
-        remoteId:
-          dialogInfo.videoId && dialogInfo.extractor
-            ? `${dialogInfo.extractor}:${dialogInfo.videoId}`
-            : null,
-        formatId: tab === 'video' ? `${height}p` : `mp3-${bitrate}`
-      })
+      if (dialogInfo) {
+        return await window.dovira.smartCheckDuplicate({
+          url: dialogInfo.url,
+          filename,
+          saveDir: saveDir || settings?.downloadDir || '',
+          totalBytes: rows.find((r) => r.height === height)?.size ?? null,
+          remoteId:
+            dialogInfo.videoId && dialogInfo.extractor
+              ? `${dialogInfo.extractor}:${dialogInfo.videoId}`
+              : null,
+          formatId: tab === 'video' ? `${height}p` : `mp3-${bitrate}`
+        })
+      }
+      if (dialogPlainFile) {
+        return await window.dovira.smartCheckDuplicate({
+          url: dialogUrl || url,
+          filename: dialogPlainFile.filename,
+          saveDir: saveDir || settings?.downloadDir || '',
+          totalBytes: dialogPlainFile.size ?? null,
+          remoteId: null,
+          formatId: null
+        })
+      }
+      return null
     } catch {
       return null
     }
@@ -366,6 +390,24 @@ export default function AddDownloadDialog(): React.JSX.Element {
     setDuplicate(null)
     setDuplicateBypass(true)
     void submit(true)
+  }
+
+  // Issue #4: jump to the existing file's folder — by DB id when the
+  // duplicate came from the history, by path when it is only on disk.
+  const openDuplicateFolder = async (): Promise<void> => {
+    if (!duplicate || typeof window.dovira === 'undefined') return
+    try {
+      if (duplicate.existingId) {
+        await window.dovira.showInFolder(duplicate.existingId)
+        return
+      }
+      if (duplicate.existingName) {
+        const dir = saveDir || settings?.downloadDir || ''
+        if (dir) await window.dovira.showPathInFolder(`${dir}\\${duplicate.existingName}`)
+      }
+    } catch {
+      // Best-effort — the panel stays open.
+    }
   }
 
   const submit = async (bypassDup = duplicateBypass): Promise<void> => {
@@ -405,11 +447,29 @@ export default function AddDownloadDialog(): React.JSX.Element {
       return
     }
     if (dialogPlainFile) {
+      // Issue #2: plain files get the same duplicate pre-check + panel as
+      // videos (Re-download / Skip / Keep both).
+      if (settings?.smartDuplicates && !bypassDup) {
+        setBusy(true)
+        const dup = await checkDup()
+        setBusy(false)
+        if (dup?.duplicate) {
+          setDuplicate(dup)
+          return
+        }
+      }
       setBusy(true)
-      const res = await window.dovira.addDownload(dialogUrl || url, saveDir ? saveDir : undefined)
+      const res = await window.dovira.addDownload(dialogUrl || url, saveDir ? saveDir : undefined, {
+        skipDuplicateCheck: bypassDup
+      })
       setBusy(false)
       if (res.ok) {
         closeDialog()
+      } else if (res.error === 'duplicate') {
+        // Safety-net race: the file appeared after the pre-check.
+        const dup = await checkDup()
+        if (dup?.duplicate) setDuplicate(dup)
+        else setSubmitError(res.error ?? 'unknown')
       } else {
         setSubmitError(res.error ?? 'unknown')
       }
@@ -699,6 +759,13 @@ export default function AddDownloadDialog(): React.JSX.Element {
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === 'Escape') closeDialog()
+          // Issue #6: Ctrl+Enter (Cmd+Enter on macOS) submits — but never
+          // while the duplicate panel is open or a fetch is still running.
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault()
+            if (!duplicate && !dialogLoading && !submitDisabled) void submit()
+            return
+          }
           if (e.key === 'Enter' && !dialogLoading && mode === 'single') void submit()
         }}
       >
@@ -737,7 +804,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
               placeholder="https://..."
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void fetchInfo(url)
+                // Issue #6: Ctrl+Enter is the submit shortcut (handled by
+                // the dialog card) — it must not also re-fetch the info.
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) void fetchInfo(url)
               }}
               autoFocus
             />
@@ -829,7 +898,11 @@ export default function AddDownloadDialog(): React.JSX.Element {
               {`code: ${dialogError}`}
               {dialogErrorDetail ? ` — ${dialogErrorDetail}` : ''}
             </div>
-            <button className="btn btn-sm mt-2" onClick={() => void fetchInfo(url || dialogUrl)}>
+            {/* Issue #8: retry re-runs fetchInfo bypassing the cache (force). */}
+            <button
+              className="btn btn-sm mt-2"
+              onClick={() => void fetchInfo(url || dialogUrl, true)}
+            >
               {t('dialog.retry')}
             </button>
           </div>
@@ -1309,6 +1382,11 @@ export default function AddDownloadDialog(): React.JSX.Element {
               <button className="btn btn-sm btn-ghost" onClick={() => resolveDuplicate('skip')}>
                 {t('add.duplicateSkip')}
               </button>
+              {(duplicate.existingId || duplicate.existingName) && (
+                <button className="btn btn-sm btn-ghost" onClick={() => void openDuplicateFolder()}>
+                  {t('add.duplicateOpenFolder')}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1319,14 +1397,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
           </button>
           <button
             className="btn btn-primary"
-            disabled={
-              busy ||
-              (mode === 'batch'
-                ? readyCount === 0 || batchChecking
-                : dialogPlaylist
-                  ? selectedIds.size === 0
-                  : clipEnabled && dialogInfo !== null && !thumbnailOnly && !clipValid)
-            }
+            disabled={submitDisabled}
             onClick={() => void submit()}
           >
             {busy

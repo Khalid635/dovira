@@ -27,6 +27,23 @@ const SMART_CATEGORIES = [
   'Others'
 ] as const
 
+/**
+ * Issue #5: map a local-model Test error code to its i18n reason key, so
+ * the status line can name the failure instead of showing only ok/fail.
+ */
+const MODEL_TEST_REASON_KEYS: Record<string, string> = {
+  'no-endpoint': 'settings.localModelReasonNoEndpoint',
+  'no-model': 'settings.localModelReasonNoModel',
+  unreachable: 'settings.localModelReasonUnreachable',
+  timeout: 'settings.localModelReasonTimeout',
+  http: 'settings.localModelReasonHttp',
+  'bad-answer': 'settings.localModelReasonBadAnswer'
+}
+
+function modelTestReasonKey(error: string): string {
+  return MODEL_TEST_REASON_KEYS[error] ?? 'settings.localModelReasonUnreachable'
+}
+
 const SECTIONS = [
   { id: 'settings-general', labelKey: 'settings.navGeneral' },
   { id: 'settings-network', labelKey: 'settings.navNetwork' },
@@ -69,7 +86,7 @@ export default function SettingsPage(): React.JSX.Element {
   const [tokenCopied, setTokenCopied] = useState(false)
   // Phase 7 (v1.0): Smart — local-model test state + live template preview.
   const [modelTesting, setModelTesting] = useState(false)
-  const [modelTest, setModelTest] = useState<'ok' | 'fail' | null>(null)
+  const [modelTest, setModelTest] = useState<{ ok: boolean; error?: string } | null>(null)
   const [templatePreview, setTemplatePreview] = useState('')
 
   useEffect(() => {
@@ -155,19 +172,28 @@ export default function SettingsPage(): React.JSX.Element {
   }, [settings?.nameTemplate, settings?.smartNaming])
 
   // Phase 7: test the local-model endpoint (Ollama / LM Studio).
+  // Issue #5: keep the full result — the status line names the provider,
+  // host and model it tested, plus the failure reason.
   const testLocalModel = async (): Promise<void> => {
     if (typeof window.dovira === 'undefined') return
     setModelTesting(true)
     setModelTest(null)
     try {
       const res = await window.dovira.testLocalModel()
-      setModelTest(res.ok ? 'ok' : 'fail')
+      setModelTest(res)
     } catch {
-      setModelTest('fail')
+      setModelTest({ ok: false, error: 'unreachable' })
     } finally {
       setModelTesting(false)
     }
   }
+
+  // Issue #5: what the Test button tested, in display form.
+  const localModelProviderLabel = settings?.localModelProvider === 'ollama' ? 'Ollama' : 'LM Studio'
+  const localModelHost =
+    (settings?.localModelEndpoint ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '') ||
+    settings?.localModelEndpoint ||
+    ''
 
   // Settings never arrived: distinguish "still loading" from "failed".
   // The bare "…" Phase 1 showed forever is gone — a failed load always
@@ -1001,12 +1027,20 @@ export default function SettingsPage(): React.JSX.Element {
                   >
                     {modelTesting ? t('settings.localModelTesting') : t('settings.localModelTest')}
                   </button>
-                  {modelTest === 'ok' && (
-                    <span className="text-[13px]">{t('settings.localModelTestOk')}</span>
-                  )}
-                  {modelTest === 'fail' && (
-                    <span className="text-[13px] text-[var(--danger)]">
-                      {t('settings.localModelTestFailed')}
+                  {modelTest && (
+                    <span className={`text-[13px] ${modelTest.ok ? '' : 'text-[var(--danger)]'}`}>
+                      {modelTest.ok
+                        ? t('settings.localModelTestOkDetail', {
+                            provider: localModelProviderLabel,
+                            host: localModelHost,
+                            model: settings.localModelName || '—'
+                          })
+                        : t('settings.localModelTestFailDetail', {
+                            provider: localModelProviderLabel,
+                            host: localModelHost,
+                            model: settings.localModelName || '—',
+                            reason: t(modelTestReasonKey(modelTest.error ?? 'unreachable'))
+                          })}
                     </span>
                   )}
                 </span>

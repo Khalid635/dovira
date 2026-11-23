@@ -2,6 +2,28 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [Unreleased]
+
+### Fixed
+
+- fetchInfo results are now cached in memory for 5 minutes, so re-opening
+  the Add dialog for the same link is instant; the cache is bypassed by the
+  dialog's Retry button and cleared when a download for that URL starts
+  (#1, #8).
+- `listDownloads` totalBytes for yt-dlp items now reflects the real
+  merged-file size on disk instead of the last per-format progress total
+  (which was the audio stream's size) (#3).
+- The duplicate panel now appears for plain-file re-adds too, with working
+  Re-download / Skip / Keep both, and an Open folder button for the
+  existing file (#2, #4).
+- Settings > Smart local-model Test now reports what it tested — provider,
+  host, model — and the failure reason (unreachable / timeout / bad
+  answer) (#5).
+- Ctrl+Enter (Cmd+Enter on macOS) now submits the Add dialog, except while
+  the duplicate panel is open or a fetch is running (#6).
+- The status bar shows the current Smart Download network class (fast /
+  medium / slow / unstable) while a download is active (#7).
+
 ## [1.2.0]
 
 ### Added

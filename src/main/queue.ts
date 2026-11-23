@@ -17,6 +17,7 @@ import {
 import { categorize, organizeDir, type Category } from './smart/categorize'
 import { suggestName } from './smart/naming'
 import { AdaptiveNet } from './smart/adaptive'
+import { FetchInfoCache } from './util/fetchInfoCache'
 import {
   askCategory,
   askLocalModel,
@@ -44,12 +45,11 @@ import type {
   AddOptions,
   DownloadInfo,
   DownloadKind,
+  FetchInfoResult,
   PlainFileInfo,
-  PlaylistInfo,
   ProgressEvent,
   StatusEvent,
-  ToastEvent,
-  VideoInfo
+  ToastEvent
 } from './types'
 
 interface ActiveEntry {
@@ -226,6 +226,9 @@ export class QueueManager extends EventEmitter {
   private ytDlpArgs = new Map<string, string[]>()
   /** Phase 7: Smart Download — rolling speed samples + failure count. */
   private adaptive = new AdaptiveNet()
+  /** Issue #1: in-memory fetchInfo cache (5-min TTL) — a repeat fetch of
+   * the same link reuses the first result instead of re-running yt-dlp. */
+  private fetchInfoCache = new FetchInfoCache<FetchInfoResult>()
   /** Phase 7: last live aria2 connection adjustment (10s cadence). */
   private lastAdaptiveAt = 0
   private lastAdaptiveConns = 0
@@ -404,17 +407,9 @@ export class QueueManager extends EventEmitter {
       cookiesFile?: string | null
       userAgent?: string | null
       referer?: string | null
-    }
-  ): Promise<{
-    ok: boolean
-    info?: VideoInfo
-    plainFile?: PlainFileInfo
-    playlist?: PlaylistInfo
-    torrent?: { name: string }
-    error?: string
-    /** v0.6.1: raw failure detail (yt-dlp stderr excerpt) — shown in the dialog. */
-    errorDetail?: string
-  }> {
+    },
+    opts?: { force?: boolean }
+  ): Promise<FetchInfoResult> {
     const trimmed = url.trim()
     // Phase 4: magnet links never touch yt-dlp.
     if (trimmed.startsWith('magnet:')) {
@@ -433,13 +428,26 @@ export class QueueManager extends EventEmitter {
     if (isTorrentUrl(trimmed)) {
       return { ok: true, torrent: { name: filenameFromUrl(trimmed) } }
     }
+    // Issue #1: reuse a fresh cached result for the same URL + net
+    // override; `force` (the dialog's Retry button, issue #8) bypasses
+    // the cache. Only successful results are cached — failures always
+    // re-fetch, so a transient error never sticks for 5 minutes.
+    const cacheKey = FetchInfoCache.key(trimmed, netOverride)
+    if (!opts?.force) {
+      const hit = this.fetchInfoCache.get(cacheKey)
+      if (hit) return hit
+    }
+    const cacheOk = (r: FetchInfoResult): FetchInfoResult => {
+      if (r.ok) this.fetchInfoCache.set(cacheKey, r)
+      return r
+    }
     // Phase 4: playlist/channel — flat fetch first; on failure fall back
     // to the single-video fetch below (a channel URL that isn't a playlist
     // still resolves — or errors honestly — as one video).
     if (looksLikePlaylist(trimmed) && this.ytdlp) {
       try {
         const playlist = await this.ytdlp.fetchPlaylist(trimmed)
-        if (playlist.entries.length > 0) return { ok: true, playlist }
+        if (playlist.entries.length > 0) return cacheOk({ ok: true, playlist })
         // Empty playlist — fall through to the single-video fetch.
       } catch (err) {
         // Fall through to the single-video fetch below — but log it: a
@@ -453,18 +461,18 @@ export class QueueManager extends EventEmitter {
     const ext = parsed.pathname.split('.').pop()?.toLowerCase() ?? ''
     if (FILE_EXTS.has(ext)) {
       const pf = await this.headPlainFile(url.trim())
-      if (pf) return { ok: true, plainFile: pf }
+      if (pf) return cacheOk({ ok: true, plainFile: pf })
       // HEAD failed (some servers refuse it) — still a plain file by
       // extension; the dialog shows it with unknown size.
-      return {
+      return cacheOk({
         ok: true,
         plainFile: { filename: filenameFromUrl(url.trim()), size: null, contentType: null }
-      }
+      })
     }
     if (this.ytdlp) {
       try {
         const info = await this.ytdlp.fetchInfo(url.trim(), netOverride)
-        return { ok: true, info }
+        return cacheOk({ ok: true, info })
       } catch (err) {
         const code = err instanceof YtDlpError ? err.code : 'unknown'
         const detail = err instanceof Error ? err.message : String(err)
@@ -474,13 +482,13 @@ export class QueueManager extends EventEmitter {
         )
         if (code === 'unsupported' || code === 'unknown' || code === 'not-found') {
           const pf = await this.headPlainFile(url.trim())
-          if (pf) return { ok: true, plainFile: pf }
+          if (pf) return cacheOk({ ok: true, plainFile: pf })
         }
         return { ok: false, error: code, errorDetail: detail.slice(0, 300) || undefined }
       }
     }
     const pf = await this.headPlainFile(url.trim())
-    if (pf) return { ok: true, plainFile: pf }
+    if (pf) return cacheOk({ ok: true, plainFile: pf })
     return { ok: false, error: 'engine-missing' }
   }
 
@@ -505,7 +513,11 @@ export class QueueManager extends EventEmitter {
     }
   }
 
-  async add(url: string, saveDir?: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  async add(
+    url: string,
+    saveDir?: string,
+    opts?: { skipDuplicateCheck?: boolean }
+  ): Promise<{ ok: boolean; id?: string; error?: string }> {
     let parsed: URL
     try {
       parsed = new URL(url.trim())
@@ -581,7 +593,9 @@ export class QueueManager extends EventEmitter {
         title: null
       })
     }
-    if (s.smartDuplicates) {
+    // Issue #2: the duplicate panel's Re-download / Keep both pass
+    // skipDuplicateCheck through (videos already had it via addWithOptions).
+    if (s.smartDuplicates && !opts?.skipDuplicateCheck) {
       const dup = this.checkDuplicate({
         url: url.trim(),
         filename,
@@ -595,6 +609,8 @@ export class QueueManager extends EventEmitter {
         return { ok: false, error: 'duplicate', id: dup.existingId }
       }
     }
+    // Issue #1: a download started for this URL — drop its cached info.
+    this.fetchInfoCache.deleteForUrl(url.trim())
     mkdirSync(dir, { recursive: true })
     const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
@@ -721,6 +737,8 @@ export class QueueManager extends EventEmitter {
         return { ok: false, error: 'duplicate', errorDetail: dup.existingId }
       }
     }
+    // Issue #1: a download started for this URL — drop its cached info.
+    this.fetchInfoCache.deleteForUrl(opts.url.trim())
     mkdirSync(dir, { recursive: true })
     const savePath = this.resolveUniqueSavePath(dir, filename)
     const id = randomUUID()
@@ -836,6 +854,8 @@ export class QueueManager extends EventEmitter {
     }
 
     const dir = saveDir ?? s.downloadDir
+    // Issue #1: a download started for this URL — drop its cached info.
+    this.fetchInfoCache.deleteForUrl(url.trim())
     mkdirSync(dir, { recursive: true })
     const filename = sanitizeFilename(title) + '.jpg'
     const savePath = this.resolveUniqueSavePath(dir, filename)
@@ -1758,7 +1778,11 @@ export class QueueManager extends EventEmitter {
     let finishedCount = 0
     const { job, done } = this.ytdlp.runDownload(args, {
       onProgress: (p) => {
-        if (p.totalBytes > 0) d.totalBytes = p.totalBytes
+        // Issue #3: yt-dlp reports per-format totals — for a merged
+        // video+audio download the last line is the audio stream's size.
+        // Never let the total shrink mid-download; completion takes the
+        // real merged size from disk (see complete()).
+        if (p.totalBytes > 0) d.totalBytes = Math.max(d.totalBytes, p.totalBytes)
         if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
         d.speedBps = p.speedBps
         d.etaSeconds = p.etaSeconds
@@ -1889,7 +1913,11 @@ export class QueueManager extends EventEmitter {
     this.emitStatus(d.id)
     const { job, done } = ytdlp.runDownload(args, {
       onProgress: (p) => {
-        if (p.totalBytes > 0) d.totalBytes = p.totalBytes
+        // Issue #3: yt-dlp reports per-format totals — for a merged
+        // video+audio download the last line is the audio stream's size.
+        // Never let the total shrink mid-download; completion takes the
+        // real merged size from disk (see complete()).
+        if (p.totalBytes > 0) d.totalBytes = Math.max(d.totalBytes, p.totalBytes)
         if (p.totalBytes > 0 || p.doneBytes > 0) d.doneBytes = p.doneBytes
         d.speedBps = p.speedBps
         d.etaSeconds = p.etaSeconds
@@ -2096,11 +2124,14 @@ export class QueueManager extends EventEmitter {
     // Phase 6: a fallback row's totals come from the file, like a yt-dlp
     // row's — yt-dlp may never have reported a total for a plain file.
     if (d.engine === 'ytdlp' || this.isFallbackRow(d)) {
-      // yt-dlp may never have reported a total — take it from the file.
+      // Issue #3: the merged file is the truth. yt-dlp progress reports
+      // per-format totals (the last one is usually the audio stream), so
+      // a merged video+audio row used to keep the audio-only size.
+      // Always take the total from the file on disk.
       try {
         const size = statSync(d.savePath).size
         d.doneBytes = size
-        if (d.totalBytes <= 0) d.totalBytes = size
+        d.totalBytes = size
       } catch {
         // Keep the progress values.
       }
@@ -2267,7 +2298,8 @@ export class QueueManager extends EventEmitter {
       totalBytes: d.totalBytes,
       speedBps: d.speedBps,
       etaSeconds: d.etaSeconds,
-      status: d.status
+      status: d.status,
+      networkClass: this.adaptive.classify()
     }
     this.emit('progress', payload)
   }
@@ -2279,7 +2311,8 @@ export class QueueManager extends EventEmitter {
       id: d.id,
       status: d.status,
       errorCode: d.errorCode,
-      errorMessage: d.errorMessage
+      errorMessage: d.errorMessage,
+      networkClass: this.adaptive.classify()
     }
     this.emit('status', payload)
   }

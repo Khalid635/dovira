@@ -5,6 +5,7 @@ import { IconActivity, IconClock, IconDisk, IconDownload, IconGauge } from './ic
 export default function StatusBar(): React.JSX.Element {
   const t = useT()
   const downloads = useStore((s) => s.downloads)
+  const networkClass = useStore((s) => s.networkClass)
   const appInfo = useStore((s) => s.appInfo)
   const settings = useStore((s) => s.settings)
 
@@ -21,6 +22,15 @@ export default function StatusBar(): React.JSX.Element {
         <IconDownload size={13} />
         {t('statusbar.speed', { speed: formatSpeed(totalSpeed) })}
       </span>
+      {/* Issue #7: one word — the Smart Download network class, while downloading. */}
+      {active.length > 0 && networkClass && (
+        <>
+          <span className="h-3.5 w-px bg-[var(--border)]" />
+          <span className="inline-flex items-center gap-1.5 tabular-nums">
+            {t(`network.${networkClass}`)}
+          </span>
+        </>
+      )}
       <span className="h-3.5 w-px bg-[var(--border)]" />
       <span className="inline-flex items-center gap-1.5 tabular-nums">
         <IconActivity size={13} />

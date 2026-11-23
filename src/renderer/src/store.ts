@@ -5,6 +5,7 @@ import type {
   AppUpdateState,
   DownloadInfo,
   EngineInfo,
+  NetworkClass,
   PlainFileInfo,
   PlaylistInfo,
   ProgressEvent,
@@ -40,7 +41,11 @@ interface Store {
   toast: Toast | null
   init: () => Promise<void>
   refresh: () => Promise<void>
-  addDownload: (url: string, saveDir?: string) => Promise<{ ok: boolean; error?: string }>
+  addDownload: (
+    url: string,
+    saveDir?: string,
+    opts?: { skipDuplicateCheck?: boolean }
+  ) => Promise<{ ok: boolean; error?: string }>
   pause: (id: string) => Promise<void>
   resume: (id: string) => Promise<void>
   cancel: (id: string) => Promise<void>
@@ -56,6 +61,9 @@ interface Store {
   ) => void
   // Phase 3: speed graph — last 60 speed samples per download, oldest first.
   speedHistory: Record<string, number[]>
+  // Issue #7: current Smart Download network class (fast / medium / slow /
+  // unstable), from the latest progress/status event. Null before any event.
+  networkClass: NetworkClass | null
   // Phase 3: scheduler countdown modal (null = no countdown running).
   schedulerCountdown: SchedulerCountdown | null
   cancelSchedulerCountdown: () => Promise<void>
@@ -86,7 +94,7 @@ interface Store {
   closeGrabber: () => void
   // Phase 7: per-download speed limit (KB/s, 0 = use the global limit).
   setDownloadSpeedLimit: (id: string, kbps: number) => Promise<boolean>
-  fetchInfo: (url: string) => Promise<void>
+  fetchInfo: (url: string, force?: boolean) => Promise<void>
   addWithOptions: (opts: AddOptions) => Promise<{
     ok: boolean
     error?: string
@@ -146,6 +154,7 @@ export const useStore = create<Store>()((set, get) => ({
   enginesLoading: false,
   appUpdate: { state: 'idle', version: null, progress: null, error: null },
   speedHistory: {},
+  networkClass: null,
   schedulerCountdown: null,
 
   init: async () => {
@@ -249,7 +258,7 @@ export const useStore = create<Store>()((set, get) => ({
             delete speedHistory[p.id]
           }
         }
-        return { downloads, speedHistory }
+        return { downloads, speedHistory, networkClass: p.networkClass ?? s.networkClass }
       })
     })
     window.dovira.onStatus((ev: StatusEvent) => {
@@ -263,7 +272,8 @@ export const useStore = create<Store>()((set, get) => ({
                 errorMessage: ev.errorMessage ?? d.errorMessage
               }
             : d
-        )
+        ),
+        networkClass: ev.networkClass ?? s.networkClass
       }))
       if (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'cancelled') {
         // Phase 3: drop the finished download's speed history.
@@ -314,8 +324,8 @@ export const useStore = create<Store>()((set, get) => ({
     }
   },
 
-  addDownload: async (url, saveDir) => {
-    const res = await window.dovira.addDownload(url, saveDir)
+  addDownload: async (url, saveDir, opts) => {
+    const res = await window.dovira.addDownload(url, saveDir, opts)
     if (res.ok) {
       await get().refresh()
       get().showToast('toast.added')
@@ -439,7 +449,7 @@ export const useStore = create<Store>()((set, get) => ({
     }
   },
 
-  fetchInfo: async (url) => {
+  fetchInfo: async (url, force) => {
     const value = url.trim()
     if (!value) return
     set({
@@ -458,7 +468,7 @@ export const useStore = create<Store>()((set, get) => ({
       return
     }
     try {
-      const res = await window.dovira.fetchInfo(value)
+      const res = await window.dovira.fetchInfo(value, force ? { force: true } : undefined)
       if (res.ok && res.playlist) {
         set({ dialogPlaylist: res.playlist, dialogLoading: false })
       } else if (res.ok && res.torrent) {
