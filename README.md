@@ -25,6 +25,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 - [Features](#features)
 - [AI features](#ai-features)
 - [Browser extension](#browser-extension)
+- [Architecture](#architecture)
 - [FAQ](#faq)
 - [Limitations](#limitations-v131)
 - [Contributing](#contributing)
@@ -111,6 +112,14 @@ The Smart features above are the AI side of every download: files get organized 
 - **Manifest V3 extension** — right-click "Download with DOVIRA", toolbar popup, floating Download button on video pages, optional download intercept (off by default).
 - **Pairs with the app** over a token-authenticated Local API on 127.0.0.1 (default port 17530). Guided install, live status and diagnostics are in the app (Settings > Setup & diagnostics).
 - **Install:** load the built extension from `extension/dist` — Firefox (AMO) first; Chrome via Load unpacked (Developer mode). See [extension/README.md](extension/README.md) and the [Local API reference](docs/local-api.md).
+
+## Architecture
+
+![DOVIRA architecture](docs/diagrams/architecture.svg)
+
+How the pieces fit together in v1.3.1: the browser extension talks to the app over a token-authenticated Local API on 127.0.0.1 (default port 17530); the Electron main process runs the download queue and asks its bundled engines to do the work — yt-dlp for fetching info and formats, aria2 for the actual download, and ffmpeg for merging and MP3 conversion (Deno is also bundled). Downloads are recorded in SQLite. The AI Assistant is rule-based and runs on-device — no data leaves the machine. `fetchInfo` takes around 10 seconds; that is normal extraction, not a hang.
+
+The interactive version is [docs/diagrams/architecture.html](docs/diagrams/architecture.html).
 
 ## FAQ
 

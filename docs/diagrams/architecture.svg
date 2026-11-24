@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-title architecture-desc" id="architecture-root">
+        <title id="architecture-title">DOVIRA architecture</title>
+        <desc id="architecture-desc">Architecture of DOVIRA v1.3.1: the browser extension and Electron app talk to bundled yt-dlp, aria2 and ffmpeg engines over a local API, with downloads recorded in SQLite.</desc>
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #architecture-root { --color-paper:   #edf4ee;   
+      --color-ink:     #122b21;   
+      --color-muted:   #5f7268;   
+      --color-soft:    #4e6156;   
+      --color-accent:  #12805c;   
+      --color-accent-text: #0e6a4c; 
+      --color-link:    #2e5aa8;   
+      --font-sans:     'Inter', system-ui, sans-serif;  
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #architecture-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #architecture-root .diagram-container { width: 100%; overflow-x: auto; }
+      @media print {
+#architecture-root .diagram-container { overflow-x: visible; }
+}</style>
+          <marker id="architecture-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5f7268"/></marker>
+          <marker id="architecture-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#12805c"/></marker>
+          <marker id="architecture-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#edf4ee"/>
+
+        <!-- Zones (drawn before arrows and nodes) -->
+        <rect x="40" y="64" width="176" height="320" rx="8"
+              fill="#122b21" stroke="#122b21" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.10"/>
+        <rect x="102" y="68" width="52" height="12" rx="2" fill="#edf4ee"/>
+        <text x="128" y="77" fill="#4e6156" font-size="7" font-family="'Geist Mono', monospace"
+              text-anchor="middle" letter-spacing="0.14em">BROWSER</text>
+
+        <rect x="296" y="64" width="368" height="320" rx="8"
+              fill="#122b21" stroke="#122b21" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.10"/>
+        <rect x="414" y="68" width="132" height="12" rx="2" fill="#edf4ee"/>
+        <text x="480" y="77" fill="#4e6156" font-size="7" font-family="'Geist Mono', monospace"
+              text-anchor="middle" letter-spacing="0.14em">ELECTRON APP · v1.3.1</text>
+
+        <rect x="744" y="64" width="168" height="320" rx="8"
+              fill="#122b21" stroke="#122b21" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.10"/>
+        <rect x="780" y="68" width="96" height="12" rx="2" fill="#edf4ee"/>
+        <text x="828" y="77" fill="#4e6156" font-size="7" font-family="'Geist Mono', monospace"
+              text-anchor="middle" letter-spacing="0.14em">BUNDLED ENGINES</text>
+
+        <!-- Arrows first (behind boxes) -->
+        <!-- Extension -> Main: direct download over the Local API -->
+        <path d="M 204,232 H 250 Q 258,232 258,224 V 212 Q 258,204 266,204 H 312"
+              fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture-arrow-link)"/>
+        <!-- Renderer -> Main: queue operations -->
+        <line x1="480" y1="152" x2="480" y2="176" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- Main -> yt-dlp: fetchInfo -->
+        <path d="M 648,190 H 696 Q 704,190 704,182 V 132 Q 704,124 712,124 H 760"
+              fill="none" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- Main -> aria2: download -->
+        <line x1="648" y1="204" x2="760" y2="204" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- Main -> ffmpeg: merge / convert -->
+        <path d="M 648,218 H 696 Q 704,218 704,226 V 276 Q 704,284 712,284 H 760"
+              fill="none" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- Main -> SQLite: record download -->
+        <line x1="390" y1="232" x2="390" y2="256" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- AI Assistant -> Main: commands -->
+        <line x1="570" y1="256" x2="570" y2="232" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <!-- aria2 -> Download folder: write file (routed around ffmpeg) -->
+        <path d="M 896,204 H 912 Q 920,204 920,212 V 436 Q 920,444 912,444"
+              fill="none" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+
+        <!-- Callout leader: AI Assistant on-device note -->
+        <path d="M 420,432 Q 500,384 570,316" fill="none"
+              stroke="#122b21" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.40"/>
+        <circle cx="570" cy="316" r="2" fill="#122b21"/>
+
+        <!-- Arrow labels (masks keep a visible gap from the stroke) -->
+        <rect x="261" y="184" width="48" height="12" rx="2" fill="#edf4ee"/>
+        <text x="285" y="193" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DIRECT</text>
+
+        <rect x="488" y="158" width="64" height="12" rx="2" fill="#edf4ee"/>
+        <text x="520" y="167" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">QUEUE OPS</text>
+
+        <rect x="632" y="151" width="64" height="12" rx="2" fill="#edf4ee"/>
+        <text x="664" y="160" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FETCHINFO</text>
+
+        <rect x="676" y="184" width="56" height="12" rx="2" fill="#edf4ee"/>
+        <text x="704" y="193" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DOWNLOAD</text>
+
+        <rect x="644" y="245" width="52" height="12" rx="2" fill="#edf4ee"/>
+        <text x="670" y="254" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CONVERT</text>
+
+        <rect x="398" y="238" width="48" height="12" rx="2" fill="#edf4ee"/>
+        <text x="422" y="247" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RECORD</text>
+
+        <rect x="578" y="238" width="56" height="12" rx="2" fill="#edf4ee"/>
+        <text x="606" y="247" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMMANDS</text>
+
+        <rect x="844" y="318" width="68" height="12" rx="2" fill="#edf4ee"/>
+        <text x="878" y="327" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITE FILE</text>
+
+        <!-- Node: Browser extension (input) -->
+        <rect x="52" y="196" width="152" height="72" rx="6" fill="#edf4ee"/>
+        <rect x="52" y="196" width="152" height="72" rx="6" fill="#5f7268" stroke="#4e6156" stroke-width="1" fill-opacity="0.10"/>
+        <rect x="60" y="202" width="28" height="12" rx="2" fill="none" stroke="#4e6156" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="74" y="211" fill="#4e6156" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+        <text x="128" y="236" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Browser extension</text>
+        <text x="128" y="252" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">floating button</text>
+
+        <!-- Node: Renderer (backend) -->
+        <rect x="312" y="96" width="336" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="312" y="96" width="336" height="56" rx="6" fill="#ffffff" stroke="#122b21" stroke-width="1"/>
+        <rect x="320" y="102" width="24" height="12" rx="2" fill="none" stroke="#122b21" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="332" y="111" fill="#122b21" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">UI</text>
+        <text x="480" y="128" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Renderer</text>
+        <text x="480" y="144" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Home · History · Queue · Settings</text>
+
+        <!-- Node: Main process (focal) -->
+        <rect x="312" y="176" width="336" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="312" y="176" width="336" height="56" rx="6" fill="#12805c" stroke="#12805c" stroke-width="1" fill-opacity="0.08"/>
+        <rect x="320" y="182" width="32" height="12" rx="2" fill="none" stroke="#12805c" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="336" y="191" fill="#0e6a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MAIN</text>
+        <text x="480" y="208" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Main process</text>
+        <text x="480" y="224" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">queue · fetchInfo · Local API :17530</text>
+
+        <!-- Node: SQLite (store) -->
+        <rect x="312" y="256" width="156" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="312" y="256" width="156" height="56" rx="6" fill="#122b21" stroke="#5f7268" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="320" y="262" width="36" height="12" rx="2" fill="none" stroke="#5f7268" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="338" y="271" fill="#5f7268" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="390" y="288" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">SQLite</text>
+        <text x="390" y="304" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">download database</text>
+
+        <!-- Node: AI Assistant (backend) -->
+        <rect x="492" y="256" width="156" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="492" y="256" width="156" height="56" rx="6" fill="#ffffff" stroke="#122b21" stroke-width="1"/>
+        <rect x="500" y="262" width="24" height="12" rx="2" fill="none" stroke="#122b21" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="512" y="271" fill="#122b21" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+        <text x="570" y="288" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">AI Assistant</text>
+        <text x="570" y="304" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">rule-based · EN+BN</text>
+
+        <!-- Node: yt-dlp (backend) -->
+        <rect x="760" y="96" width="136" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="760" y="96" width="136" height="56" rx="6" fill="#ffffff" stroke="#122b21" stroke-width="1"/>
+        <rect x="768" y="102" width="40" height="12" rx="2" fill="none" stroke="#122b21" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="788" y="111" fill="#122b21" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+        <text x="828" y="128" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">yt-dlp</text>
+        <text x="828" y="144" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">fetchInfo · formats</text>
+
+        <!-- Node: aria2 (focal) -->
+        <rect x="760" y="176" width="136" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="760" y="176" width="136" height="56" rx="6" fill="#12805c" stroke="#12805c" stroke-width="1" fill-opacity="0.08"/>
+        <rect x="768" y="182" width="40" height="12" rx="2" fill="none" stroke="#12805c" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="788" y="191" fill="#0e6a4c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+        <text x="828" y="208" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">aria2</text>
+        <text x="828" y="224" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">16–32 · mirrors</text>
+
+        <!-- Node: ffmpeg (backend) -->
+        <rect x="760" y="256" width="136" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="760" y="256" width="136" height="56" rx="6" fill="#ffffff" stroke="#122b21" stroke-width="1"/>
+        <rect x="768" y="262" width="40" height="12" rx="2" fill="none" stroke="#122b21" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="788" y="271" fill="#122b21" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+        <text x="828" y="288" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">ffmpeg</text>
+        <text x="828" y="304" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">merge · MP3</text>
+
+        <!-- Node: Download folder (store) -->
+        <rect x="744" y="416" width="168" height="56" rx="6" fill="#edf4ee"/>
+        <rect x="744" y="416" width="168" height="56" rx="6" fill="#122b21" stroke="#5f7268" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="752" y="422" width="36" height="12" rx="2" fill="none" stroke="#5f7268" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="770" y="431" fill="#5f7268" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="828" y="448" fill="#122b21" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Download folder</text>
+        <text x="828" y="464" fill="#5f7268" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">file on disk</text>
+
+        <!-- Callout -->
+        <text x="40" y="440" fill="#122b21" font-size="14" font-style="italic"
+              font-family="'Instrument Serif', serif">AI Assistant runs on-device — nothing leaves the machine.</text>
+
+        <!-- Legend strip -->
+        <line x1="40" y1="540" x2="920" y2="540" stroke="#122b21" stroke-width="0.8" stroke-opacity="0.10"/>
+        <text x="40" y="556" fill="#5f7268" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+
+        <rect x="40" y="568" width="14" height="10" rx="2" fill="#12805c" stroke="#12805c" stroke-width="1" fill-opacity="0.08"/>
+        <text x="60" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">Focal — hub</text>
+
+        <rect x="140" y="568" width="14" height="10" rx="2" fill="#ffffff" stroke="#122b21" stroke-width="1"/>
+        <text x="160" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">Backend — app · engines</text>
+
+        <rect x="300" y="568" width="14" height="10" rx="2" fill="#122b21" stroke="#5f7268" stroke-width="1" fill-opacity="0.05"/>
+        <text x="320" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">Store — data · files</text>
+
+        <rect x="445" y="568" width="14" height="10" rx="2" fill="#5f7268" stroke="#4e6156" stroke-width="1" fill-opacity="0.10"/>
+        <text x="465" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">Input — browser</text>
+
+        <line x1="565" y1="573" x2="593" y2="573" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#architecture-arrow-link)"/>
+        <text x="601" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">HTTP / API call</text>
+
+        <line x1="695" y1="573" x2="723" y2="573" stroke="#5f7268" stroke-width="1.2" marker-end="url(#architecture-arrow)"/>
+        <text x="731" y="576" fill="#5f7268" font-size="8.5" font-family="'Inter', sans-serif">Internal flow</text>
+      </svg>
