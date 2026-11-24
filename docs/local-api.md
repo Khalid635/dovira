@@ -82,26 +82,38 @@ curl -X POST -H "Authorization: Bearer $DOVIRA_TOKEN" \
 ```
 
 ```json
-{ "ok": true, "id": "…" }
+{ "ok": true, "dialog": true }
 ```
+
+With `"direct": true` the response is `{ "ok": true, "direct": true, "id": "…" }` instead — see below.
 
 Request body (JSON, max 1 MB):
 
 | Field       | Type     | Notes                                                                                                                                                       |
 | ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`       | string   | Required. `http(s)://…` or `magnet:` — anything else is `unsupported-url`.                                                                                  |
-| `kind`      | string   | `video` or `audio`; anything else (or omitted) means auto — video when the link has video, audio otherwise.                                                 |
-| `quality`   | string   | e.g. `"1080"`, `"720"`, `"320"`. Max 8 characters; omitted = the app's Settings default.                                                                    |
+| `kind`      | string   | `video` or `audio`; anything else (or omitted) means auto — video when the link has video, audio otherwise. Direct mode only — the dialog lets the user pick. |
+| `quality`   | string   | e.g. `"1080"`, `"720"`, `"320"`. Max 8 characters; omitted = the app's Settings default. Direct mode only — the dialog lets the user pick.              |
+| `direct`    | boolean  | `true` = start the download at once (floating button), no Add dialog. Omitted/false = open the Add dialog.                                                     |
 | `cookies`   | string   | Netscape `cookies.txt` text for this link (max 64 KB). Used for login-walled pages; only cookies matching the URL's host/path are sent.                     |
 | `userAgent` | string   | Sent with the download request. Max 512 characters.                                                                                                         |
 | `referer`   | string   | Must start with `http://` or `https://`. Max 2048 characters.                                                                                               |
 | `mirrors`   | string[] | Optional mirror URLs for a plain-file download (max 5, `http(s)` only — anything else is silently dropped). aria2 tries them all; the main URL stays first. |
 
+Direct download — the floating button's one-click flow: send
+`"direct": true` and the app starts the download at once with the
+auto quality/subtitle pick (Settings defaults, `kind`/`quality`
+override them) — no Add dialog, and the app window opens over the
+download in progress. The request waits for format resolution
+(~10 s typical, 60 s worst case) so the caller gets the real
+outcome: `{ "ok": true, "direct": true, "id": "…" }` on success,
+`{ "ok": false, "error": "…" }` when it could not start. A playlist
+URL falls back to the Add dialog (`{ "ok": true, "dialog": true }`)
+so entries can be picked. The popup, right-click menu and download
+intercept keep the dialog flow (no `direct` flag).
+
 Notes:
 
-- Playlist/channel URLs are refused with
-  `400 { "ok": false, "error": "playlist" }` — pick entries in the
-  app's Add dialog instead.
 - The app's own rules apply: duplicate check, disk-space check, smart
   naming/organizer, and the Settings quality default.
 - Cookies are written to a temp file the download references and
@@ -158,7 +170,6 @@ All errors are JSON: `{ "ok": false, "error": "<code>" }`.
 | 400  | `invalid-json`      | The body is not valid JSON.                                     |
 | 400  | `invalid-url`       | `url` is missing or not a URL.                                  |
 | 400  | `unsupported-url`   | Not `http(s)://` or `magnet:`.                                  |
-| 400  | `playlist`          | Playlist/channel URLs are refused — use the app's Add dialog.   |
 | 400  | `duplicate`         | Already downloaded (same URL + quality).                        |
 | 400  | `no-space`          | Not enough free disk space.                                     |
 | 400  | `unknown`           | The download could not be added (see the app log).              |

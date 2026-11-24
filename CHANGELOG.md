@@ -2,6 +2,12 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [Unreleased]
+
+### Added
+
+- IDM-style direct download: the extension's floating Download button now starts the download at once — best quality up to the Settings cap, auto subtitles per Settings — with no Add dialog; the app window opens over the download in progress. A playlist URL falls back to the Add dialog so entries can be picked. The popup, right-click menu and download intercept keep the dialog flow.
+
 ## [1.3.1] - 2026-11-24
 
 ### Fixed

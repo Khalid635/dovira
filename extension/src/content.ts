@@ -11,6 +11,11 @@
  * Blob URLs (YouTube etc.) cannot be downloaded directly, so the PAGE
  * URL is sent instead — yt-dlp resolves the video from it. A real
  * http(s) media URL (direct <video src> or <source>) is sent as-is.
+ *
+ * Direct download: clicking starts the download at once (best
+ * quality up to the Settings cap, auto subtitles per Settings) — no
+ * Add dialog; the app window opens over the download in progress. A
+ * playlist URL falls back to the Add dialog so entries can be picked.
  * Tiny videos/ads are ignored (under ~200x120, or under ~3s when the
  * duration is known; live streams are never skipped).
  *
@@ -143,11 +148,12 @@ function onButtonClick(): void {
   const url = pickVideoDownloadUrl(srcs, location.href)
   setButtonState('Sending…', true)
   void chrome.runtime
-    .sendMessage({ type: 'dovira-download', url, referer: location.href })
+    .sendMessage({ type: 'dovira-download', url, referer: location.href, direct: true })
     .then((response) => {
-      const r = response as { ok?: boolean; error?: string } | undefined
+      const r = response as { ok?: boolean; error?: string; direct?: boolean } | undefined
       if (r?.ok) {
-        setButtonState('Sent to DOVIRA', true)
+        // Direct: the download is already running when this resolves.
+        setButtonState(r?.direct ? 'Downloading' : 'Sent to DOVIRA', true)
       } else if (r?.error === 'unauthorized') {
         needsPair = true
         setButtonState('Pair DOVIRA', false)

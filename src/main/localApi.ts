@@ -113,6 +113,8 @@ interface DownloadRequest {
   cookies?: unknown
   userAgent?: unknown
   referer?: unknown
+  /** Direct download (floating button): start at once, no Add dialog. */
+  direct?: unknown
   /** Next-level: mirror URLs for a plain-file download (max 5, http(s) only). */
   mirrors?: unknown
 }
@@ -466,6 +468,66 @@ export class LocalApiServer {
     createReadStream(d.savePath).pipe(res)
   }
 
+  /** Delete a temp per-link cookies file, if it still exists. */
+  private deleteTempCookiesFile(file: string | null): void {
+    if (!file) return
+    try {
+      if (existsSync(file)) unlinkSync(file)
+    } catch {
+      // Stale temp file — harmless.
+    }
+  }
+
+  /**
+   * Direct download (POST /downloads with `direct: true`, from the
+   * extension's floating button): run queue.addFromExtension, which
+   * resolves the link and starts the download with the auto
+   * quality/subtitle pick — no Add dialog. On success the hook shows
+   * the app window over the download in progress; the queue owns the
+   * temp cookies file from here. A playlist falls back to the dialog
+   * flow (entries need picking). Any other failure deletes the temp
+   * cookies file — the download never started, so nothing needs it.
+   */
+  private async handleDirectDownload(
+    req: ExtensionDownloadRequest,
+    res: ServerResponse,
+    opts: { kind?: 'video' | 'audio'; quality?: string }
+  ): Promise<void> {
+    let result: { ok: boolean; id?: string; error?: string; errorDetail?: string }
+    try {
+      result = await this.queue.addFromExtension(req.url, {
+        kind: opts.kind,
+        quality: opts.quality,
+        cookiesFile: req.cookiesFile,
+        userAgent: req.userAgent,
+        referer: req.referer,
+        headers: req.headers,
+        mirrors: req.mirrors
+      })
+    } catch (err) {
+      logMain('error', `local-api: direct download failed: ${(err as Error).message}`)
+      this.deleteTempCookiesFile(req.cookiesFile)
+      this.send(res, 500, { ok: false, error: 'unknown' })
+      return
+    }
+    if (result.ok && result.id) {
+      this.hooks?.onDirectDownloadStarted?.(result.id)
+      logMain('info', `local-api: direct download started id=${result.id}`)
+      this.send(res, 200, { ok: true, direct: true, id: result.id })
+      return
+    }
+    if (result.error === 'playlist') {
+      setExtensionRequest(req)
+      this.hooks?.onExtensionDownload(req)
+      logMain('info', 'local-api: direct download is a playlist — opened the Add dialog instead')
+      this.send(res, 200, { ok: true, dialog: true })
+      return
+    }
+    this.deleteTempCookiesFile(req.cookiesFile)
+    logMain('warn', `local-api: direct download failed error=${result.error ?? 'unknown'}`)
+    this.send(res, 200, { ok: false, error: result.error ?? 'unknown' })
+  }
+
   private async handleAddDownload(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const raw = await this.readBody(req)
     if (raw === null) {
@@ -569,18 +631,26 @@ export class LocalApiServer {
         headers,
         mirrors: mirrors.length > 0 ? mirrors : []
       }
+      // Direct download (floating button): start at once with the auto
+      // quality/subtitle pick — no Add dialog. The POST waits for format
+      // resolution (~10 s typical, 60 s worst case), so the extension
+      // gets the real outcome (started / failed) instead of a blind ack.
+      // A playlist falls back to the dialog flow — picking entries needs
+      // the user. kind/quality only apply here; the dialog lets the user
+      // pick, so they are ignored on the dialog path, as before.
+      if (body.direct === true) {
+        await this.handleDirectDownload(req, res, {
+          kind: body.kind === 'video' || body.kind === 'audio' ? body.kind : undefined,
+          quality: typeof body.quality === 'string' ? body.quality : undefined
+        })
+        return
+      }
       setExtensionRequest(req)
       this.hooks?.onExtensionDownload(req)
       logMain('info', `local-api: extension download queued for dialog host=${parsed.hostname}`)
       this.send(res, 200, { ok: true, dialog: true })
     } catch (err) {
-      if (cookiesFile && existsSync(cookiesFile)) {
-        try {
-          unlinkSync(cookiesFile)
-        } catch {
-          // Stale temp file — harmless.
-        }
-      }
+      this.deleteTempCookiesFile(cookiesFile)
       logMain('error', `local-api: add failed: ${(err as Error).message}`)
       this.send(res, 500, { ok: false, error: 'unknown' })
     }

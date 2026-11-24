@@ -442,6 +442,12 @@ export interface ExtensionDownloadRequest {
 export interface LocalApiHooks {
   /** Open the Add dialog for this URL (the renderer runs fetchInfo in the background). */
   onExtensionDownload: (req: ExtensionDownloadRequest) => void
+  /**
+   * Direct download started (floating-button click, `direct: true`):
+   * the download is already queued — show the window so the user sees
+   * it in progress. No dialog is opened for this path.
+   */
+  onDirectDownloadStarted?: (id: string) => void
 }
 
 /**

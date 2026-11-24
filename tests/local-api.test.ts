@@ -7,6 +7,7 @@ import { DoviraDb } from '../src/main/db.ts'
 import { SettingsManager } from '../src/main/settings.ts'
 import type { LocalApiServer as LocalApiServerType } from '../src/main/localApi.ts'
 import type { ExtensionDownloadRequest } from '../src/main/types.ts'
+import { peekAnyExtensionRequest } from '../src/main/extensionRequests.ts'
 
 // localApi.ts imports `app` + `safeStorage` from electron — mock them at
 // module scope, before the module is first imported. Encryption is OFF
@@ -87,6 +88,9 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
   let settings: SettingsManager
   let api: LocalApiServerType
   let hookCalls: ExtensionDownloadRequest[]
+  let directHookCalls: string[]
+  let directCalls: { url: string; opts: unknown }[]
+  let directResult: { ok: boolean; id?: string; error?: string }
   let queueRows: Record<string, { id: string; filename: string; status: string; kind: string; savePath: string; doneBytes: number; totalBytes: number }>
   const TOKEN = 'test-token-0123456789abcdef'
 
@@ -123,13 +127,21 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     settings = new SettingsManager(db)
     settings.update({ extensionToken: TOKEN, downloadDir: dir })
     hookCalls = []
+    directHookCalls = []
+    directCalls = []
+    directResult = { ok: true, id: 'd-default' }
     queueRows = {}
     const fakeQueue = {
       list: () => Object.values(queueRows),
-      get: (id: string) => queueRows[id]
+      get: (id: string) => queueRows[id],
+      addFromExtension: async (url: string, opts: unknown) => {
+        directCalls.push({ url, opts })
+        return directResult
+      }
     }
     api = new LocalApiServer(settings, fakeQueue as never, userData, {
-      onExtensionDownload: (r) => hookCalls.push(r)
+      onExtensionDownload: (r) => hookCalls.push(r),
+      onDirectDownloadStarted: (id) => directHookCalls.push(id)
     })
     await api.start()
     assert.ok(api.isRunning(), 'server should be listening')
@@ -232,6 +244,65 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     assert.ok(hookCalls[0].cookiesFile !== null)
     assert.ok(existsSync(hookCalls[0].cookiesFile as string))
     assert.ok((hookCalls[0].headers ?? []).includes('Cookie: session=abc123'))
+  })
+
+  it('POST /downloads direct:true starts the download at once — no dialog, direct hook fires', async () => {
+    directResult = { ok: true, id: 'd-direct' }
+    const r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'https://video.example/watch?v=1', direct: true })
+    })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body, { ok: true, direct: true, id: 'd-direct' })
+    assert.deepEqual(directHookCalls, ['d-direct'])
+    // The dialog flow never ran: no dialog hook, no pending request.
+    assert.equal(hookCalls.length, 0)
+    assert.equal(peekAnyExtensionRequest(), null)
+    assert.equal(directCalls.length, 1)
+    assert.equal(directCalls[0].url, 'https://video.example/watch?v=1')
+  })
+
+  it('POST /downloads direct:true with a playlist falls back to the dialog', async () => {
+    directResult = { ok: false, error: 'playlist' }
+    const r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'https://video.example/playlist?list=abc', direct: true })
+    })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body, { ok: true, dialog: true })
+    assert.equal(directHookCalls.length, 0)
+    assert.equal(hookCalls.length, 1)
+    assert.equal(hookCalls[0].url, 'https://video.example/playlist?list=abc')
+    assert.equal(peekAnyExtensionRequest()?.url, 'https://video.example/playlist?list=abc')
+  })
+
+  it('POST /downloads direct:true failure reports the error and deletes the temp cookies file', async () => {
+    directResult = { ok: false, error: 'duplicate' }
+    const r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'https://video.example/watch?v=1', direct: true })
+    })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body, { ok: false, error: 'duplicate' })
+    assert.equal(hookCalls.length, 0)
+    assert.equal(directHookCalls.length, 0)
+    // With cookies: a failed direct start must not leak the temp file.
+    directResult = { ok: false, error: 'unknown' }
+    const future = Math.floor(Date.now() / 1000) + 3600
+    const cookies = `.example.com\tTRUE\t/\tFALSE\t${future}\tsession\tabc123\n`
+    const r2 = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'https://www.example.com/f.zip', cookies, direct: true })
+    })
+    assert.equal(r2.status, 200)
+    assert.deepEqual(r2.body, { ok: false, error: 'unknown' })
+    const cookiesFile = (directCalls[1].opts as { cookiesFile: string | null }).cookiesFile
+    assert.ok(cookiesFile !== null)
+    assert.equal(existsSync(cookiesFile as string), false)
   })
 
   it('/preview: 401 bad token, 404 unknown/not-completed/non-media, 415 unsupported type, 200 + 206 + 416', async () => {

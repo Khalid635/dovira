@@ -395,9 +395,12 @@ app.whenReady().then(() => {
   // Phase 5: Local API for the browser extension — 127.0.0.1 only,
   // Bearer token required on every request. Start is best-effort: a
   // bind failure is logged and the app runs on without it.
-  // Dialog-first handoff: a floating-button send opens the Add dialog
-  // at once (the window is shown/focused) instead of waiting ~10 s for
-  // yt-dlp extraction — the dialog runs fetchInfo in the background.
+  // Dialog-first handoff: a popup / right-click / intercept send opens
+  // the Add dialog at once (the window is shown/focused) instead of
+  // waiting ~10 s for yt-dlp extraction — the dialog runs fetchInfo in
+  // the background. The floating button sends direct instead: the
+  // download starts at once and the window opens over the download in
+  // progress (onDirectDownloadStarted below).
   localApi = new LocalApiServer(settings, queue, userData, {
     onExtensionDownload: (req: ExtensionDownloadRequest) => {
       const win = BrowserWindow.getAllWindows()[0]
@@ -406,6 +409,16 @@ app.whenReady().then(() => {
         win.show()
         win.focus()
         win.webContents.send('dovira:extension:download', req)
+      }
+    },
+    onDirectDownloadStarted: () => {
+      // The queue's status/progress events already refresh the list —
+      // just bring the window forward over the download in progress.
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
       }
     }
   })
