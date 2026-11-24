@@ -29,6 +29,7 @@ import {
   getSetupGuideVideoPath
 } from './util/paths.ts'
 import { bringToFront } from './util/bringToFront.ts'
+import { applyAutoStart, isAutoLaunched } from './util/autoStart.ts'
 import {
   getExpectedBinaryHashes,
   loadEngineHashOverrides,
@@ -58,6 +59,12 @@ let lastEngineAutoUpdate: EngineAutoUpdateStatus | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
 /**
+ * True when this launch came from the Windows login item — the main
+ * window starts hidden to the tray instead of popping up on login.
+ * A normal manual launch shows the window as before.
+ */
+const autoLaunched = isAutoLaunched()
+/**
  * v1.4.1: IDM-style progress windows — one small window per download,
  * opened automatically when a download starts. The factory is the
  * createProgressWindow function below (hoisted, so this reference is
@@ -76,15 +83,19 @@ const RENDERER_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' http://127.0.0.1:*; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; worker-src 'none'"
 
 /**
- * Phase 3: apply the settings that live outside the renderer — launch at
- * startup (Windows Run key) and clipboard watch. Called once at startup
- * and after every settings:set.
+ * Phase 3: apply the settings that live outside the renderer — auto-start
+ * (always on, see autoStart.ts) and clipboard watch. Called once at
+ * startup and after every settings:set.
  */
 function applyRuntimeSettings(s: Settings): void {
-  try {
-    app.setLoginItemSettings({ openAtLogin: s.launchAtStartup })
-  } catch (err) {
-    logMain('error', `launch-at-startup apply failed: ${(err as Error).message}`)
+  // Auto-start is ALWAYS ON (Khalid's decision 2026-11-24): no toggle
+  // anywhere in Settings. Re-applied on every settings change, so a
+  // deleted Run entry is restored on the next startup or settings save.
+  // The only escape hatch is Windows itself (Task Manager → Startup).
+  if (applyAutoStart(app)) {
+    logMain('info', 'auto-start: login item on (willLaunchAtLogin=true)')
+  } else {
+    logMain('error', 'auto-start: could not apply login item')
   }
   if (clipboardWatcher) {
     if (s.clipboardWatch && !clipboardWatcher.isRunning()) clipboardWatcher.start()
@@ -118,6 +129,14 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    if (autoLaunched) {
+      // IDM-style auto-start: stay hidden to the tray — no window
+      // popup on every login. The tray icon (double-click / Show
+      // DOVIRA) and the extension hooks (bringToFront) are the way
+      // back in; they revive a hidden window with show().
+      logMain('info', 'main window kept hidden (auto-launch)')
+      return
+    }
     mainWindow?.show()
   })
 

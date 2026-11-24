@@ -85,8 +85,6 @@ export interface Settings {
   cookieBrowser: CookieBrowser
   /** Phase 3: path to a cookies.txt file (used only when cookieBrowser is 'none'). */
   cookiesFile: string | null
-  /** Phase 3: start DOVIRA automatically when Windows starts. */
-  launchAtStartup: boolean
   /** Phase 3: closing the window hides it to the tray instead of quitting. */
   minimizeToTray: boolean
   /** Phase 3: proxy URL for downloads (http://, https://, socks5:// or socks5h://). Empty = no proxy. */

@@ -429,18 +429,6 @@ export default function SettingsPage(): React.JSX.Element {
             </label>
           </div>
 
-          {/* Phase 3: startup + tray. */}
-          <div className="settings-field">
-            <label className="flex cursor-pointer items-center gap-2 text-[13px]">
-              <input
-                type="checkbox"
-                checked={settings.launchAtStartup}
-                onChange={(e) => set({ launchAtStartup: e.target.checked })}
-              />
-              {t('settings.launchAtStartup')}
-            </label>
-          </div>
-
           <div className="settings-field">
             <label className="flex cursor-pointer items-center gap-2 text-[13px]">
               <input

@@ -398,7 +398,6 @@
   "settings.ffmpegVersion": "ffmpeg {version}",
   "settings.initTimeoutError": "Loading settings is taking too long — press Retry, or restart the app.",
   "settings.language": "Language",
-  "settings.launchAtStartup": "Start DOVIRA when Windows starts",
   "settings.loadError": "Settings couldn't load — the app couldn't reach its own data. Press Retry, or restart the app.",
   "settings.localModel": "Local AI model (optional)",
   "settings.localModelEndpoint": "Server address",

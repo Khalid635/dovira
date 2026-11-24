@@ -23,7 +23,6 @@ export const DEFAULT_SETTINGS: Settings = {
   // Phase 3
   cookieBrowser: 'none',
   cookiesFile: null,
-  launchAtStartup: false,
   minimizeToTray: false,
   proxyUrl: '',
   schedulerEnabled: false,
@@ -125,7 +124,6 @@ function normalizeSettings(next: Settings): Settings {
   if (typeof next.cookiesFile !== 'string' && next.cookiesFile !== null) {
     next.cookiesFile = null
   }
-  next.launchAtStartup = next.launchAtStartup === true
   next.minimizeToTray = next.minimizeToTray === true
   if (typeof next.proxyUrl !== 'string') next.proxyUrl = ''
   else if (next.proxyUrl.length > 0 && !isValidProxyUrl(next.proxyUrl)) next.proxyUrl = ''

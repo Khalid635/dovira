@@ -398,7 +398,6 @@
   "settings.ffmpegVersion": "ffmpeg {version}",
   "settings.initTimeoutError": "সেটিংস লোড হতে অনেক সময় লাগছে — Retry চাপো, অথবা অ্যাপ আবার চালু করো।",
   "settings.language": "ভাষা",
-  "settings.launchAtStartup": "Windows চালু হলে DOVIRA চালু করো",
   "settings.loadError": "সেটিংস লোড হয়নি — অ্যাপ নিজের ডেটা পায়নি। Retry চাপো, অথবা অ্যাপ আবার চালু করো।",
   "settings.localModel": "লোকাল AI মডেল (ঐচ্ছিক)",
   "settings.localModelEndpoint": "সার্ভারের ঠিকানা",
