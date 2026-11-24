@@ -174,6 +174,12 @@ export interface DetectedCommand {
   unmatchedTerm: string | null
 }
 
+/** A question word anywhere means the message is a question, never a command. */
+export function hasQuestionWord(normalized: string): boolean {
+  const q = ` ${normalized} `
+  return QUESTION_WORDS.some((w) => hasToken(q, w))
+}
+
 /**
  * Detect a command in a chat message. Questions (any question word)
  * are never commands. A download needs a URL + a download verb.
@@ -182,7 +188,7 @@ export interface DetectedCommand {
 export function detectCommand(rawQuestion: string, downloads: DownloadInfo[]): DetectedCommand {
   const normalized = normalizeCommand(rawQuestion)
   const q = ` ${normalized} `
-  if (QUESTION_WORDS.some((w) => hasToken(q, w))) {
+  if (hasQuestionWord(normalized)) {
     return { command: null, unmatchedTerm: null }
   }
   const urls = extractUrls(rawQuestion)

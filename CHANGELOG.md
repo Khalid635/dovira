@@ -7,10 +7,12 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 ### Added
 
 - IDM-style direct download: the extension's floating Download button now starts the download at once — best quality up to the Settings cap, auto subtitles per Settings — with no Add dialog; the app window opens over the download in progress. A playlist URL falls back to the Add dialog so entries can be picked. The popup, right-click menu and download intercept keep the dialog flow.
+- AI Assistant FAQ: the assistant now answers setup/how-to questions from a built-in knowledge base — extension setup in Chrome (English + Bangla, full steps), audio/MP3 download, why fetching takes ~10s, DRM sites, and where downloads go (now shows your real download folder). No web page, no network call, no model.
 
 ### Fixed
 
-- YouTube downloads fixed: bundled yt-dlp 2026.10.26 -> 2026.11.23 - YouTube changed its player clients (the `web` client broke/slowed extraction, so fetching a video could hang past the 60s timeout and the Add dialog showed no formats, no audio quality and no download). The new yt-dlp drops the broken client; fetching the failing video now completes in ~15s with full formats.
+- YouTube downloads fixed: bundled yt-dlp 2026.10.26 -> 2026.11.23 — YouTube changed its player clients (the `web` client broke/slowed extraction, so fetching a video could hang past the 60s timeout and the Add dialog showed no formats, no audio quality and no download). The new yt-dlp drops the broken client; fetching the failing video now completes in ~15s with full formats.
+- Assistant no longer hijacks how-questions: "how do I download audio as mp3" used to get the "send a link" reply because the download-verb check had no question veto; questions now reach the FAQ answers.
 
 ## [1.3.1] - 2026-11-24
 

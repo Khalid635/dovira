@@ -122,6 +122,32 @@ describe('assistant detectIntent', () => {
     assert.equal(detectIntent('how do I do this thing?').topic, null)
   })
 
+  it('FAQ: extension setup / audio / fetch / drm (EN + Bangla)', () => {
+    // Extension setup — specific topic wins over the generic 'extension'.
+    const setup = detectIntent('how do I set up the extension in Chrome')
+    assert.equal(setup.intent, 'howto')
+    assert.equal(setup.topic, 'extensionSetup')
+    assert.equal(detectIntent('how to install the extension').topic, 'extensionSetup')
+    assert.equal(
+      detectIntent('ক্রোমে এক্সটেনশন কিভাবে সেটআপ করবো').topic,
+      'extensionSetup'
+    )
+    assert.equal(detectIntent('এক্সটেনশন সেটআপ কিভাবে করব').topic, 'extensionSetup')
+    // Generic extension questions stay on the generic topic.
+    assert.equal(detectIntent('how do I fix the extension?').topic, 'extension')
+    // Audio / MP3.
+    assert.equal(detectIntent('how do I download audio as mp3?').topic, 'audio')
+    assert.equal(detectIntent('অডিও কিভাবে ডাউনলোড করবো').topic, 'audio')
+    // Fetch time — 'why' is a howto word now.
+    assert.equal(detectIntent('why does fetching a video take so long?').topic, 'fetch')
+    assert.equal(detectIntent('ভিডিও ফেচ করতে এত সময় লাগে কেন?').topic, 'fetch')
+    // DRM sites.
+    assert.equal(detectIntent('how do I download from Netflix?').topic, 'drm')
+    assert.equal(detectIntent("why can't I download from Netflix?").topic, 'drm')
+    // 'why' does not steal failure questions.
+    assert.equal(detectIntent('why did the download fail?').intent, 'failed')
+  })
+
   it('empty / unintelligible -> fallback; long questions truncated', () => {
     assert.equal(detectIntent('').intent, 'fallback')
     assert.equal(detectIntent('   ').intent, 'fallback')
@@ -189,6 +215,42 @@ describe('assistant answerQuestion', () => {
     assert.equal(none.lines[0].key, 'assistant.findNone')
     const failed = answerQuestion(snap(rows), 'find failed downloads')
     assert.equal(failed.lines[0].params?.n, 1)
+  })
+
+  it('FAQ answers: setup/audio/fetch/drm keys + folder dir param', () => {
+    assert.equal(
+      answerQuestion(snap([]), 'how do I set up the extension in Chrome').lines[0].key,
+      'assistant.howtoExtensionSetup'
+    )
+    assert.equal(
+      answerQuestion(snap([]), 'ক্রোমে এক্সটেনশন কিভাবে সেটআপ করবো').lines[0].key,
+      'assistant.howtoExtensionSetup'
+    )
+    assert.equal(
+      answerQuestion(snap([]), 'how do I download audio as mp3').lines[0].key,
+      'assistant.howtoAudio'
+    )
+    assert.equal(
+      answerQuestion(snap([]), 'why does fetching take so long').lines[0].key,
+      'assistant.howtoFetch'
+    )
+    assert.equal(
+      answerQuestion(snap([]), "why can't I download from Netflix").lines[0].key,
+      'assistant.howtoDrm'
+    )
+    const folder = answerQuestion(snap([]), 'where is the download folder?')
+    assert.equal(folder.lines[0].key, 'assistant.howtoFolder')
+    assert.equal(folder.lines[0].params?.dir, 'C:\\DL')
+    // A how-question with a download verb is a question, not a command
+    // missing its link — the needLink reply must not hijack it.
+    const howDl = answerQuestion(snap([]), 'how do I download a video?')
+    assert.equal(howDl.intent, 'howto')
+    assert.notEqual(howDl.lines[0].key, 'assistant.commandNeedLink')
+    // The imperative still asks for the link.
+    assert.equal(
+      answerQuestion(snap([]), 'download this').lines[0].key,
+      'assistant.commandNeedLink'
+    )
   })
 
   it('howto / greeting / fallback intents', () => {

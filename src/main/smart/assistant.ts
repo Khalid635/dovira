@@ -19,6 +19,7 @@ import {
   detectCommand,
   extractUrls,
   hasDownloadVerb,
+  hasQuestionWord,
   normalizeCommand,
   type AssistantCommand
 } from './assistantCommands.ts'
@@ -38,6 +39,10 @@ export type HowtoTopic =
   | 'cookies'
   | 'scheduler'
   | 'extension'
+  | 'extensionSetup'
+  | 'audio'
+  | 'fetch'
+  | 'drm'
   | 'grabber'
   | 'smart'
   | 'update'
@@ -182,6 +187,8 @@ const HOW_WORDS = [
   'how do i',
   'how to',
   'how can i',
+  'why',
+  'কেন',
   'কিভাবে',
   'কীভাবে',
   'কেমনে',
@@ -222,11 +229,35 @@ const DATE_WORDS: { date: FindDate; words: string[] }[] = [
   }
 ]
 const HOWTO_TOPICS: { topic: HowtoTopic; words: string[] }[] = [
+  // FAQ: extension setup first — specific wins over the generic
+  // 'extension' topic ("how do I set up the extension" is a setup
+  // question, "the extension is not working" is not).
+  {
+    topic: 'extensionSetup',
+    words: [
+      'set up the extension',
+      'set up extension',
+      'install the extension',
+      'install extension',
+      'extension setup',
+      'setup the extension',
+      'set up',
+      'setup',
+      'সেটআপ',
+      'ইনস্টল',
+      'সেট আপ'
+    ]
+  },
   { topic: 'speed', words: ['speed', 'slow', 'fast', 'limit', 'স্পিড', 'গতি', 'আস্তে', 'ধীর'] },
   {
     topic: 'subtitles',
     words: ['subtitle', 'subtitles', 'caption', 'সাবটাইটেল', 'সাব টাইটেল']
   },
+  {
+    topic: 'audio',
+    words: ['audio', 'mp3', 'music', 'song', 'অডিও', 'এমপি৩', 'গান', 'মিউজিক']
+  },
+  { topic: 'fetch', words: ['fetch', 'fetching', 'ফেচ'] },
   {
     topic: 'cookies',
     words: ['cookie', 'cookies', 'login', 'sign in', 'কুকি', 'লগইন', 'সাইন ইন']
@@ -241,6 +272,10 @@ const HOWTO_TOPICS: { topic: HowtoTopic; words: string[] }[] = [
   { topic: 'update', words: ['update yt-dlp', 'update engine', 'yt-dlp update', 'আপডেট'] },
   { topic: 'folder', words: ['folder', 'directory', 'save', 'ফোল্ডার', 'সেভ'] },
   { topic: 'resume', words: ['resume', 'pause', 'পজ', 'রিজিউম', 'থামা'] },
+  {
+    topic: 'drm',
+    words: ['drm', 'ডিআরএম', 'netflix', 'prime video', 'disney', 'spotify', 'protected']
+  },
   // v1.2.0: last — specific topics above win ("extension is not working"
   // is an extension question, not a diagnostics one).
   {
@@ -588,7 +623,7 @@ function answerFind(snap: AssistantSnapshot, det: DetectedIntent): AssistantLine
   return lines
 }
 
-function answerHowto(det: DetectedIntent): AssistantLine[] {
+function answerHowto(snap: AssistantSnapshot, det: DetectedIntent): AssistantLine[] {
   if (det.topic === null) {
     return [{ key: 'assistant.fallback' }]
   }
@@ -598,12 +633,19 @@ function answerHowto(det: DetectedIntent): AssistantLine[] {
     cookies: 'assistant.howtoCookies',
     scheduler: 'assistant.howtoScheduler',
     extension: 'assistant.howtoExtension',
+    extensionSetup: 'assistant.howtoExtensionSetup',
+    audio: 'assistant.howtoAudio',
+    fetch: 'assistant.howtoFetch',
+    drm: 'assistant.howtoDrm',
     grabber: 'assistant.howtoGrabber',
     smart: 'assistant.howtoSmart',
     update: 'assistant.howtoUpdate',
     folder: 'assistant.howtoFolder',
     resume: 'assistant.howtoResume',
     diagnose: 'assistant.howtoDiagnose'
+  }
+  if (det.topic === 'folder') {
+    return [{ key: keyByTopic.folder, params: { dir: snap.downloadDir } }]
   }
   return [{ key: keyByTopic[det.topic] }]
 }
@@ -631,7 +673,14 @@ export function answerQuestion(snap: AssistantSnapshot, rawQuestion: string): As
     }
   }
   // A download verb with no link ("download this" and nothing pasted).
-  if (hasDownloadVerb(normalizeCommand(rawQuestion)) && extractUrls(rawQuestion).length === 0) {
+  // Questions are exempt — "how do I download audio as mp3" is a howto
+  // question, not a download command missing its link.
+  const normalized = normalizeCommand(rawQuestion)
+  if (
+    hasDownloadVerb(normalized) &&
+    extractUrls(rawQuestion).length === 0 &&
+    !hasQuestionWord(normalized)
+  ) {
     return {
       intent: 'command',
       source: 'rules',
@@ -647,7 +696,7 @@ export function answerQuestion(snap: AssistantSnapshot, rawQuestion: string): As
     case 'find':
       return { intent: 'find', source: 'rules', lines: answerFind(snap, det) }
     case 'howto':
-      return { intent: 'howto', source: 'rules', lines: answerHowto(det) }
+      return { intent: 'howto', source: 'rules', lines: answerHowto(snap, det) }
     case 'greeting':
       return { intent: 'greeting', source: 'rules', lines: [{ key: 'assistant.greeting' }] }
     default:
