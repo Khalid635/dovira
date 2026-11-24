@@ -756,13 +756,21 @@ export class QueueManager extends EventEmitter {
     }
     // Phase 7: duplicate safety net (the dialog pre-checks; this catches
     // races and extension adds). Re-download / Keep both pass
-    // skipDuplicateCheck.
+    // skipDuplicateCheck. The size is the one the dialog's pre-check
+    // used (opts.totalBytes, from the format rows) — passing null here
+    // used to make the disk check match by NAME ALONE, so a same-named
+    // file with a different size (a different encode) was refused as
+    // a duplicate even though the pre-check had correctly cleared it,
+    // and the submit died with a bare "already downloaded" error and
+    // no panel (found live 2026-11-24: Big Buck Bunny [1080p], 120 MB
+    // vs 101 MB on disk). Without a size, null keeps the old name-only
+    // behaviour.
     if (s.smartDuplicates && !opts.skipDuplicateCheck) {
       const dup = this.checkDuplicate({
         url: opts.url.trim(),
         filename,
         saveDir: dir,
-        totalBytes: null,
+        totalBytes: opts.totalBytes ?? null,
         remoteId: opts.videoId && opts.extractor ? `${opts.extractor}:${opts.videoId}` : null,
         formatId: opts.formatId ?? null
       })

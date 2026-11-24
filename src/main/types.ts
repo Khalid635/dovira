@@ -358,6 +358,13 @@ export interface AddOptions {
   uploader?: string | null
   /** Phase 7: the user already chose Re-download / Keep both — skip the duplicate safety net. */
   skipDuplicateCheck?: boolean
+  /**
+   * v1.4.1: the format size (bytes) the Add dialog's duplicate pre-check
+   * used — the safety net compares name+size with the SAME number, so
+   * the two checks can never disagree. Null/omitted = unknown: the disk
+   * check then matches by name alone, as before.
+   */
+  totalBytes?: number | null
   /** Phase 7: false = the caller already decided the filename (Add dialog preview); otherwise main applies smart naming. */
   applySmartName?: boolean
 }
@@ -445,9 +452,11 @@ export interface LocalApiHooks {
   /** Open the Add dialog for this URL (the renderer runs fetchInfo in the background). */
   onExtensionDownload: (req: ExtensionDownloadRequest) => void
   /**
-   * Direct download started (floating-button click, `direct: true`):
-   * the download is already queued — show the window so the user sees
-   * it in progress. No dialog is opened for this path.
+   * Direct download started (POST /downloads with `direct: true` —
+   * kept for API senders; the extension's floating button opens the
+   * Add dialog now, and the AI Assistant calls addFromExtension
+   * in-process): the download is already queued — show the window so
+   * the user sees it in progress. No dialog is opened for this path.
    */
   onDirectDownloadStarted?: (id: string) => void
 }

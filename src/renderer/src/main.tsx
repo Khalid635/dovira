@@ -3,6 +3,7 @@ import './assets/main.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import ProgressWindow from './components/ProgressWindow'
 
 // Bridge-health gate: if the preload never exposed window.dovira, no IPC
 // call can work and every screen would hang on a bare "…" (the 2026-11-22
@@ -22,9 +23,14 @@ if (typeof window.dovira === 'undefined') {
       '</div></div>'
   }
 } else {
+  // v1.4.1: ?progress=<id> renders ONLY the small progress window for
+  // one download — no sidebar, no dialog. The query never changes for
+  // the life of the window; branching here (not an early return inside
+  // App) keeps the hooks rules intact.
+  const progressId = new URLSearchParams(window.location.search).get('progress')
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      {progressId ? <ProgressWindow downloadId={progressId} /> : <App />}
     </StrictMode>
   )
 }

@@ -322,6 +322,8 @@
   "preview.close": "Close preview",
   "preview.title": "Preview",
   "preview.unavailable": "This file can't be previewed.",
+  "progress.close": "Close",
+  "progress.notFound": "This download is no longer in the queue.",
   "quickPaste.invalid": "Clipboard doesn't have a download link.",
   "quickPaste.noClipboard": "Couldn’t read the clipboard — copy a link and try again.",
   "quickPaste.pasteDownload": "Paste & download",

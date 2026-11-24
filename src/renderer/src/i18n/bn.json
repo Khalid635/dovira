@@ -322,6 +322,8 @@
   "preview.close": "প্রিভিউ বন্ধ করো",
   "preview.title": "প্রিভিউ",
   "preview.unavailable": "এই ফাইলটা প্রিভিউ করা যাবে না।",
+  "progress.close": "বন্ধ করো",
+  "progress.notFound": "এই ডাউনলোডটি আর তালিকায় নেই।",
   "quickPaste.invalid": "ক্লিপবোর্ডে ডাউনলোডের লিংক নেই।",
   "quickPaste.noClipboard": "ক্লিপবোর্ড পড়া যায়নি — লিংক কপি করে আবার চেষ্টা করুন।",
   "quickPaste.pasteDownload": "পেস্ট করে ডাউনলোড",

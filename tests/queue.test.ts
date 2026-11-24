@@ -633,6 +633,79 @@ describe('QueueManager', () => {
     assert.equal(q.get(id)?.doneBytes, 1234)
   })
 
+  it('addWithOptions duplicate safety net: same name + different size + totalBytes passed -> starts (not a duplicate)', async () => {
+    // v1.4.1 regression: the dialog's pre-check compares name+SIZE, but
+    // the safety net used to pass totalBytes: null, so its disk check
+    // matched by NAME ALONE — a same-named file with a different size
+    // (a different encode) was refused as a duplicate even though the
+    // pre-check had cleared it, and the submit died with a bare
+    // "already downloaded" error and no panel. Live case: Big Buck
+    // Bunny [1080p], 120 MB format vs 101 MB on disk.
+    mkdirSync(join(dir, 'Video'), { recursive: true })
+    writeFileSync(join(dir, 'Video', 'Film.mp4'), 'x'.repeat(101))
+    const res = await q.addWithOptions({
+      url: 'https://youtu.be/abc',
+      kind: 'video',
+      formatId: '1080p',
+      formatString: 'bv*[height<=1080]+ba',
+      qualityLabel: '1080p',
+      savePath: join(dir, 'Film.mp4'),
+      filename: 'Film.mp4',
+      title: 'Film',
+      thumbnailUrl: null,
+      applySmartName: false,
+      totalBytes: 120000
+    } as never)
+    assert.equal(res.ok, true)
+    const id = res.id as string
+    assert.equal(await waitFor(() => q.get(id)?.status === 'downloading'), true)
+    // The existing file forces a (1) suffix on the new download.
+    const actualPath = q.get(id)?.savePath as string
+    assert.equal(actualPath, join(dir, 'Video', 'Film (1).mp4'))
+    writeFileSync(actualPath, 'x'.repeat(1234))
+    ytdlp.resolveLast({ code: 0, stderr: '' })
+    assert.equal(await waitFor(() => q.get(id)?.status === 'completed', 3000), true)
+  })
+
+  it('addWithOptions duplicate safety net: same name + same size -> still refused as duplicate', async () => {
+    mkdirSync(join(dir, 'Video'), { recursive: true })
+    writeFileSync(join(dir, 'Video', 'Film.mp4'), 'x'.repeat(120000))
+    const res = await q.addWithOptions({
+      url: 'https://youtu.be/abc',
+      kind: 'video',
+      formatId: '1080p',
+      formatString: 'bv*[height<=1080]+ba',
+      qualityLabel: '1080p',
+      savePath: join(dir, 'Film.mp4'),
+      filename: 'Film.mp4',
+      title: 'Film',
+      thumbnailUrl: null,
+      applySmartName: false,
+      totalBytes: 120000
+    } as never)
+    assert.equal(res.ok, false)
+    assert.equal(res.error, 'duplicate')
+  })
+
+  it('addWithOptions duplicate safety net: no totalBytes -> name alone still refuses (legacy fallback)', async () => {
+    mkdirSync(join(dir, 'Video'), { recursive: true })
+    writeFileSync(join(dir, 'Video', 'Film.mp4'), 'x'.repeat(101))
+    const res = await q.addWithOptions({
+      url: 'https://youtu.be/abc',
+      kind: 'video',
+      formatId: '1080p',
+      formatString: 'bv*[height<=1080]+ba',
+      qualityLabel: '1080p',
+      savePath: join(dir, 'Film.mp4'),
+      filename: 'Film.mp4',
+      title: 'Film',
+      thumbnailUrl: null,
+      applySmartName: false
+    } as never)
+    assert.equal(res.ok, false)
+    assert.equal(res.error, 'duplicate')
+  })
+
   it('yt-dlp flow: non-zero exit with rename-race + finished format recovers', async () => {
     const res = await q.addWithOptions({
       url: 'https://youtu.be/abc',

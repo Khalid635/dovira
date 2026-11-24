@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { DownloadInfo } from '../../../main/types'
 import { useStore, useT } from '../store'
-import { formatBytes, formatEta, formatSpeed, formatTime } from '../util/format'
+import { formatBytes, formatEta, formatSpeed, formatTime, errorKey } from '../util/format'
 import { speedGraphPolyline } from '../util/graph'
 import {
   IconAudio,
@@ -40,41 +40,6 @@ const STATUS_BADGE: Record<string, string> = {
   completed: 'badge-completed',
   failed: 'badge-failed',
   cancelled: 'badge-cancelled'
-}
-
-function errorKey(code: string | null): string {
-  switch (code) {
-    case 'no-space':
-      return 'error.no-space'
-    case 'network':
-      return 'error.network'
-    case 'not-found':
-      return 'error.not-found'
-    case 'forbidden':
-      return 'error.forbidden'
-    case 'auth':
-      return 'error.auth'
-    case 'engine-missing':
-      return 'error.engine-missing'
-    case 'invalid-url':
-      return 'error.invalid-url'
-    case 'unsupported-url':
-      return 'error.unsupported-url'
-    case 'unavailable':
-      return 'error.unavailable'
-    case 'login-required':
-      return 'error.loginRequired'
-    case 'unsupported':
-      return 'error.unsupported'
-    case 'drm':
-      return 'error.drm'
-    case 'resume-state-mismatch':
-      return 'error.resumeMismatch'
-    case 'rename-locked':
-      return 'error.renameLocked'
-    default:
-      return 'error.unknown'
-  }
 }
 
 interface DownloadCardProps {

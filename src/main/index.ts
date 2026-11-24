@@ -5,7 +5,12 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { DoviraDb } from './db.ts'
 import { SettingsManager } from './settings.ts'
-import type { EngineAutoUpdateStatus, ExtensionDownloadRequest, Settings } from './types.ts'
+import type {
+  EngineAutoUpdateStatus,
+  ExtensionDownloadRequest,
+  Settings,
+  StatusEvent
+} from './types.ts'
 import { Aria2Manager } from './engines/aria2.ts'
 import { YtDlpManager } from './engines/ytdlp.ts'
 import { QueueManager } from './queue.ts'
@@ -30,6 +35,7 @@ import {
   verifyEngineBinaries
 } from './security.ts'
 import { AppUpdater } from './updater.ts'
+import { ProgressWindowManager } from './progressWindows.ts'
 import { getYtDlpVersion, updateYtDlpIfOutdated } from './engines/versions.ts'
 import { initLogger, logMain } from './logger.ts'
 
@@ -50,6 +56,13 @@ let updater: AppUpdater | null = null
 let lastEngineAutoUpdate: EngineAutoUpdateStatus | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
+/**
+ * v1.4.1: IDM-style progress windows — one small window per download,
+ * opened automatically when a download starts. The factory is the
+ * createProgressWindow function below (hoisted, so this reference is
+ * safe at module level).
+ */
+const progressWindows = new ProgressWindowManager((id) => createProgressWindow(id))
 
 /**
  * Renderer Content-Security-Policy — keep in sync with the meta tag in
@@ -206,6 +219,51 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+/**
+ * v1.4.1: IDM-style download progress window — one small window per
+ * download, opened automatically when a download starts (any trigger:
+ * Add dialog, extension, AI Assistant). Same renderer entry and
+ * preload as the main window, with ?progress=<id> in the query — App
+ * renders only the ProgressWindow component for that id. No
+ * close-to-tray guard: closing it just closes it (the download keeps
+ * running in the main window's list).
+ */
+function createProgressWindow(id: string): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 480,
+    height: 300,
+    minWidth: 420,
+    minHeight: 260,
+    show: false,
+    autoHideMenuBar: true,
+    title: 'DOVIRA',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  win.once('ready-to-show', () => win.show())
+
+  win.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logMain('error', `preload-error (progress window ${id}): ${preloadPath}: ${error.message}`)
+  })
+
+  // Same entry as the main window — the ?progress= query switches the
+  // renderer to the single-download ProgressWindow component.
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?progress=${encodeURIComponent(id)}`)
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { progress: id }
+    })
+  }
+  return win
 }
 
 app.whenReady().then(() => {
@@ -391,6 +449,13 @@ app.whenReady().then(() => {
   }, healYtDlp)
   queue = new QueueManager(db, settings, aria2, ytdlp)
 
+  // v1.4.1: IDM-style progress window — open a small window the moment
+  // any download starts (Add dialog, extension, Assistant). The
+  // manager is idempotent: a download already showing a window just
+  // gets focused. Home-list progress is untouched (ipc.ts forwards the
+  // same queue events to every window).
+  queue.on('status', (s: StatusEvent) => progressWindows.onStatus(s.id, s.status))
+
   // Next-level: channel subscriptions — local polling, no server.
   // The manager is passed to registerIpc; the polling loop below it
   // (60s after startup, then every 6h) emits an event when new videos
@@ -441,15 +506,24 @@ app.whenReady().then(() => {
   // Phase 5: Local API for the browser extension — 127.0.0.1 only,
   // Bearer token required on every request. Start is best-effort: a
   // bind failure is logged and the app runs on without it.
-  // Dialog-first handoff: a popup / right-click / intercept send opens
-  // the Add dialog at once (the window is shown/focused) instead of
-  // waiting ~10 s for yt-dlp extraction — the dialog runs fetchInfo in
-  // the background. The floating button sends direct instead: the
-  // download starts at once and the window opens over the download in
-  // progress (onDirectDownloadStarted below).
+  // Dialog-first handoff: a popup / right-click / intercept /
+  // floating-button send opens the Add dialog at once (the window is
+  // shown/focused) instead of waiting ~10 s for yt-dlp extraction —
+  // the dialog runs fetchInfo in the background. The floating button
+  // used to send direct instead (2026-11-24: it opens the dialog now,
+  // so the user picks quality/audio); the direct path stays for API
+  // senders and the AI Assistant, and onDirectDownloadStarted below
+  // brings the window forward when one starts.
   localApi = new LocalApiServer(settings, queue, userData, {
     onExtensionDownload: (req: ExtensionDownloadRequest) => {
-      const win = BrowserWindow.getAllWindows()[0]
+      // v1.4.1: address the MAIN window explicitly. getAllWindows()[0]
+      // used to be the main window, but once a download progress window
+      // exists it can be [0] instead — the dialog would then open in a
+      // store that never renders it, and the main window shows nothing
+      // (found live 2026-11-24: dialog opens with no progress window,
+      // never with one). mainWindow is set by createWindow() below
+      // before any POST can arrive, and the closure reads it live.
+      const win = mainWindow
       if (win) {
         if (win.isMinimized()) win.restore()
         win.show()
@@ -460,7 +534,8 @@ app.whenReady().then(() => {
     onDirectDownloadStarted: () => {
       // The queue's status/progress events already refresh the list —
       // just bring the window forward over the download in progress.
-      const win = BrowserWindow.getAllWindows()[0]
+      // Same explicit-main-window rule as onExtensionDownload above.
+      const win = mainWindow
       if (win) {
         if (win.isMinimized()) win.restore()
         win.show()

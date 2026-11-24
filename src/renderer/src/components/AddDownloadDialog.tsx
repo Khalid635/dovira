@@ -547,6 +547,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
             formatId: `${height}p`,
             formatString: `bv*[height<=${height}]+ba/b[height<=${height}]`,
             qualityLabel: `${height}p`,
+            // v1.4.1: the format size the duplicate pre-check used — the
+            // queue's safety net compares name+size with this SAME number.
+            totalBytes: rows.find((r) => r.height === height)?.size ?? null,
             subtitles: effectiveSubtitles,
             subLang,
             embedThumbnail,
@@ -571,6 +574,9 @@ export default function AddDownloadDialog(): React.JSX.Element {
             formatId: `mp3-${bitrate}`,
             formatString: 'bestaudio',
             qualityLabel: `${bitrate} kbps`,
+            // v1.4.1: same size the duplicate pre-check used (see the
+            // video branch) — keeps the safety net in agreement.
+            totalBytes: rows.find((r) => r.height === height)?.size ?? null,
             subtitles: false,
             subLang,
             embedThumbnail,

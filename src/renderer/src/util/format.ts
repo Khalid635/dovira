@@ -31,6 +31,42 @@ export function formatTime(ts: number | null): string {
   return new Date(ts).toLocaleString()
 }
 
+/** Download error-code → i18n key (shared by DownloadCard + ProgressWindow). */
+export function errorKey(code: string | null): string {
+  switch (code) {
+    case 'no-space':
+      return 'error.no-space'
+    case 'network':
+      return 'error.network'
+    case 'not-found':
+      return 'error.not-found'
+    case 'forbidden':
+      return 'error.forbidden'
+    case 'auth':
+      return 'error.auth'
+    case 'engine-missing':
+      return 'error.engine-missing'
+    case 'invalid-url':
+      return 'error.invalid-url'
+    case 'unsupported-url':
+      return 'error.unsupported-url'
+    case 'unavailable':
+      return 'error.unavailable'
+    case 'login-required':
+      return 'error.loginRequired'
+    case 'unsupported':
+      return 'error.unsupported'
+    case 'drm':
+      return 'error.drm'
+    case 'resume-state-mismatch':
+      return 'error.resumeMismatch'
+    case 'rename-locked':
+      return 'error.renameLocked'
+    default:
+      return 'error.unknown'
+  }
+}
+
 /**
  * The timestamp History shows for a finished row: when it completed —
  * the same time Home shows for the row — falling back to when it was

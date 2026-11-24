@@ -5,7 +5,8 @@ import {
   formatSpeed,
   formatEta,
   formatTime,
-  historyTime
+  historyTime,
+  errorKey
 } from '../src/renderer/src/util/format.ts'
 import { speedGraphPoints, speedGraphPolyline } from '../src/renderer/src/util/graph.ts'
 
@@ -61,6 +62,14 @@ describe('renderer format', () => {
       historyTime({ status: 'cancelled', createdAt: created, completedAt: null }),
       created
     )
+  })
+  it('errorKey: known codes map to error.* keys; unknown/null -> error.unknown', () => {
+    assert.equal(errorKey('network'), 'error.network')
+    assert.equal(errorKey('login-required'), 'error.loginRequired')
+    assert.equal(errorKey('drm'), 'error.drm')
+    assert.equal(errorKey('no-space'), 'error.no-space')
+    assert.equal(errorKey('bogus-code'), 'error.unknown')
+    assert.equal(errorKey(null), 'error.unknown')
   })
 })
 
