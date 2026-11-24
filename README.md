@@ -159,7 +159,6 @@ Pull requests are welcome. Please run `npm test` and `npm run build` before subm
 ## Roadmap
 
 - **Stable release** — the next release, once the current version is verified end-to-end (extension pairing + clean install).
-- **Demo video** — a 1–2 minute video of the real app in use.
 - **Official website + landing page** — real screenshots and the demo video in one place.
 - **Firefox AMO listing** and a winget package.
 
