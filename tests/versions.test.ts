@@ -7,6 +7,12 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ENGINE_FILES } from '../src/main/util/paths.ts'
+
+// Binary filename for the platform under test (yt-dlp.exe on Windows,
+// yt-dlp_linux / yt-dlp_macos elsewhere) — the update flow verifies
+// the platform's asset name against SHA2-256SUMS.
+const YTDLP_FILE = ENGINE_FILES['yt-dlp']
 
 const require = createRequire(import.meta.url)
 const cp = require('node:child_process')
@@ -37,7 +43,7 @@ let sumsHash = createHash('sha256').update(binaryBytes).digest('hex')
 mock.method(httpsMod, 'get', ((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
   const isSums = String(_url).includes('SHA2-256SUMS')
   const body = isSums
-    ? Buffer.from(`${sumsHash}  yt-dlp.exe\n`, 'utf-8')
+    ? Buffer.from(`${sumsHash}  ${YTDLP_FILE}\n`, 'utf-8')
     : binaryBytes
   const res = Readable.from([body]) as unknown as { statusCode: number; headers: Record<string, string> }
   res.statusCode = 200
@@ -217,28 +223,28 @@ describe('versions: updateYtDlp (fetch + https.get mocked)', () => {
     sumsHash = '0'.repeat(64)
     const r = await versions.updateYtDlp(dir)
     assert.deepEqual(r, { ok: false, error: 'checksum mismatch' })
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.new`)), false)
     assert.equal(existsSync(join(dir, 'SHA2-256SUMS.new')), false)
   })
 
   it('success: replaces the binary, smoke-tests it, removes backup + temps', async () => {
-    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    writeFileSync(join(dir, YTDLP_FILE), 'old-binary-bytes')
     const r = await versions.updateYtDlp(dir)
     assert.deepEqual(r, { ok: true, version: '2026.11.01' })
-    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'new-binary-bytes')
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.bak')), false)
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
+    assert.equal(readFileSync(join(dir, YTDLP_FILE), 'utf-8'), 'new-binary-bytes')
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.bak`)), false)
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.new`)), false)
     assert.equal(existsSync(join(dir, 'SHA2-256SUMS.new')), false)
   })
 
   it('smoke-test failure rolls the old binary back', async () => {
-    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    writeFileSync(join(dir, YTDLP_FILE), 'old-binary-bytes')
     smokeVersion = null
     const r = await versions.updateYtDlp(dir)
     assert.equal(r.ok, false)
     assert.match(r.error ?? '', /smoke test failed/)
-    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'old-binary-bytes')
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
+    assert.equal(readFileSync(join(dir, YTDLP_FILE), 'utf-8'), 'old-binary-bytes')
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.new`)), false)
   })
 })
 
@@ -271,26 +277,26 @@ describe('versions: updateYtDlpIfOutdated (fetch + https.get mocked)', () => {
   })
 
   it('already current: no download, binary untouched', async () => {
-    outputs['yt-dlp.exe'] = '2026.11.01\n'
-    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    outputs[YTDLP_FILE] = '2026.11.01\n'
+    writeFileSync(join(dir, YTDLP_FILE), 'old-binary-bytes')
     const r = await versions.updateYtDlpIfOutdated({
       binDir: dir,
-      ytDlpPath: 'yt-dlp.exe',
+      ytDlpPath: YTDLP_FILE,
       userData: dir
     })
     assert.deepEqual(r, { checked: true, updated: false, version: '2026.11.01' })
-    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'old-binary-bytes')
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
-    assert.equal(existsSync(join(dir, 'yt-dlp.exe.bak')), false)
+    assert.equal(readFileSync(join(dir, YTDLP_FILE), 'utf-8'), 'old-binary-bytes')
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.new`)), false)
+    assert.equal(existsSync(join(dir, `${YTDLP_FILE}.bak`)), false)
   })
 
   it('outdated: updates the binary and records the hash override', async () => {
-    outputs['yt-dlp.exe'] = '2026.10.26\n'
-    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    outputs[YTDLP_FILE] = '2026.10.26\n'
+    writeFileSync(join(dir, YTDLP_FILE), 'old-binary-bytes')
     let recorded: { userData: string; name: string; hash: string } | null = null
     const r = await versions.updateYtDlpIfOutdated({
       binDir: dir,
-      ytDlpPath: 'yt-dlp.exe',
+      ytDlpPath: YTDLP_FILE,
       userData: dir,
       recordHashOverride: (userData: string, name: string, hash: string) => {
         recorded = { userData, name, hash }
@@ -298,7 +304,7 @@ describe('versions: updateYtDlpIfOutdated (fetch + https.get mocked)', () => {
       }
     })
     assert.deepEqual(r, { checked: true, updated: true, version: '2026.11.01' })
-    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'new-binary-bytes')
+    assert.equal(readFileSync(join(dir, YTDLP_FILE), 'utf-8'), 'new-binary-bytes')
     assert.equal(recorded?.name, 'yt-dlp')
     assert.equal(recorded?.hash, sumsHash)
   })
@@ -306,24 +312,24 @@ describe('versions: updateYtDlpIfOutdated (fetch + https.get mocked)', () => {
   it('API failure: not checked, no download', async () => {
     apiOk = false
     apiStatus = 500
-    outputs['yt-dlp.exe'] = '2026.10.26\n'
-    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    outputs[YTDLP_FILE] = '2026.10.26\n'
+    writeFileSync(join(dir, YTDLP_FILE), 'old-binary-bytes')
     const r = await versions.updateYtDlpIfOutdated({
       binDir: dir,
-      ytDlpPath: 'yt-dlp.exe',
+      ytDlpPath: YTDLP_FILE,
       userData: dir
     })
     assert.equal(r.checked, false)
     assert.equal(r.updated, false)
     assert.equal(r.version, '2026.10.26')
-    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'old-binary-bytes')
+    assert.equal(readFileSync(join(dir, YTDLP_FILE), 'utf-8'), 'old-binary-bytes')
   })
 
   it('unreadable installed version: not checked', async () => {
-    failTools.add('yt-dlp.exe')
+    failTools.add(YTDLP_FILE)
     const r = await versions.updateYtDlpIfOutdated({
       binDir: dir,
-      ytDlpPath: 'yt-dlp.exe',
+      ytDlpPath: YTDLP_FILE,
       userData: dir
     })
     assert.equal(r.checked, false)
@@ -372,6 +378,9 @@ describe('versions: renameWithRetry (Windows file-lock backoff)', () => {
   }
 
   it('succeeds once the lock holder releases the file', async () => {
+    // Windows-only: POSIX rename(2) never blocks on an open file, so no
+    // lock holder can reproduce the EBUSY race on Linux/macOS.
+    if (process.platform !== 'win32') return
     const target = join(dir, 'a.txt')
     const dest = join(dir, 'b.txt')
     const marker = join(dir, 'locked.marker')
@@ -385,6 +394,9 @@ describe('versions: renameWithRetry (Windows file-lock backoff)', () => {
   })
 
   it('gives up after the attempts are exhausted and the file stays put', async () => {
+    // Windows-only: POSIX rename(2) never blocks on an open file, so no
+    // lock holder can reproduce the EBUSY race on Linux/macOS.
+    if (process.platform !== 'win32') return
     const target = join(dir, 'c.txt')
     const dest = join(dir, 'd.txt')
     const marker = join(dir, 'locked2.marker')

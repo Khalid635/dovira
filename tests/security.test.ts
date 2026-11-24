@@ -62,12 +62,15 @@ describe('security: Defender scan helpers', () => {
     }
   })
 
-  it('applyPostDownloadSecurity: missing file -> motw false, scan unknown/unavailable', async () => {
+  it('applyPostDownloadSecurity: missing file -> motw false, scan unavailable/unknown on Windows, skipped elsewhere', async () => {
     const missing = join(tmpdir(), 'dovira-definitely-missing.mp4')
+    // Off Windows the Defender scan is skipped by design (see security.ts),
+    // so a missing file still reports 'skipped', not 'unavailable'/'unknown'.
+    const isWin = process.platform === 'win32'
     const r1 = await applyPostDownloadSecurity(missing, null)
-    assert.deepEqual(r1, { motwApplied: false, scan: 'unavailable' })
+    assert.deepEqual(r1, { motwApplied: false, scan: isWin ? 'unavailable' : 'skipped' })
     const r2 = await applyPostDownloadSecurity(missing, 'C:\\Defender\\MpCmdRun.exe')
-    assert.deepEqual(r2, { motwApplied: false, scan: 'unknown' })
+    assert.deepEqual(r2, { motwApplied: false, scan: isWin ? 'unknown' : 'skipped' })
   })
 })
 

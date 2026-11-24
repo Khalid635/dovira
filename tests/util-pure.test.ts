@@ -45,7 +45,13 @@ describe('filename: isPathInside / resolveDownloadPath / resolveUniquePath', () 
     assert.equal(isPathInside('C:\\DL', 'C:\\DL\\file.mp4'), true)
     assert.equal(isPathInside('C:\\DL', 'C:\\DL'), true)
     assert.equal(isPathInside('C:\\DL', 'C:\\DL2\\file.mp4'), false)
-    assert.equal(isPathInside('C:\\DL', 'C:\\dl\\File.MP4'), true)
+    // Case-insensitivity is a Windows-only behavior (see filename.ts);
+    // on Linux/macOS the comparison is case-sensitive.
+    if (process.platform === 'win32') {
+      assert.equal(isPathInside('C:\\DL', 'C:\\dl\\File.MP4'), true)
+    } else {
+      assert.equal(isPathInside('C:\\DL', 'C:\\dl\\File.MP4'), false)
+    }
     assert.equal(isPathInside('C:\\DL', 'C:\\DL\\sub\\..\\..\\evil.exe'), false)
   })
 

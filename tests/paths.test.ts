@@ -45,9 +45,11 @@ describe('paths', () => {
   it('findBinary: dev layout wins; unknown engine -> null', () => {
     const root = mkdtempSync(join(tmpdir(), 'dovira-bin-'))
     try {
-      const binDir = join(root, 'resources', 'bin', 'win')
+      // Fixture uses the CURRENT platform's dir + binary name
+      // (on Linux findBinary looks for resources/bin/linux/yt-dlp_linux).
+      const binDir = join(root, 'resources', 'bin', platformDirName())
       mkdirSync(binDir, { recursive: true })
-      const target = join(binDir, 'yt-dlp.exe')
+      const target = join(binDir, ENGINE_FILES['yt-dlp'])
       writeFileSync(target, '')
       assert.equal(findBinary('yt-dlp', root, join(root, 'res')), target)
       assert.equal(findBinary('nope-engine', root, join(root, 'res')), null)

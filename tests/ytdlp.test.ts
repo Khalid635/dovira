@@ -4,7 +4,12 @@ import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
+import { ENGINE_FILES } from '../src/main/util/paths.ts'
+
+// ffmpeg binary name for the platform under test (ffmpeg.exe on Windows,
+// bare 'ffmpeg' elsewhere) — recoverYtDlpRename looks for the platform name.
+const FFMPEG_FILE = ENGINE_FILES['ffmpeg']
 
 const require = createRequire(import.meta.url)
 const cp = require('node:child_process')
@@ -169,7 +174,7 @@ describe('ytdlp pure helpers', () => {
       const found = ytdlpPartFiles(join(dir, 'Film.mp4'))
       // readdir order is not guaranteed — compare as a sorted set.
       assert.deepEqual(
-        found.map((f) => f.split('\\').pop()).sort(),
+        found.map((f) => basename(f)).sort(),
         ['Film.f140.m4a.part', 'Film.f399.mp4.part', 'Film.mp4.ytdl']
       )
     } finally {
@@ -450,7 +455,7 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
 
   it('merges video+audio temps into the save path and cleans up', async () => {
     const { recoverYtDlpRename } = await import('../src/main/engines/ytdlp.ts')
-    writeFileSync(join(dir, 'ffmpeg.exe'), 'fake-ffmpeg')
+    writeFileSync(join(dir, FFMPEG_FILE), 'fake-ffmpeg')
     writeFileSync(join(dir, 'Film.f399.mp4.part'), 'video-bytes')
     writeFileSync(join(dir, 'Film.f140.m4a.part'), 'audio-bytes')
     const ok = await recoverYtDlpRename(dir, join(dir, 'Film.mp4'), 'video', '320')
@@ -458,7 +463,7 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
     assert.equal(existsSync(join(dir, 'Film.mp4')), true)
     assert.equal(existsSync(join(dir, 'Film.f399.mp4')), false)
     assert.equal(existsSync(join(dir, 'Film.f140.m4a')), false)
-    assert.ok(readdirSync(dir).every((f) => f === 'ffmpeg.exe' || f === 'Film.mp4'))
+    assert.ok(readdirSync(dir).every((f) => f === FFMPEG_FILE || f === 'Film.mp4'))
   })
 
   it('false when ffmpeg is missing, when there are no temps, or when a probe finds no streams', async () => {
@@ -468,7 +473,7 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
     execFileMode = 'no-streams'
     assert.equal(await recoverYtDlpRename(join(dir, 'no-ffmpeg-dir'), join(dir, 'x.mp4'), 'video', '320'), false)
     assert.equal(await recoverYtDlpRename(dir, join(dir, 'Empty.mp4'), 'video', '320'), false)
-    writeFileSync(join(dir, 'ffmpeg.exe'), 'fake-ffmpeg')
+    writeFileSync(join(dir, FFMPEG_FILE), 'fake-ffmpeg')
     writeFileSync(join(dir, 'Film.f399.mp4.part'), 'video-bytes')
     assert.equal(await recoverYtDlpRename(dir, join(dir, 'Film.mp4'), 'video', '320'), false)
   })
@@ -476,7 +481,7 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
   it('false when the ffmpeg merge itself fails', async () => {
     const { recoverYtDlpRename } = await import('../src/main/engines/ytdlp.ts')
     execFileMode = 'merge-fail'
-    writeFileSync(join(dir, 'ffmpeg.exe'), 'fake-ffmpeg')
+    writeFileSync(join(dir, FFMPEG_FILE), 'fake-ffmpeg')
     writeFileSync(join(dir, 'Film.f399.mp4.part'), 'video-bytes')
     writeFileSync(join(dir, 'Film.f140.m4a.part'), 'audio-bytes')
     assert.equal(await recoverYtDlpRename(dir, join(dir, 'Film.mp4'), 'video', '320'), false)
