@@ -51,7 +51,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 
 ![AI Assistant — Bangla command, dark theme](docs/screenshots/ai-assistant-dark.jpg)
 
-All screenshots are real captures of the app (v1.3.1, Mint light theme unless noted). The four new light-theme shots were captured by driving the real app with Playwright — a real YouTube download of the CC-licensed "Tears of Steel" trailer (Blender Foundation). The AI Assistant shot is a real user-captured screenshot (dark theme).
+All screenshots are real captures of the app (v1.3.1, Mint light theme unless noted). The four new light-theme shots were captured by driving the real app with Playwright — a real YouTube download of the CC-licensed "Tears of Steel" open movie (Blender Foundation). The AI Assistant shot is a real user-captured screenshot (dark theme).
 
 ## Quick start
 
@@ -154,7 +154,7 @@ No — and no app can. See [Limitations](#limitations-v131).
 
 Bug reports and feature requests: [open an issue](https://github.com/Khalid635/dovira/issues) — templates for bug reports and feature requests are ready, just fill them in. Never paste tokens, passwords or cookies in an issue.
 
-Pull requests are welcome. Please run `npm test` and `npm run build` before submitting. Tests live in `tests/` — 107 tests across 19 suites, all passing (`npm test`).
+Pull requests are welcome. Please run `npm test` and `npm run build` before submitting. Tests live in `tests/` — 323 tests across 63 suites, all passing (`npm test`).
 
 ## Roadmap
 
