@@ -2,12 +2,17 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
-## [Unreleased]
+## [1.4.1] - 2026-11-24
 
 ### Added
 
 - IDM-style download progress window: a separate small window now opens automatically when any download starts (Add dialog, extension, AI Assistant) — filename, total/downloaded size, %, speed, ETA, Pause/Resume/Cancel. On completion it stays open with Open / Show in folder / Close (no auto-close). Always on, no toggle.
 - The extension's floating Download button now opens the app's Add dialog with the video's formats loading, so you pick Video quality or Audio (MP3) before the download starts — it no longer starts the download at once with defaults. The direct-download path is kept for API senders and the AI Assistant's download command.
+
+### Fixed
+
+- The Add dialog could open in the wrong window: when a progress window was open, the extension-download event went to the first window in the list instead of the main window, so the dialog never appeared. Extension events now address the main window explicitly.
+- The duplicate check disagreed with itself: the Add dialog pre-check compared name + size, but the queue safety net compared name only, so a same-name different-size re-download was refused with a bare "already downloaded" error. The safety net now uses name + size too; same name + same size is still refused.
 
 ## [1.4.0] - 2026-11-24
 

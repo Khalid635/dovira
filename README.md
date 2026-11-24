@@ -27,7 +27,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 - [Browser extension](#browser-extension)
 - [Architecture](#architecture)
 - [FAQ](#faq)
-- [Limitations](#limitations-v140)
+- [Limitations](#limitations-v141)
 - [Contributing](#contributing)
 - [Roadmap](#roadmap)
 - [Build & run](#build--run)
@@ -36,7 +36,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 
 ## Status
 
-**Current version: v1.4.0** (pre-release). Everything in the master plan through v1.4.0 is built, tested and released — see the [Releases page](https://github.com/Khalid635/dovira/releases) and [CHANGELOG.md](CHANGELOG.md). Highlights of v1.4.0: yt-dlp now updates itself after startup and heals itself after a failed fetch, the 76-second setup-guide video plays inside Settings, the AI Assistant answers setup questions, and the extension floating button starts downloads at once.
+**Current version: v1.4.1** (pre-release). Everything in the master plan through v1.4.1 is built and tested — see the [Releases page](https://github.com/Khalid635/dovira/releases) and [CHANGELOG.md](CHANGELOG.md). Highlights of v1.4.1: a separate progress window opens on every download start (filename, size, %, speed, ETA, Pause/Resume/Cancel), and the extension floating button now opens the Add dialog so you pick video quality or Audio (MP3) before downloading.
 
 > All releases are pre-releases for now — a stable release is planned next (see [Roadmap](#roadmap)).
 
@@ -145,9 +145,9 @@ There is no paid Apple Developer account. On first launch, right-click the app a
 The quality list comes from the site's real format list. If a video has no 1080p, 1080p is not offered — DOVIRA never invents a quality.
 
 **Does it support DRM sites like Netflix?**
-No — and no app can. See [Limitations](#limitations-v140).
+No — and no app can. See [Limitations](#limitations-v141).
 
-## Limitations (v1.4.0)
+## Limitations (v1.4.1)
 
 - Login-only videos need cookies — set them in Settings > Browser & Cookies (the app says so instead of failing silently).
 - DRM-protected sites (Netflix, Prime Video, Disney+) can never be supported.
