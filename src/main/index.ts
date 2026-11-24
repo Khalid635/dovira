@@ -28,6 +28,7 @@ import {
   currentPlatform,
   getSetupGuideVideoPath
 } from './util/paths.ts'
+import { bringToFront } from './util/bringToFront.ts'
 import {
   getExpectedBinaryHashes,
   loadEngineHashOverrides,
@@ -525,21 +526,27 @@ app.whenReady().then(() => {
       // before any POST can arrive, and the closure reads it live.
       const win = mainWindow
       if (win) {
-        if (win.isMinimized()) win.restore()
-        win.show()
-        win.focus()
+        // 2026-11-24: show() + focus() alone did NOT bring the window
+        // forward over Brave — Windows blocks a background app from
+        // stealing focus, and show() on a visible window does not
+        // reorder it. bringToFront pulses always-on-top so the dialog
+        // is actually seen; it also revives a minimized or
+        // tray-hidden window.
+        logMain('info', 'local-api: bringing main window forward for extension dialog')
+        bringToFront(win)
         win.webContents.send('dovira:extension:download', req)
       }
     },
     onDirectDownloadStarted: () => {
       // The queue's status/progress events already refresh the list —
       // just bring the window forward over the download in progress.
-      // Same explicit-main-window rule as onExtensionDownload above.
+      // Same explicit-main-window rule as onExtensionDownload above,
+      // and the same bringToFront treatment: plain show() + focus()
+      // cannot steal the foreground from the browser on Windows.
       const win = mainWindow
       if (win) {
-        if (win.isMinimized()) win.restore()
-        win.show()
-        win.focus()
+        logMain('info', 'local-api: bringing main window forward for direct download')
+        bringToFront(win)
       }
     }
   }, getSetupGuideVideoPath(app.getAppPath(), process.resourcesPath))
