@@ -49,7 +49,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 | --- | --- | --- | --- |
 | ![Add Download dialog with a real format list](docs/screenshots/add-dialog-formats-light.png) | ![Home with a download in progress](docs/screenshots/home-downloading-light.png) | ![Home with a completed download](docs/screenshots/home-completed-light.png) | ![History with a completed download](docs/screenshots/history-light.png) |
 
-![AI Assistant — Bangla command, dark theme](docs/screenshots/ai-assistant-dark.jpg)
+![AI Assistant — English command, dark theme](docs/screenshots/ai-assistant-dark.jpg)
 
 All screenshots are real captures of the app (v1.3.1, Mint light theme unless noted). The four new light-theme shots were captured by driving the real app with Playwright — a real YouTube download of the CC-licensed "Tears of Steel" open movie (Blender Foundation). The AI Assistant shot is a real user-captured screenshot (dark theme).
 
