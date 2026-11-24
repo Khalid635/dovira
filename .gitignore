@@ -9,3 +9,5 @@ resources/bin/
 *.log*
 *.tsbuildinfo
 coverage/
+e2e/test-results/
+playwright-report/
