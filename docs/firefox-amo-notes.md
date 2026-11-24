@@ -23,7 +23,7 @@ submit.**
    icons/icon.png.
 2. **Zip it**: zip the _contents_ of `extension/dist/` (not the folder
    itself) — the zip's root must be `manifest.json`. Name it e.g.
-   `dovira-extension-1.3.1.zip`.
+   `dovira-extension-1.4.0.zip`.
 3. **AMO account**: sign in at
    https://addons.mozilla.org/developers/ with a Firefox account.
    (First listing needs the account's email verified.)

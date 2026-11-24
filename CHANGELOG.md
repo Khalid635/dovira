@@ -2,7 +2,7 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
-## [Unreleased]
+## [1.4.0] - 2026-11-24
 
 ### Added
 
@@ -19,6 +19,7 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 - History now shows the completion time: a finished download showed its added time in History but its completion time on Home (e.g. 1:52:29 vs 1:52:52 for the same 21s download). History now uses the completion time for completed rows (added time for failed/cancelled), and the Today / last-7-days filters use the same displayed time.
 - Direct download of a playlist/channel URL no longer hangs: the extension button used to spin for 2+ minutes (flat-playlist fetch 60s timeout, then a second 60s single-video fetch) and then fail without opening the dialog. addFromExtension now answers playlist from the URL shape alone, so the Add dialog opens at once.
 - Assistant no longer hijacks how-questions: "how do I download audio as mp3" used to get the "send a link" reply because the download-verb check had no question veto; questions now reach the FAQ answers.
+- Regenerating the pairing token now shows feedback: the button used to swap the token silently (the app logged it, Settings showed nothing), so the extension kept the old token and pairing broke without explanation. The new token is now revealed with a confirmation line right after regenerating.
 
 ## [1.3.1] - 2026-11-24
 
