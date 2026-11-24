@@ -43,8 +43,8 @@ describe('adaptive connections (next-level)', () => {
     return net
   }
 
-  it('fast (mean > 5 MB/s) -> 32 connections', () => {
-    assert.equal(netWith(Array(10).fill(10 * MB)).connections(), 32)
+  it('fast (mean > 5 MB/s) -> 16 connections (aria2 caps -x/-s at 16)', () => {
+    assert.equal(netWith(Array(10).fill(10 * MB)).connections(), 16)
   })
 
   it('medium (1–5 MB/s, or no samples yet) -> 16 connections', () => {

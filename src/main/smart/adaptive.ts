@@ -61,15 +61,17 @@ export class AdaptiveNet {
   }
 
   /**
-   * aria2 connections per server (-x) and split (-s). Next-level: the
-   * fast class goes to 32 (was 16) — servers that allow it download
-   * noticeably faster; medium 16, slow 8, unstable 4 (few connections
-   * survive a flaky line better than many).
+   * aria2 connections per server (-x) and split (-s). aria2 caps BOTH
+   * options at 16 — passing 32 made aria2 reject the option
+   * ("We encountered a problem while processing the option
+   * '--max-connection-per-server'") and fail the download, so fast stays
+   * at 16; medium 16, slow 8, unstable 4 (few connections survive a
+   * flaky line better than many).
    */
   connections(): number {
     switch (this.classify()) {
       case 'fast':
-        return 32
+        return 16
       case 'medium':
         return 16
       case 'slow':

@@ -1662,7 +1662,8 @@ export class QueueManager extends EventEmitter {
     }
     const effLimit = this.effectiveLimitKBps(d)
     // Phase 7: Smart Download — connections from the measured network
-    // class (fast 16 / medium 8 / slow 4). When Smart Download is off,
+    // class (fast 16 / medium 16 / slow 8 / unstable 4; aria2 caps -x/-s
+    // at 16). When Smart Download is off,
     // the Settings value is used as before.
     const conns = s.smartDownload ? this.adaptive.connections() : s.connectionsPerDownload
     this.lastAdaptiveConns = conns
