@@ -17,7 +17,9 @@ export const DEFAULT_SETTINGS: Settings = {
   videoContainer: 'mp4',
   defaultAudioBitrate: '320',
   subtitleLang: 'en',
-  engineAutoUpdate: false,
+  engineAutoUpdate: true,
+  /** One-time flag — flips an untouched engineAutoUpdate to the new ON default once (see SettingsManager). */
+  engineAutoUpdateMigrated: false,
   // Phase 3
   cookieBrowser: 'none',
   cookiesFile: null,
@@ -112,6 +114,7 @@ function normalizeSettings(next: Settings): Settings {
     next.subtitleLang = 'en'
   }
   next.engineAutoUpdate = next.engineAutoUpdate === true
+  next.engineAutoUpdateMigrated = next.engineAutoUpdateMigrated === true
   if (typeof next.downloadDir !== 'string' || next.downloadDir.length === 0) {
     next.downloadDir = DEFAULT_SETTINGS.downloadDir
   }
@@ -276,6 +279,20 @@ export class SettingsManager {
       next.themeMigrated070 = true
       this.db.setSetting('theme', JSON.stringify('light'))
       this.db.setSetting('themeMigrated070', JSON.stringify(true))
+    }
+    // Engine auto-update migration: the toggle used to default OFF and
+    // nothing read it (dead switch), so installed apps never updated
+    // yt-dlp by themselves. From this version it defaults ON. Profiles
+    // that never touched the toggle (no stored key) flip to ON once; an
+    // explicit stored choice (true or false) is respected. The flag
+    // stops this from ever re-flipping after the user turns it off.
+    if (!next.engineAutoUpdateMigrated) {
+      if (this.db.getSetting('engineAutoUpdate') === null) {
+        next.engineAutoUpdate = true
+        this.db.setSetting('engineAutoUpdate', JSON.stringify(true))
+      }
+      next.engineAutoUpdateMigrated = true
+      this.db.setSetting('engineAutoUpdateMigrated', JSON.stringify(true))
     }
     this.cache = next
   }

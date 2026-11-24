@@ -38,6 +38,8 @@ describe('SettingsManager', () => {
     assert.equal(s.extensionFloatingButton, true)
     assert.equal(s.autoQuality, true)
     assert.equal(s.themeMigrated070, true)
+    assert.equal(s.engineAutoUpdate, true)
+    assert.equal(s.engineAutoUpdateMigrated, true)
     // The migration wrote the flag + theme back to the db.
     assert.equal(db.getSetting('theme'), JSON.stringify('light'))
     assert.equal(db.getSetting('themeMigrated070'), JSON.stringify(true))
@@ -57,6 +59,36 @@ describe('SettingsManager', () => {
     const second = new SettingsManager(db)
     assert.equal(second.get().theme, 'dark')
     assert.equal(second.get().themeMigrated070, true)
+  })
+
+  it('engine auto-update: fresh db defaults ON + migration flag persisted; DEFAULT_SETTINGS shape', () => {
+    const s = new SettingsManager(db).get()
+    assert.equal(s.engineAutoUpdate, true)
+    assert.equal(s.engineAutoUpdateMigrated, true)
+    assert.equal(db.getSetting('engineAutoUpdate'), JSON.stringify(true))
+    assert.equal(db.getSetting('engineAutoUpdateMigrated'), JSON.stringify(true))
+    assert.equal(DEFAULT_SETTINGS.engineAutoUpdate, true)
+    assert.equal(DEFAULT_SETTINGS.engineAutoUpdateMigrated, false)
+  })
+
+  it('engine auto-update migration: stored false stays false; no stored key flips once and never re-flips', () => {
+    db.setSetting('engineAutoUpdate', JSON.stringify(false))
+    const first = new SettingsManager(db)
+    assert.equal(first.get().engineAutoUpdate, false)
+    assert.equal(first.get().engineAutoUpdateMigrated, true)
+    // User turns it back on, then off again — the migration must never re-flip.
+    first.update({ engineAutoUpdate: true })
+    first.update({ engineAutoUpdate: false })
+    const second = new SettingsManager(db)
+    assert.equal(second.get().engineAutoUpdate, false)
+    assert.equal(second.get().engineAutoUpdateMigrated, true)
+  })
+
+  it('engine auto-update migration: stored true stays true', () => {
+    db.setSetting('engineAutoUpdate', JSON.stringify(true))
+    const m = new SettingsManager(db)
+    assert.equal(m.get().engineAutoUpdate, true)
+    assert.equal(m.get().engineAutoUpdateMigrated, true)
   })
 
   it('update: valid changes persist to the db and the cache', () => {

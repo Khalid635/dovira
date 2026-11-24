@@ -232,4 +232,25 @@ describe('diagnostics runDiagnostics', () => {
     assert.equal(byId(result).binaries.status, 'warn')
     assert.equal(byId(result).binaries.detailKey, 'diag.detailBinariesUnknown')
   })
+
+  it('engine auto-update: updated attempt -> ok row; failed attempt -> warn row + fix; no attempt -> no row', async () => {
+    let result = await runDiagnostics(
+      baseDeps({ lastEngineAutoUpdate: { checked: true, updated: true, version: '2026.11.23', at: Date.now() } }),
+      { checkLatest: false }
+    )
+    assert.equal(byId(result).engineAutoUpdate.status, 'ok')
+    assert.equal(byId(result).engineAutoUpdate.detailKey, 'diag.detailEngineAutoUpdated')
+    result = await runDiagnostics(
+      baseDeps({
+        lastEngineAutoUpdate: { checked: true, updated: false, version: '2026.10.26', error: 'GitHub API HTTP 500', at: Date.now() }
+      }),
+      { checkLatest: false }
+    )
+    assert.equal(byId(result).engineAutoUpdate.status, 'warn')
+    assert.equal(byId(result).engineAutoUpdate.detailKey, 'diag.detailEngineAutoUpdateFailed')
+    assert.equal(byId(result).engineAutoUpdate.fix, 'updateYtdlp')
+    result = await runDiagnostics(baseDeps(), { checkLatest: false })
+    assert.equal(byId(result).engineAutoUpdate, undefined)
+    assert.equal(result.checks.length, 5)
+  })
 })

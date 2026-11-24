@@ -482,3 +482,122 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
     assert.equal(await recoverYtDlpRename(dir, join(dir, 'Film.mp4'), 'video', '320'), false)
   })
 })
+
+describe('ytdlp self-heal (fetchInfo retry after engine update)', () => {
+  function answerJson(obj: unknown, code = 0): FakeChild {
+    const child = makeChild()
+    process.nextTick(() => {
+      child.stdout.emit('data', Buffer.from(JSON.stringify(obj)))
+      child.emit('close', code)
+    })
+    return child
+  }
+
+  function badJsonChild(): FakeChild {
+    const child = makeChild()
+    process.nextTick(() => {
+      child.stdout.emit('data', Buffer.from('not json'))
+      child.emit('close', 0)
+    })
+    return child
+  }
+
+  async function managerWithHeal(hook: () => Promise<boolean>): Promise<import('../src/main/engines/ytdlp.ts').YtDlpManager> {
+    const { YtDlpManager } = await import('../src/main/engines/ytdlp.ts')
+    return new YtDlpManager(
+      'C:\\bin\\yt-dlp.exe',
+      'C:\\bin',
+      'C:\\bin\\deno.exe',
+      () => ({ cookieBrowser: 'none', cookiesFile: null, proxyUrl: '', downloadArchive: null }),
+      hook
+    )
+  }
+
+  beforeEach(() => {
+    spawnCalls = []
+    nextChild = null
+  })
+
+  it("'unknown' failure + hook updates -> retry succeeds, hook called once, 2 spawns", async () => {
+    let hookCalls = 0
+    const m = await managerWithHeal(async () => {
+      hookCalls++
+      nextChild = answerJson({ id: 'abc123', title: 'Healed', formats: [], thumbnails: [] })
+      return true
+    })
+    nextChild = badJsonChild()
+    const info = await m.fetchInfo('https://youtu.be/abc123')
+    assert.equal(info.title, 'Healed')
+    assert.equal(hookCalls, 1)
+    assert.equal(spawnCalls.length, 2)
+  })
+
+  it("'unavailable' failure -> no heal, hook never called", async () => {
+    let hookCalls = 0
+    const m = await managerWithHeal(async () => {
+      hookCalls++
+      return true
+    })
+    const failChild = makeChild()
+    process.nextTick(() => {
+      failChild.stderr.emit('data', Buffer.from('ERROR: This video is unavailable'))
+      failChild.emit('close', 1)
+    })
+    nextChild = failChild
+    await assert.rejects(
+      () => m.fetchInfo('https://youtu.be/abc123'),
+      (err: unknown) => {
+        assert.equal((err as { code?: string }).code, 'unavailable')
+        return true
+      }
+    )
+    assert.equal(hookCalls, 0)
+    assert.equal(spawnCalls.length, 1)
+  })
+
+  it('hook returns false -> original error surfaces, 1 spawn', async () => {
+    const m = await managerWithHeal(async () => false)
+    nextChild = badJsonChild()
+    await assert.rejects(
+      () => m.fetchInfo('https://youtu.be/abc123'),
+      (err: unknown) => {
+        assert.equal((err as { code?: string }).code, 'unknown')
+        return true
+      }
+    )
+    assert.equal(spawnCalls.length, 1)
+  })
+
+  it('no hook -> unchanged behavior (rejects, 1 spawn)', async () => {
+    const m = await makeManager()
+    nextChild = badJsonChild()
+    await assert.rejects(
+      () => m.fetchInfo('https://youtu.be/abc123'),
+      (err: unknown) => {
+        assert.equal((err as { code?: string }).code, 'unknown')
+        return true
+      }
+    )
+    assert.equal(spawnCalls.length, 1)
+  })
+
+  it('fetchPlaylist heals the same way', async () => {
+    let hookCalls = 0
+    const m = await managerWithHeal(async () => {
+      hookCalls++
+      nextChild = answerJson({
+        title: 'Pl',
+        entries: [
+          { id: 'a', title: 'A' },
+          { id: 'b', title: 'B' }
+        ]
+      })
+      return true
+    })
+    nextChild = badJsonChild()
+    const pl = await m.fetchPlaylist('https://www.youtube.com/playlist?list=PLx')
+    assert.equal(pl.entries.length, 2)
+    assert.equal(hookCalls, 1)
+    assert.equal(spawnCalls.length, 2)
+  })
+})

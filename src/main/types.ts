@@ -79,6 +79,8 @@ export interface Settings {
   defaultAudioBitrate: '320' | '192' | '128'
   subtitleLang: string
   engineAutoUpdate: boolean
+  /** One-time flag — flips an untouched (never toggled) engineAutoUpdate to the new ON default once. */
+  engineAutoUpdateMigrated: boolean
   /** Phase 3: which browser yt-dlp should read cookies from ('none' = no cookies). */
   cookieBrowser: CookieBrowser
   /** Phase 3: path to a cookies.txt file (used only when cookieBrowser is 'none'). */
@@ -454,7 +456,7 @@ export interface LocalApiHooks {
  * v1.2.0: one self-check row from the Setup & diagnostics section.
  * detailKey is an i18n key; the renderer translates it with detailParams.
  */
-export type DiagnosticId = 'localApi' | 'ytdlp' | 'aria2' | 'extension' | 'downloadDir' | 'binaries'
+export type DiagnosticId = 'localApi' | 'ytdlp' | 'aria2' | 'extension' | 'downloadDir' | 'binaries' | 'engineAutoUpdate'
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 export type DiagnosticFix = 'updateYtdlp' | 'openSetup' | 'chooseFolder'
 
@@ -469,6 +471,19 @@ export interface DiagnosticCheck {
 export interface DiagnosticsResult {
   checks: DiagnosticCheck[]
   ranAt: number
+}
+
+/**
+ * Last engine auto-update attempt this session (startup check or
+ * self-heal) — shown in Diagnostics. Null until the first attempt.
+ */
+export interface EngineAutoUpdateStatus {
+  /** False when the installed/latest version could not be determined. */
+  checked: boolean
+  updated: boolean
+  version: string | null
+  error?: string
+  at: number
 }
 
 /** Next-level: one video the subscription checker found (not yet downloaded). */

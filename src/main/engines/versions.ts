@@ -165,6 +165,29 @@ function sha256File(path: string): Promise<string> {
 }
 
 /**
+ * Rename with backoff. On Windows a rename fails with EBUSY/EPERM while
+ * any process still holds the file — a yt-dlp --version child (the status
+ * bar used to spawn one every 5s), a fetch child that just exited, or an
+ * antivirus scan. Those holders live ~1-2s, so a short backoff almost
+ * always wins; giving up leaves the caller to report the failure and
+ * retry at the next startup. Without this, the engine auto-update lost
+ * the race more often than it won it (live-proven 2026-11-24).
+ */
+export async function renameWithRetry(from: string, to: string, attempts = 12, delayMs = 500): Promise<void> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (err) {
+      lastErr = err
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+  throw lastErr
+}
+
+/**
  * Update yt-dlp in place: download latest binary → verify against the
  * release's SHA2-256SUMS → backup old → replace → smoke test. Any failure
  * restores the backup and reports { ok:false }; the old version keeps
@@ -201,9 +224,9 @@ export async function updateYtDlp(
     if (expected.toLowerCase() !== actual.toLowerCase()) {
       throw new Error('checksum mismatch')
     }
-    if (existsSync(target)) renameSync(target, backup)
+    if (existsSync(target)) await renameWithRetry(target, backup)
     try {
-      renameSync(tmpExe, target)
+      await renameWithRetry(tmpExe, target)
       // macOS/Linux need the executable bit on the new binary.
       ensureExecutable(target)
       const version = await getYtDlpVersion(target)
@@ -215,7 +238,7 @@ export async function updateYtDlp(
       // Roll back to the backed-up binary.
       try {
         rmSync(target, { force: true })
-        if (existsSync(backup)) renameSync(backup, target)
+        if (existsSync(backup)) await renameWithRetry(backup, target, 6, 500)
       } catch {
         // Best effort — the old binary path is reported in the error.
       }
@@ -232,4 +255,55 @@ export async function updateYtDlp(
     if (msg.includes('HTTP 403')) return { ok: false, error: 'update-forbidden' }
     return { ok: false, error: msg }
   }
+}
+
+export interface YtDlpAutoUpdateOutcome {
+  /** False when the installed/latest version could not be determined (no network, binary won't run). */
+  checked: boolean
+  updated: boolean
+  /** Installed version after the attempt (null when it could not be read). */
+  version: string | null
+  error?: string
+}
+
+export interface YtDlpAutoUpdateDeps {
+  binDir: string
+  ytDlpPath: string
+  userData: string
+  /** Records the new binary's hash so the startup integrity check never mistakes our own update for tampering. */
+  recordHashOverride?: (userData: string, name: string, hash: string) => boolean
+}
+
+/**
+ * Startup / self-heal engine auto-update: check the latest yt-dlp release
+ * and, when a newer one exists, update it in place with the same
+ * checksum/backup/rollback safety as the manual Settings update. Never
+ * throws — every outcome is reported in the returned outcome object and
+ * the caller logs it (info when current/updated, error on failure).
+ * No update is attempted when the installed version is already the
+ * latest, so a self-heal retry after an already-current binary is never
+ * wasted on a re-download.
+ */
+export async function updateYtDlpIfOutdated(deps: YtDlpAutoUpdateDeps): Promise<YtDlpAutoUpdateOutcome> {
+  const current = await getYtDlpVersion(deps.ytDlpPath)
+  const latest = await checkLatest('yt-dlp')
+  if (current === null || latest === null) {
+    const reason =
+      current === null ? 'could not read installed yt-dlp version' : 'could not check latest yt-dlp release'
+    return { checked: false, updated: false, version: current, error: reason }
+  }
+  if (current === latest) {
+    return { checked: true, updated: false, version: current }
+  }
+  const result = await updateYtDlp(deps.binDir)
+  if (!result.ok) {
+    return { checked: true, updated: false, version: current, error: result.error }
+  }
+  try {
+    const hash = await sha256File(join(deps.binDir, ENGINE_FILES['yt-dlp']))
+    deps.recordHashOverride?.(deps.userData, 'yt-dlp', hash)
+  } catch {
+    // Best effort — the next startup integrity check may warn once.
+  }
+  return { checked: true, updated: true, version: result.version ?? latest }
 }

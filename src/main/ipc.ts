@@ -29,6 +29,7 @@ import type { SubscriptionManager } from './smart/subscriptions.ts'
 import type {
   AddOptions,
   AppUpdateState,
+  EngineAutoUpdateStatus,
   ExtensionApiStatus,
   GrabberScanResult,
   Settings
@@ -67,6 +68,8 @@ export interface IpcDeps {
   subscriptions: SubscriptionManager
   /** Phase 3: called after every settings:set — applies launch-at-startup, clipboard watch, etc. */
   onSettingsChanged: (s: Settings) => void
+  /** Last engine auto-update attempt this session (startup check or self-heal) — shown in Diagnostics. */
+  getLastEngineAutoUpdate: () => EngineAutoUpdateStatus | null
 }
 
 /**
@@ -301,10 +304,25 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle('dovira:engines:list', async (_e, checkForUpdates: unknown) =>
     listEngines(engineSpecs(), checkForUpdates === true)
   )
+  // Engine versions never change during a run — except when the app itself
+  // updates yt-dlp, which invalidates this cache (see engines:update).
+  // The status bar refreshes app:info every 5s for disk space, so resolving
+  // the four --version spawns on every call meant ~2,900 pointless process
+  // spawns an hour AND a standing EBUSY race with the engine auto-update:
+  // a --version child locks yt-dlp.exe exactly when the updater renames it
+  // (live-proven 2026-11-24). Cache the versions; disk space + download
+  // dir stay live on every call.
+  let cachedEngineVersions: {
+    aria2Version: string | null
+    ytDlpVersion: string | null
+    ffmpegVersion: string | null
+    denoVersion: string | null
+  } | null = null
   ipcMain.handle('dovira:engines:update', async (_e, name: unknown) => {
     if (name !== 'yt-dlp') return { ok: false, error: 'not-supported' }
     const result = await updateYtDlp(deps.binDir)
     if (result.ok) {
+      cachedEngineVersions = null
       // Security: the new binary's hash becomes the known-good one, so
       // the startup integrity check never mistakes our own update for
       // tampering. Best-effort — a failure here only costs a warning.
@@ -464,7 +482,8 @@ export function registerIpc(deps: IpcDeps): void {
       freeBytes: diskFreeBytes(s.downloadDir),
       isWindows: process.platform === 'win32',
       binaries: deps.engineBinaries,
-      userData: deps.userData
+      userData: deps.userData,
+      lastEngineAutoUpdate: deps.getLastEngineAutoUpdate()
     })
   })
   // v1.2.0: the built extension folder the user loads unpacked in Chrome.
@@ -505,26 +524,27 @@ export function registerIpc(deps: IpcDeps): void {
     void shell.openExternal('https://github.com/Khalid635/dovira/blob/main/docs/local-api.md')
     return true
   })
-  // The four --version spawns used to run sequentially, so startup init()
-  // waited the SUM of four cold process spawns (several seconds under
-  // Defender) and Home sat on its loading state. They are independent —
-  // run them in parallel. Safe: runVersion never rejects (null on error).
+  // Engine versions are cached (see above) — only disk space and the
+  // download dir are re-read on every call. The four --version spawns used
+  // to run on every call (sequentially, then in parallel); the status bar
+  // calls this every 5s, so that was ~2,900 pointless spawns an hour.
+  // Safe: runVersion never rejects (null on error).
   ipcMain.handle('dovira:app:info', async () => {
-    const [aria2Version, ytDlpVersion, ffmpegVersion, denoVersion] = await Promise.all([
-      deps.aria2Binary ? getAria2Version(deps.aria2Binary) : Promise.resolve(null),
-      deps.ytDlpBinary ? getYtDlpVersion(deps.ytDlpBinary) : Promise.resolve(null),
-      deps.ffmpegBinary ? getFfmpegVersion(deps.ffmpegBinary) : Promise.resolve(null),
-      deps.denoBinary ? getDenoVersion(deps.denoBinary) : Promise.resolve(null)
-    ])
+    if (!cachedEngineVersions) {
+      const [aria2Version, ytDlpVersion, ffmpegVersion, denoVersion] = await Promise.all([
+        deps.aria2Binary ? getAria2Version(deps.aria2Binary) : Promise.resolve(null),
+        deps.ytDlpBinary ? getYtDlpVersion(deps.ytDlpBinary) : Promise.resolve(null),
+        deps.ffmpegBinary ? getFfmpegVersion(deps.ffmpegBinary) : Promise.resolve(null),
+        deps.denoBinary ? getDenoVersion(deps.denoBinary) : Promise.resolve(null)
+      ])
+      cachedEngineVersions = { aria2Version, ytDlpVersion, ffmpegVersion, denoVersion }
+    }
     return {
       version: app.getVersion(),
       electronVersion: process.versions.electron ?? '',
       chromeVersion: process.versions.chrome ?? '',
       nodeVersion: process.versions.node ?? '',
-      aria2Version,
-      ytDlpVersion,
-      ffmpegVersion,
-      denoVersion,
+      ...cachedEngineVersions,
       downloadDir: settings.get().downloadDir,
       diskFreeBytes: diskFreeBytes(settings.get().downloadDir)
     }

@@ -9,7 +9,8 @@ const CHECK_LABEL_KEYS: Record<string, string> = {
   aria2: 'diag.checkAria2',
   extension: 'diag.checkExtension',
   downloadDir: 'diag.checkDownloadDir',
-  binaries: 'diag.checkBinaries'
+  binaries: 'diag.checkBinaries',
+  engineAutoUpdate: 'diag.checkEngineAutoUpdate'
 }
 
 /**

@@ -471,6 +471,14 @@ export interface YtDlpNetworkOptions {
   downloadArchive: string | null
 }
 
+/**
+ * Error codes where a stale yt-dlp is a plausible cause — worth one
+ * update + retry. Content/permission failures (unavailable,
+ * login-required, drm, unsupported, ...) are never healed: updating
+ * the engine cannot fix them, it would only waste a download.
+ */
+const SELF_HEAL_CODES = new Set(['unknown', 'engine-missing', 'timeout', 'network'])
+
 export class YtDlpManager {
   // No parameter properties — Node's strip-only test runner cannot
   // parse them; explicit fields instead.
@@ -478,6 +486,7 @@ export class YtDlpManager {
   private ffmpegDir: string
   private denoPath: string | null
   private getNetwork?: () => YtDlpNetworkOptions
+  private onStaleEngine?: () => Promise<boolean>
 
   constructor(
     binaryPath: string,
@@ -488,12 +497,20 @@ export class YtDlpManager {
      * The getter is called on every baseArgs() so a settings change takes
      * effect on the next fetchInfo/download without restarting the app.
      */
-    getNetwork?: () => YtDlpNetworkOptions
+    getNetwork?: () => YtDlpNetworkOptions,
+    /**
+     * Self-heal hook: called ONCE when a fetch fails with a code that
+     * plausibly means a stale engine (see SELF_HEAL_CODES). Returns true
+     * when yt-dlp was actually updated to a newer release, so a retry is
+     * worth attempting. The manager never updates the engine itself.
+     */
+    onStaleEngine?: () => Promise<boolean>
   ) {
     this.binaryPath = binaryPath
     this.ffmpegDir = ffmpegDir
     this.denoPath = denoPath
     this.getNetwork = getNetwork
+    this.onStaleEngine = onStaleEngine
   }
 
   /**
@@ -537,6 +554,42 @@ export class YtDlpManager {
 
   /** Fetch title/thumbnail/duration/formats for a URL (60s timeout). */
   async fetchInfo(url: string, override?: NetOverride): Promise<YtDlpInfo> {
+    return this.withSelfHeal('fetchInfo', () => this.fetchInfoOnce(url, override))
+  }
+
+  /**
+   * One fetch attempt + one bounded self-heal: on a stale-engine failure,
+   * update yt-dlp once (through the injected hook) and retry the same
+   * call once. The original error surfaces when there is no hook, the
+   * hook reports no update, the update fails, or the retry fails too.
+   */
+  private async withSelfHeal<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      if (!(err instanceof YtDlpError) || !SELF_HEAL_CODES.has(err.code) || !this.onStaleEngine) {
+        throw err
+      }
+      logMain(
+        'warn',
+        `ytdlp ${label} failed (${err.code}) — trying engine self-heal (update yt-dlp once + retry)`
+      )
+      let healed = false
+      try {
+        healed = await this.onStaleEngine()
+      } catch (healErr) {
+        logMain(
+          'error',
+          `engine self-heal failed: ${healErr instanceof Error ? healErr.message : String(healErr)}`
+        )
+      }
+      if (!healed) throw err
+      logMain('info', `engine self-heal: yt-dlp updated, retrying ${label} once`)
+      return await fn()
+    }
+  }
+
+  private async fetchInfoOnce(url: string, override?: NetOverride): Promise<YtDlpInfo> {
     let parsed: URL
     try {
       parsed = new URL(url.trim())
@@ -647,6 +700,10 @@ export class YtDlpManager {
    * quality is chosen once in the dialog and applied to every entry).
    */
   async fetchPlaylist(url: string): Promise<PlaylistInfo> {
+    return this.withSelfHeal('fetchPlaylist', () => this.fetchPlaylistOnce(url))
+  }
+
+  private async fetchPlaylistOnce(url: string): Promise<PlaylistInfo> {
     let parsed: URL
     try {
       parsed = new URL(url.trim())

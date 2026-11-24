@@ -241,3 +241,167 @@ describe('versions: updateYtDlp (fetch + https.get mocked)', () => {
     assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
   })
 })
+
+describe('versions: updateYtDlpIfOutdated (fetch + https.get mocked)', () => {
+  let origFetch: typeof fetch
+  let dir: string
+  let versions: typeof import('../src/main/engines/versions.ts')
+
+  beforeEach(async () => {
+    origFetch = globalThis.fetch
+    dir = mkdtempSync(join(tmpdir(), 'dovira-upd2-'))
+    apiOk = true
+    apiStatus = 200
+    apiTag = '2026.11.01'
+    binaryBytes = Buffer.from('new-binary-bytes')
+    sumsHash = createHash('sha256').update(binaryBytes).digest('hex')
+    smokeVersion = '2026.11.01'
+    outputs = {}
+    failTools = new Set()
+    globalThis.fetch = (async () => {
+      if (!apiOk) return { ok: false, status: apiStatus, json: async () => ({}), text: async () => '' }
+      return { ok: true, status: 200, json: async () => ({ tag_name: apiTag }), text: async () => '' }
+    }) as typeof fetch
+    versions = await import('../src/main/engines/versions.ts')
+  })
+
+  afterEach(() => {
+    globalThis.fetch = origFetch
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('already current: no download, binary untouched', async () => {
+    outputs['yt-dlp.exe'] = '2026.11.01\n'
+    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    const r = await versions.updateYtDlpIfOutdated({
+      binDir: dir,
+      ytDlpPath: 'yt-dlp.exe',
+      userData: dir
+    })
+    assert.deepEqual(r, { checked: true, updated: false, version: '2026.11.01' })
+    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'old-binary-bytes')
+    assert.equal(existsSync(join(dir, 'yt-dlp.exe.new')), false)
+    assert.equal(existsSync(join(dir, 'yt-dlp.exe.bak')), false)
+  })
+
+  it('outdated: updates the binary and records the hash override', async () => {
+    outputs['yt-dlp.exe'] = '2026.10.26\n'
+    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    let recorded: { userData: string; name: string; hash: string } | null = null
+    const r = await versions.updateYtDlpIfOutdated({
+      binDir: dir,
+      ytDlpPath: 'yt-dlp.exe',
+      userData: dir,
+      recordHashOverride: (userData: string, name: string, hash: string) => {
+        recorded = { userData, name, hash }
+        return true
+      }
+    })
+    assert.deepEqual(r, { checked: true, updated: true, version: '2026.11.01' })
+    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'new-binary-bytes')
+    assert.equal(recorded?.name, 'yt-dlp')
+    assert.equal(recorded?.hash, sumsHash)
+  })
+
+  it('API failure: not checked, no download', async () => {
+    apiOk = false
+    apiStatus = 500
+    outputs['yt-dlp.exe'] = '2026.10.26\n'
+    writeFileSync(join(dir, 'yt-dlp.exe'), 'old-binary-bytes')
+    const r = await versions.updateYtDlpIfOutdated({
+      binDir: dir,
+      ytDlpPath: 'yt-dlp.exe',
+      userData: dir
+    })
+    assert.equal(r.checked, false)
+    assert.equal(r.updated, false)
+    assert.equal(r.version, '2026.10.26')
+    assert.equal(readFileSync(join(dir, 'yt-dlp.exe'), 'utf-8'), 'old-binary-bytes')
+  })
+
+  it('unreadable installed version: not checked', async () => {
+    failTools.add('yt-dlp.exe')
+    const r = await versions.updateYtDlpIfOutdated({
+      binDir: dir,
+      ytDlpPath: 'yt-dlp.exe',
+      userData: dir
+    })
+    assert.equal(r.checked, false)
+    assert.equal(r.updated, false)
+    assert.equal(r.version, null)
+  })
+})
+
+describe('versions: renameWithRetry (Windows file-lock backoff)', () => {
+  let dir: string
+  let versions: typeof import('../src/main/engines/versions.ts')
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'dovira-rename-'))
+    versions = await import('../src/main/engines/versions.ts')
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /**
+   * Hold a file open with FileShare::None in a short-lived PowerShell
+   * child — the only way to really block a rename on Windows. (Node's
+   * own openSync shares FILE_SHARE_DELETE, so it does NOT block rename.)
+   * The child writes a marker file once the lock is held, so the test
+   * only starts renaming while the lock is definitely in place. cp.spawn
+   * is used because cp.execFile is mocked in this file.
+   */
+  function holdFileExclusive(path: string, ms: number, marker: string): Promise<void> {
+    const script = `$fs=[System.IO.File]::Open('${path}', 'Open', 'ReadWrite', 'None'); [System.IO.File]::WriteAllText('${marker}', 'locked'); Start-Sleep -Milliseconds ${ms}; $fs.Close()`
+    return new Promise((resolve, reject) => {
+      const child = cp.spawn('powershell', ['-NoProfile', '-Command', script], { windowsHide: true })
+      child.on('error', reject)
+      child.on('close', () => resolve())
+    })
+  }
+
+  async function waitForMarker(marker: string, timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (existsSync(marker)) return
+      if (Date.now() > deadline) throw new Error('lock marker never appeared — PowerShell holder failed to start')
+      await new Promise((r) => setTimeout(r, 50))
+    }
+  }
+
+  it('succeeds once the lock holder releases the file', async () => {
+    const target = join(dir, 'a.txt')
+    const dest = join(dir, 'b.txt')
+    const marker = join(dir, 'locked.marker')
+    writeFileSync(target, 'x')
+    const hold = holdFileExclusive(target, 900, marker)
+    await waitForMarker(marker)
+    await versions.renameWithRetry(target, dest, 12, 200)
+    await hold
+    assert.equal(existsSync(dest), true)
+    assert.equal(existsSync(target), false)
+  })
+
+  it('gives up after the attempts are exhausted and the file stays put', async () => {
+    const target = join(dir, 'c.txt')
+    const dest = join(dir, 'd.txt')
+    const marker = join(dir, 'locked2.marker')
+    writeFileSync(target, 'x')
+    const hold = holdFileExclusive(target, 3000, marker)
+    await waitForMarker(marker)
+    await assert.rejects(() => versions.renameWithRetry(target, dest, 3, 100))
+    await hold
+    assert.equal(existsSync(target), true)
+    assert.equal(existsSync(dest), false)
+  })
+
+  it('plain rename with no lock succeeds on the first attempt', async () => {
+    const target = join(dir, 'e.txt')
+    const dest = join(dir, 'f.txt')
+    writeFileSync(target, 'x')
+    await versions.renameWithRetry(target, dest)
+    assert.equal(existsSync(dest), true)
+  })
+})

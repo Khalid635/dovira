@@ -5,7 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { DoviraDb } from './db.ts'
 import { SettingsManager } from './settings.ts'
-import type { ExtensionDownloadRequest, Settings } from './types.ts'
+import type { EngineAutoUpdateStatus, ExtensionDownloadRequest, Settings } from './types.ts'
 import { Aria2Manager } from './engines/aria2.ts'
 import { YtDlpManager } from './engines/ytdlp.ts'
 import { QueueManager } from './queue.ts'
@@ -22,9 +22,14 @@ import {
   platformDirName,
   currentPlatform
 } from './util/paths.ts'
-import { getExpectedBinaryHashes, loadEngineHashOverrides, verifyEngineBinaries } from './security.ts'
+import {
+  getExpectedBinaryHashes,
+  loadEngineHashOverrides,
+  recordEngineHashOverride,
+  verifyEngineBinaries
+} from './security.ts'
 import { AppUpdater } from './updater.ts'
-import { getYtDlpVersion } from './engines/versions.ts'
+import { getYtDlpVersion, updateYtDlpIfOutdated } from './engines/versions.ts'
 import { initLogger, logMain } from './logger.ts'
 
 let mainWindow: BrowserWindow | null = null
@@ -40,6 +45,8 @@ let clipboardWatcher: ClipboardWatcher | null = null
 let localApi: LocalApiServer | null = null
 /** Phase 6: app auto-update (electron-updater + GitHub Releases). */
 let updater: AppUpdater | null = null
+/** Last engine auto-update attempt this session (startup check or self-heal) — shown in Diagnostics, null until the first attempt. */
+let lastEngineAutoUpdate: EngineAutoUpdateStatus | null = null
 /** True once a real quit is in progress — the close-to-tray guard must not block it. */
 let quitting = false
 
@@ -331,6 +338,44 @@ app.whenReady().then(() => {
     })
 
   aria2 = aria2Binary ? new Aria2Manager(aria2Binary, settings.get().downloadDir) : null
+  // Engine auto-update: one shared runner for the startup check and the
+  // fetch self-heal. It records the outcome for Diagnostics and logs it
+  // (info when current/updated, error on failure) — never swallowed.
+  // Returns true only when yt-dlp was actually updated to a newer
+  // release, so a self-heal retry is never wasted on the same binary.
+  const runEngineAutoUpdate = async (): Promise<boolean> => {
+    const outcome = await updateYtDlpIfOutdated({
+      binDir,
+      ytDlpPath: ytDlpBinary as string,
+      userData,
+      recordHashOverride: recordEngineHashOverride
+    })
+    lastEngineAutoUpdate = {
+      checked: outcome.checked,
+      updated: outcome.updated,
+      version: outcome.version,
+      error: outcome.error,
+      at: Date.now()
+    }
+    if (!outcome.checked) {
+      logMain('warn', `yt-dlp auto-update skipped: ${outcome.error ?? 'unknown reason'}`)
+    } else if (outcome.updated) {
+      logMain('info', `yt-dlp auto-update: updated to ${outcome.version}`)
+    } else if (outcome.error) {
+      logMain('error', `yt-dlp auto-update FAILED: ${outcome.error} (kept ${outcome.version ?? 'unknown'})`)
+    } else {
+      logMain('info', `yt-dlp auto-update: already current (${outcome.version})`)
+    }
+    return outcome.updated
+  }
+  // Engine self-heal: a fetch that fails with a stale-engine signature
+  // updates yt-dlp once and retries. Only when the auto-update setting
+  // is on — an explicit OFF means the user wants manual control.
+  const healYtDlp = async (): Promise<boolean> => {
+    if (!settings.get().engineAutoUpdate) return false
+    return runEngineAutoUpdate()
+  }
+
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
   const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary, () => {
     const s = settings.get()
@@ -342,7 +387,7 @@ app.whenReady().then(() => {
       // skip-downloaded setting is on.
       downloadArchive: s.playlistSkipDownloaded ? join(userData, 'download-archive.txt') : null
     }
-  })
+  }, healYtDlp)
   queue = new QueueManager(db, settings, aria2, ytdlp)
 
   // Next-level: channel subscriptions — local polling, no server.
@@ -454,7 +499,8 @@ app.whenReady().then(() => {
     localApi,
     updater,
     subscriptions,
-    onSettingsChanged: (s) => applyRuntimeSettings(s)
+    onSettingsChanged: (s) => applyRuntimeSettings(s),
+    getLastEngineAutoUpdate: () => lastEngineAutoUpdate
   })
 
   // Next-level: subscription polling — first check 60s after startup,
@@ -490,6 +536,15 @@ app.whenReady().then(() => {
   createWindow()
   // Phase 6: one delayed startup check (only when the setting is on).
   appUpdater.startStartupCheck(10_000)
+  // Engine auto-update: when the setting is on, check the latest yt-dlp
+  // shortly after startup and update it in place. Silent when already
+  // current; every other outcome is logged and shown in Diagnostics.
+  // Delayed so it never contends with window creation or the first
+  // fetch — and if a download is already running, the in-use binary
+  // simply fails the replace and the next startup retries.
+  setTimeout(() => {
+    if (settings.get().engineAutoUpdate) void runEngineAutoUpdate()
+  }, 30_000)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

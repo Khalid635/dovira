@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import type { Aria2Manager } from './engines/aria2.ts'
 import { checkLatest, getAria2Version, getYtDlpVersion } from './engines/versions.ts'
 import type { LocalApiServer } from './localApi.ts'
-import type { DiagnosticCheck, DiagnosticsResult } from './types.ts'
+import type { DiagnosticCheck, DiagnosticsResult, EngineAutoUpdateStatus } from './types.ts'
 import { currentPlatform } from './util/paths.ts'
 import {
   getExpectedBinaryHashes,
@@ -32,6 +32,8 @@ export interface DiagnosticsDeps {
   binaries?: EngineBinaryInput[]
   /** userData dir — reads hashes the app recorded after its own engine updates. */
   userData?: string
+  /** Last engine auto-update attempt this session — shown as its own check. Absent = no attempt yet. */
+  lastEngineAutoUpdate?: EngineAutoUpdateStatus | null
 }
 
 export interface DiagnosticsOptions {
@@ -134,6 +136,32 @@ export async function runDiagnostics(
           fix: null
         })
       }
+    }
+  }
+
+  // 2b. Engine auto-update — the last startup/self-heal attempt this
+  // session. A failed attempt is a warning with the same one-click fix
+  // as an outdated yt-dlp; a successful update is an ok row. No attempt
+  // yet (or an attempt that could not even check) shows nothing — the
+  // yt-dlp check above already covers an outdated binary.
+  const lastAuto = deps.lastEngineAutoUpdate
+  if (lastAuto?.checked) {
+    if (lastAuto.updated) {
+      checks.push({
+        id: 'engineAutoUpdate',
+        status: 'ok',
+        detailKey: 'diag.detailEngineAutoUpdated',
+        detailParams: { version: lastAuto.version ?? '' },
+        fix: null
+      })
+    } else if (lastAuto.error) {
+      checks.push({
+        id: 'engineAutoUpdate',
+        status: 'warn',
+        detailKey: 'diag.detailEngineAutoUpdateFailed',
+        detailParams: { error: lastAuto.error },
+        fix: 'updateYtdlp'
+      })
     }
   }
 
