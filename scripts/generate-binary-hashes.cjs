@@ -14,8 +14,8 @@
  * The yt-dlp hash must match the release's published SHA2-256SUMS; the
  * script prints the file list so that can be eyeballed.
  */
-const { createHash, createReadStream } = require('node:crypto')
-const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
+const { createHash } = require('node:crypto')
+const { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 const ROOT = join(__dirname, '..')

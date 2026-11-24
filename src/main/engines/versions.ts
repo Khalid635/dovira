@@ -28,7 +28,7 @@ export function getAria2Version(binaryPath: string): Promise<string | null> {
   return runVersion(binaryPath, ['--version'], /aria2 version ([0-9.]+)/)
 }
 
-/** `yt-dlp --version` prints just the version, e.g. "2026.10.26". */
+/** `yt-dlp --version` prints just the version, e.g. "2026.11.23". */
 export function getYtDlpVersion(binaryPath: string): Promise<string | null> {
   return runVersion(binaryPath, ['--version'], /([0-9]{4}\.[0-9]{2}\.[0-9]{2})/)
 }

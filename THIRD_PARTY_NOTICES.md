@@ -12,7 +12,7 @@ its own configuration line).
 | electron-vite / electron-builder | — | MIT | Build tooling |
 | React, Vite, TypeScript | — | MIT | UI + build |
 | Tailwind CSS | 4.x | MIT | Styling |
-| yt-dlp | 2026.10.26 | The Unlicense | Video/audio extraction engine (bundled binary) |
+| yt-dlp | 2026.11.23 | The Unlicense | Video/audio extraction engine (bundled binary) |
 | aria2 | 1.37.0 | GPL-2.0-or-later | Multi-connection download engine — Windows: bundled prebuilt binary; macOS/Linux: built from source in CI (scripts/build-aria2.sh) |
 | ffmpeg | 9.0.2 Windows (gyan.dev essentials) / 9.1 macOS (evermeet) / 9.0 Linux (BtbN n9.0 GPL static) | GPL-3.0-or-later | Merge/convert engine (bundled binary) — all three builds are GPL: each configuration line shows `--enable-gpl` with libx264/libx265. DOVIRA's own code stays MIT; the GPL covers the ffmpeg binary only (separate process, no linking). |
 | Deno | 2.9.8 | MIT | JavaScript runtime for yt-dlp YouTube support (bundled binary) |

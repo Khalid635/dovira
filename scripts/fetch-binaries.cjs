@@ -107,13 +107,13 @@ const BINARIES_BY_PLATFORM = {
     },
     {
       name: 'yt-dlp',
-      version: '2026.10.26',
+      version: '2026.11.23',
       kind: 'exe',
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe',
-      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/yt-dlp.exe',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/SHA2-256SUMS',
       checksumFile: 'yt-dlp.exe',
       file: 'yt-dlp.exe',
-      versionCheck: /2026\.10\.26/
+      versionCheck: /2026\.11\.23/
     },
     {
       name: 'ffmpeg',
@@ -142,13 +142,13 @@ const BINARIES_BY_PLATFORM = {
   mac: [
     {
       name: 'yt-dlp',
-      version: '2026.10.26',
+      version: '2026.11.23',
       kind: 'exe',
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_macos',
-      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/yt-dlp_macos',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/SHA2-256SUMS',
       checksumFile: 'yt-dlp_macos',
       file: 'yt-dlp_macos',
-      versionCheck: /2026\.10\.26/
+      versionCheck: /2026\.11\.23/
     },
     {
       name: 'ffmpeg',
@@ -177,13 +177,13 @@ const BINARIES_BY_PLATFORM = {
   linux: [
     {
       name: 'yt-dlp',
-      version: '2026.10.26',
+      version: '2026.11.23',
       kind: 'exe',
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_linux',
-      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS',
+      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/yt-dlp_linux',
+      checksumUrl: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/SHA2-256SUMS',
       checksumFile: 'yt-dlp_linux',
       file: 'yt-dlp_linux',
-      versionCheck: /2026\.10\.26/
+      versionCheck: /2026\.11\.23/
     },
     {
       name: 'ffmpeg',
