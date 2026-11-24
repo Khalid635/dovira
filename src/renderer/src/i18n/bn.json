@@ -385,6 +385,7 @@
   "settings.extensionInstallHint": "এক্সটেনশন ইনস্টল করো DOVIRA repo-র extension/ ফোল্ডার থেকে — Firefox (AMO) আগে, অথবা Chrome-এ Load unpacked। বিস্তারিত extension/README.md-তে।",
   "settings.extensionPort": "লোকাল API পোর্ট",
   "settings.extensionRegenerate": "নতুন টোকেন বানাও",
+  "settings.extensionRegenerated": "নতুন টোকেন বানানো হয়েছে — এক্সটেনশনের Options-এ পেস্ট করে Save চাপো",
   "settings.extensionStatus": "ব্রাউজার এক্সটেনশন",
   "settings.extensionStatusRunning": "লোকাল API চলছে — 127.0.0.1:{port}",
   "settings.extensionStatusStopped": "লোকাল API চলছে না — অ্যাপ আবার চালু করো।",

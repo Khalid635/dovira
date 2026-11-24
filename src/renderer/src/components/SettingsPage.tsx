@@ -86,6 +86,7 @@ export default function SettingsPage(): React.JSX.Element {
   const [extStatus, setExtStatus] = useState<ExtensionApiStatus | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [tokenCopied, setTokenCopied] = useState(false)
+  const [tokenRegenerated, setTokenRegenerated] = useState(false)
   // Phase 7 (v1.0): Smart — local-model test state + live template preview.
   const [modelTesting, setModelTesting] = useState(false)
   const [modelTest, setModelTest] = useState<{ ok: boolean; error?: string } | null>(null)
@@ -140,12 +141,24 @@ export default function SettingsPage(): React.JSX.Element {
   }
 
   const regenerateToken = async (): Promise<void> => {
-    const token = await window.dovira.regenerateExtensionToken()
-    setExtStatus((prev) =>
-      prev
-        ? { ...prev, token }
-        : { running: false, port: null, token, extensionSeenAt: null, extensionOptionsUrl: null }
-    )
+    try {
+      const token = await window.dovira.regenerateExtensionToken()
+      setExtStatus((prev) =>
+        prev
+          ? { ...prev, token }
+          : { running: false, port: null, token, extensionSeenAt: null, extensionOptionsUrl: null }
+      )
+      // The old button gave no feedback — the token stayed masked and the
+      // click looked dead (Khalid clicked it 10x thinking it was broken).
+      // Reveal the new token and confirm, so the change is visible and the
+      // user can copy it into the extension's Options.
+      setShowToken(true)
+      setTokenRegenerated(true)
+      setTimeout(() => setTokenRegenerated(false), 5000)
+    } catch {
+      // Regeneration failed — leave the old token in place; the section
+      // still shows the previous value.
+    }
   }
 
   // Phase 7: live template preview — same code path as the real naming
@@ -602,6 +615,11 @@ export default function SettingsPage(): React.JSX.Element {
               </span>
             </label>
             <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.extensionHint')}</p>
+            {tokenRegenerated && (
+              <p className="mt-1 text-[12px] font-medium text-[var(--accent)]">
+                {t('settings.extensionRegenerated')}
+              </p>
+            )}
           </div>
         </section>
 

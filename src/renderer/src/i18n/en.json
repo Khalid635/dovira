@@ -385,6 +385,7 @@
   "settings.extensionInstallHint": "Install the extension from the extension/ folder in the DOVIRA repo — Firefox (AMO) first, or Load unpacked in Chrome. See extension/README.md.",
   "settings.extensionPort": "Local API port",
   "settings.extensionRegenerate": "Regenerate token",
+  "settings.extensionRegenerated": "Token regenerated \u2014 copy it into the extension's Options and Save",
   "settings.extensionStatus": "Browser extension",
   "settings.extensionStatusRunning": "Local API running on 127.0.0.1:{port}",
   "settings.extensionStatusStopped": "Local API is not running — restart the app.",
