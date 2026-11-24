@@ -1805,6 +1805,15 @@ export class QueueManager extends EventEmitter {
     ) {
       return { ok: false, error: 'unsupported-url' }
     }
+    // A playlist/channel URL never downloads directly — it needs the Add
+    // dialog so entries can be picked. Answer from the URL shape alone:
+    // fetchInfo's flat-playlist fetch can hang past the 60s timeout on a
+    // slow channel, and the fallback single-video fetch burns another
+    // 60s, so the extension button would spin for 2+ minutes and then
+    // fail without ever opening the dialog.
+    if (looksLikePlaylist(trimmed)) {
+      return { ok: false, error: 'playlist' }
+    }
     const netOverride = {
       cookiesFile: opts.cookiesFile ?? null,
       userAgent: opts.userAgent ?? null,

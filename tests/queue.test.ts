@@ -155,6 +155,7 @@ class FakeYtDlp {
   recoverResult = true
   recoverCalls: { savePath: string; kind: string; bitrate: string }[] = []
   fetchInfoResult: unknown = null
+  fetchInfoCalls: string[] = []
 
   buildArgs(opts: unknown): string[] {
     this.buildArgsCalls.push(opts)
@@ -195,7 +196,8 @@ class FakeYtDlp {
     return this.recoverResult
   }
 
-  async fetchInfo(): Promise<unknown> {
+  async fetchInfo(url?: string): Promise<unknown> {
+    this.fetchInfoCalls.push(url ?? '')
     return this.fetchInfoResult
   }
 
@@ -423,6 +425,31 @@ describe('QueueManager', () => {
     await (q as unknown as { pollTick: () => Promise<void> }).pollTick()
     assert.equal(q.get(id)?.status, 'failed')
     assert.ok(q.get(id)?.errorCode !== null)
+  })
+
+  it('addFromExtension: playlist/channel URLs answer playlist at once, no fetchInfo', async () => {
+    // The URL shape alone decides: a channel / playlist URL answers
+    // 'playlist' without ever consulting yt-dlp (the flat-playlist
+    // fetch behind fetchInfo can hang 60s+ on a slow channel), while a
+    // plain watch URL still reaches the engine — the guard must not
+    // overreach (a watch URL with list= is one video, not a playlist).
+    const q2 = makeQueue(aria2, ytdlp)
+    try {
+      const channel = await q2.addFromExtension('https://www.youtube.com/@BlenderOfficial')
+      assert.deepEqual(channel, { ok: false, error: 'playlist' })
+      const playlist = await q2.addFromExtension(
+        'https://www.youtube.com/playlist?list=PL1234567890abcdef'
+      )
+      assert.deepEqual(playlist, { ok: false, error: 'playlist' })
+      assert.equal(ytdlp.fetchInfoCalls.length, 0)
+      const watch = await q2.addFromExtension(
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1234567890abcdef'
+      )
+      assert.equal(ytdlp.fetchInfoCalls.length, 1)
+      assert.equal(watch.error, 'unknown')
+    } finally {
+      q2.shutdown()
+    }
   })
 
   it('no engines: add starts the pump, which fails the row engine-missing', async () => {
