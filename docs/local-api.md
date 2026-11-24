@@ -47,7 +47,7 @@ curl -H "Authorization: Bearer $DOVIRA_TOKEN" http://127.0.0.1:17530/status
 ```
 
 ```json
-{ "ok": true, "app": "dovira", "version": "1.4.2" }
+{ "ok": true, "app": "dovira", "version": "1.4.3" }
 ```
 
 ### GET /downloads

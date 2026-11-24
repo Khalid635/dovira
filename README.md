@@ -27,7 +27,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 - [Browser extension](#browser-extension)
 - [Architecture](#architecture)
 - [FAQ](#faq)
-- [Limitations](#limitations-v142)
+- [Limitations](#limitations-v143)
 - [Contributing](#contributing)
 - [Roadmap](#roadmap)
 - [Build & run](#build--run)
@@ -36,7 +36,7 @@ DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. 
 
 ## Status
 
-**Current version: v1.4.2** (pre-release). Everything in the master plan through v1.4.2 is built and tested — see the [Releases page](https://github.com/Khalid635/dovira/releases) and [CHANGELOG.md](CHANGELOG.md). Highlights of v1.4.1: a separate progress window opens on every download start (filename, size, %, speed, ETA, Pause/Resume/Cancel), and the extension floating button now opens the Add dialog so you pick video quality or Audio (MP3) before downloading. In v1.4.2, clicking the floating button also brings the app window to the front, so the Add dialog with the quality/audio choice appears at once instead of staying behind the browser.
+**Current version: v1.4.3** (pre-release). Everything in the master plan through v1.4.3 is built and tested — see the [Releases page](https://github.com/Khalid635/dovira/releases) and [CHANGELOG.md](CHANGELOG.md). Highlights of v1.4.1: a separate progress window opens on every download start (filename, size, %, speed, ETA, Pause/Resume/Cancel), and the extension floating button now opens the Add dialog so you pick video quality or Audio (MP3) before downloading. In v1.4.2, clicking the floating button also brings the app window to the front, so the Add dialog with the quality/audio choice appears at once instead of staying behind the browser. In v1.4.3, the app starts with Windows automatically (always on, no toggle) and opens hidden to the tray, so the extension is ready without opening the app.
 
 > All releases are pre-releases for now — a stable release is planned next (see [Roadmap](#roadmap)).
 
@@ -145,9 +145,9 @@ There is no paid Apple Developer account. On first launch, right-click the app a
 The quality list comes from the site's real format list. If a video has no 1080p, 1080p is not offered — DOVIRA never invents a quality.
 
 **Does it support DRM sites like Netflix?**
-No — and no app can. See [Limitations](#limitations-v142).
+No — and no app can. See [Limitations](#limitations-v143).
 
-## Limitations (v1.4.2)
+## Limitations (v1.4.3)
 
 - ~~Clicking the extension floating button could leave the Add dialog hidden behind the browser~~ — fixed in v1.4.2: the app window now comes to the front when the dialog opens.
 - Login-only videos need cookies — set them in Settings > Browser & Cookies (the app says so instead of failing silently).
@@ -164,7 +164,7 @@ No — and no app can. See [Limitations](#limitations-v142).
 
 Bug reports and feature requests: [open an issue](https://github.com/Khalid635/dovira/issues) — templates for bug reports and feature requests are ready, just fill them in. Never paste tokens, passwords or cookies in an issue.
 
-Pull requests are welcome. Please run `npm test` and `npm run build` before submitting. Tests live in `tests/` — 363 tests across 68 suites, all passing (`npm test`).
+Pull requests are welcome. Please run `npm test` and `npm run build` before submitting. Tests live in `tests/` — 369 tests across 70 suites, all passing (`npm test`).
 
 ## Roadmap
 

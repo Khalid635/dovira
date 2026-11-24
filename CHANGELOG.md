@@ -2,6 +2,12 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [1.4.3] - 2026-11-25
+
+### Added
+
+- Auto-start on Windows login, always on: DOVIRA now registers itself to start with Windows (no toggle, no Settings UI) and opens hidden to the tray, so the extension and the Local API are ready without opening the app. Click the tray icon - or start a download from the extension - to bring the window forward. The real proof is a laptop restart.
+
 ## [1.4.2] - 2026-11-25
 
 ### Fixed
