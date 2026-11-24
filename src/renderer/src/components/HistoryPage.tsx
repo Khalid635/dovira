@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore, useT } from '../store'
-import { formatBytes, formatTime } from '../util/format'
+import { formatBytes, formatTime, historyTime } from '../util/format'
 import { IconExternal, IconFolder, IconRetry, IconTrash } from './icons'
 
 type DateFilter = 'all' | 'today' | 'week'
@@ -74,8 +74,10 @@ export default function HistoryPage(): React.JSX.Element {
         const hay = `${d.filename} ${d.title ?? ''} ${d.url} ${d.site ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
-      if (dateFilter === 'today' && d.createdAt < dayStartMs) return false
-      if (dateFilter === 'week' && d.createdAt < weekAgoMs) return false
+      // The date filters use the same time the row displays, so "today"
+      // means "finished today" — not "added today".
+      if (dateFilter === 'today' && historyTime(d) < dayStartMs) return false
+      if (dateFilter === 'week' && historyTime(d) < weekAgoMs) return false
       if (kindFilter !== 'all' && d.kind !== kindFilter) return false
       if (statusFilter !== 'all' && d.status !== statusFilter) return false
       if (siteFilter !== 'all' && d.site !== siteFilter) return false
@@ -181,7 +183,7 @@ export default function HistoryPage(): React.JSX.Element {
                     <div className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
                       {d.site ?? d.url} ·{' '}
                       {d.totalBytes > 0 ? formatBytes(d.totalBytes) : t('status.unknownSize')} ·{' '}
-                      {d.createdAt ? formatTime(d.createdAt) : '—'}
+                      {formatTime(historyTime(d)) || '—'}
                     </div>
                   </div>
                   <span className={`badge ${BADGE[d.status] ?? ''}`}>

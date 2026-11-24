@@ -12,6 +12,7 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 ### Fixed
 
 - YouTube downloads fixed: bundled yt-dlp 2026.10.26 -> 2026.11.23 — YouTube changed its player clients (the `web` client broke/slowed extraction, so fetching a video could hang past the 60s timeout and the Add dialog showed no formats, no audio quality and no download). The new yt-dlp drops the broken client; fetching the failing video now completes in ~15s with full formats.
+- History now shows the completion time: a finished download showed its added time in History but its completion time on Home (e.g. 1:52:29 vs 1:52:52 for the same 21s download). History now uses the completion time for completed rows (added time for failed/cancelled), and the Today / last-7-days filters use the same displayed time.
 - Assistant no longer hijacks how-questions: "how do I download audio as mp3" used to get the "send a link" reply because the download-verb check had no question veto; questions now reach the FAQ answers.
 
 ## [1.3.1] - 2026-11-24

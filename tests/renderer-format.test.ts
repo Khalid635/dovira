@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatBytes, formatSpeed, formatEta, formatTime } from '../src/renderer/src/util/format.ts'
+import {
+  formatBytes,
+  formatSpeed,
+  formatEta,
+  formatTime,
+  historyTime
+} from '../src/renderer/src/util/format.ts'
 import { speedGraphPoints, speedGraphPolyline } from '../src/renderer/src/util/graph.ts'
 
 describe('renderer format', () => {
@@ -33,6 +39,28 @@ describe('renderer format', () => {
     assert.equal(formatTime(null), '')
     assert.equal(formatTime(0), '')
     assert.match(formatTime(new Date(2026, 10, 24, 12, 0, 0).getTime()), /2026/)
+  })
+
+  it('historyTime: completed shows completion time (same as Home), else added time', () => {
+    // The observed case: Tears of Steel, added 01:52:29, completed 01:52:52.
+    const created = new Date(2026, 10, 24, 1, 52, 29).getTime()
+    const completed = new Date(2026, 10, 24, 1, 52, 52).getTime()
+    assert.equal(
+      historyTime({ status: 'completed', createdAt: created, completedAt: completed }),
+      completed
+    )
+    assert.equal(
+      historyTime({ status: 'completed', createdAt: created, completedAt: null }),
+      created
+    )
+    assert.equal(
+      historyTime({ status: 'failed', createdAt: created, completedAt: completed }),
+      created
+    )
+    assert.equal(
+      historyTime({ status: 'cancelled', createdAt: created, completedAt: null }),
+      created
+    )
   })
 })
 

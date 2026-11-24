@@ -30,3 +30,19 @@ export function formatTime(ts: number | null): string {
   if (!ts) return ''
   return new Date(ts).toLocaleString()
 }
+
+/**
+ * The timestamp History shows for a finished row: when it completed —
+ * the same time Home shows for the row — falling back to when it was
+ * added for rows that never completed (failed / cancelled, or a
+ * completed row with no completion time recorded). Using createdAt
+ * here made the same download show two different times (Home 1:52:52
+ * vs History 1:52:29 for a 21s download).
+ */
+export function historyTime(d: {
+  status: string
+  createdAt: number
+  completedAt: number | null
+}): number {
+  return d.status === 'completed' && d.completedAt ? d.completedAt : d.createdAt
+}
