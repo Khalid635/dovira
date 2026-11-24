@@ -2,6 +2,12 @@
 
 All notable changes to DOVIRA. Dates are the release dates on GitHub.
 
+## [1.4.2] - 2026-11-25
+
+### Fixed
+
+- The Add dialog could open but stay invisible: clicking the extension's floating Download button queued the dialog and loaded the formats, but the app window never came to the front over the browser (Windows blocks a background app from stealing focus, and showing an already-visible window does not change its z-order). The window is now brought forward with restore/show plus an always-on-top pulse (focus + moveTop, topmost cleared at once), wired into both the extension-dialog hook and the direct-download hook, with a log line when it fires. Verified in a probe; the real focus-steal proof is a click on a real desktop.
+
 ## [1.4.1] - 2026-11-24
 
 ### Added
