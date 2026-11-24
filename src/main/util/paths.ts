@@ -175,3 +175,25 @@ export function getExtensionDir(appPath: string, resourcesPath: string): string 
   }
   return null
 }
+
+export const SETUP_GUIDE_VIDEO_FILE = 'setup-guide.mp4'
+
+/**
+ * v1.3.1: the bundled setup-guide video (76s, Settings tour + 4-step
+ * extension setup). Dev: <project>/resources/setup-guide.mp4.
+ * Packaged: <resources>/setup-guide.mp4 (electron-builder extraResources).
+ * Returns null when the file is missing in both places — the Settings
+ * section then shows the unavailable line instead of a broken player.
+ * The file is a single swappable asset: replacing it (same name) updates
+ * the video with no code change.
+ */
+export function getSetupGuideVideoPath(appPath: string, resourcesPath: string): string | null {
+  const candidates = [
+    join(appPath, 'resources', SETUP_GUIDE_VIDEO_FILE),
+    join(resourcesPath, SETUP_GUIDE_VIDEO_FILE)
+  ]
+  for (const c of candidates) {
+    if (existsSync(c)) return c
+  }
+  return null
+}

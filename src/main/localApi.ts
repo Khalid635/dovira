@@ -162,17 +162,24 @@ export class LocalApiServer {
   private userData: string
   /** Dialog-first handoff (optional — the API works without a UI). */
   private hooks: LocalApiHooks | undefined
+  /**
+   * v1.3.1: resolved path of the bundled setup-guide video (or null when
+   * the file is missing). Injected so tests can point at a temp file.
+   */
+  private setupGuidePath: string | null
 
   constructor(
     settings: SettingsManager,
     queue: QueueManager,
     userData: string,
-    hooks?: LocalApiHooks
+    hooks?: LocalApiHooks,
+    setupGuidePath?: string | null
   ) {
     this.settings = settings
     this.queue = queue
     this.userData = userData
     this.hooks = hooks
+    this.setupGuidePath = setupGuidePath ?? null
   }
 
   /** safeStorage adapter for tokenStore (DPAPI on Windows). */
@@ -277,6 +284,21 @@ export class LocalApiServer {
     }
   }
 
+  /**
+   * v1.3.1: the bundled setup-guide video, when the file exists — the
+   * Settings section offers it, and the ipc setupGuide:url handler builds
+   * the Local API URL from it. Null when the file is missing.
+   */
+  getSetupGuidePath(): string | null {
+    if (!this.setupGuidePath) return null
+    try {
+      if (existsSync(this.setupGuidePath)) return this.setupGuidePath
+    } catch {
+      // Unreadable path — treat as missing.
+    }
+    return null
+  }
+
   /** New token (Settings > Regenerate). Persisted; the old one stops working at once. */
   regenerateToken(): string {
     this.token = randomBytes(32).toString('hex')
@@ -335,6 +357,15 @@ export class LocalApiServer {
     // string instead (constant-time compared, same as Bearer auth).
     if (method === 'GET' && path === '/preview') {
       await this.handlePreview(req, res)
+      return
+    }
+    // v1.3.1: /setup-guide streams the BUNDLED setup-guide video (a fixed
+    // file, never an arbitrary path) — same position as /preview: a
+    // <video> element cannot send an Authorization header, and the
+    // renderer sends Origin: null, so the token travels in the query
+    // string (constant-time compared, same as Bearer <redacted>).
+    if (method === 'GET' && path === '/setup-guide') {
+      await this.handleSetupGuide(req, res)
       return
     }
     if (!this.isAllowedOrigin(req)) {
@@ -422,9 +453,23 @@ export class LocalApiServer {
       this.send(res, 415, { ok: false, error: 'unsupported-media' })
       return
     }
+    this.streamRangedFile(req, res, d.savePath, mime)
+  }
+
+  /**
+   * Stream one file to a media element, with HTTP Range support (206) so
+   * seeking works. Shared by /preview and /setup-guide. A malformed or
+   * unsatisfiable Range is 416 with Content-Range: bytes * /<size>.
+   */
+  private streamRangedFile(
+    req: IncomingMessage,
+    res: ServerResponse,
+    filePath: string,
+    mime: string
+  ): void {
     let size: number
     try {
-      size = statSync(d.savePath).size
+      size = statSync(filePath).size
     } catch {
       this.send(res, 404, { ok: false, error: 'not-found' })
       return
@@ -457,7 +502,7 @@ export class LocalApiServer {
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1
       })
-      createReadStream(d.savePath, { start, end }).pipe(res)
+      createReadStream(filePath, { start, end }).pipe(res)
       return
     }
     res.writeHead(200, {
@@ -465,7 +510,29 @@ export class LocalApiServer {
       'Accept-Ranges': 'bytes',
       'Content-Length': size
     })
-    createReadStream(d.savePath).pipe(res)
+    createReadStream(filePath).pipe(res)
+  }
+
+  /**
+   * v1.3.1: stream the bundled setup-guide video for the Settings
+   * section. Auth is the pairing token in the query string (?token=<redacted>
+   * compared in constant time, same as /preview). Only the one fixed
+   * bundled file is ever served — the path comes from the constructor,
+   * never from the request. 404 when the file is missing.
+   */
+  private async handleSetupGuide(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const query = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+    const token = query.get('token') ?? ''
+    if (!this.tokenMatches(token)) {
+      this.send(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
+    const filePath = this.getSetupGuidePath()
+    if (!filePath) {
+      this.send(res, 404, { ok: false, error: 'not-found' })
+      return
+    }
+    this.streamRangedFile(req, res, filePath, 'video/mp4')
   }
 
   /** Delete a temp per-link cookies file, if it still exists. */

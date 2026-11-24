@@ -12,7 +12,8 @@ import {
   ensureExecutable,
   diskFreeBytes,
   isLoadableExtensionDir,
-  getExtensionDir
+  getExtensionDir,
+  getSetupGuideVideoPath
 } from '../src/main/util/paths.ts'
 
 describe('paths', () => {
@@ -89,6 +90,27 @@ describe('paths', () => {
       mkdirSync(dist, { recursive: true })
       writeFileSync(join(dist, 'manifest.json'), JSON.stringify({}))
       assert.equal(getExtensionDir(root, join(root, 'res')), dist)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('getSetupGuideVideoPath: dev resources file wins, packaged resources path next, null otherwise', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dovira-guide-'))
+    try {
+      assert.equal(getSetupGuideVideoPath(root, join(root, 'res')), null)
+      const dev = join(root, 'resources', 'setup-guide.mp4')
+      mkdirSync(join(root, 'resources'), { recursive: true })
+      writeFileSync(dev, '')
+      assert.equal(getSetupGuideVideoPath(root, join(root, 'res')), dev)
+      mkdirSync(join(root, 'res'), { recursive: true })
+      writeFileSync(join(root, 'res', 'setup-guide.mp4'), '')
+      // Dev candidate still wins when both exist.
+      assert.equal(getSetupGuideVideoPath(root, join(root, 'res')), dev)
+      assert.equal(
+        getSetupGuideVideoPath(join(root, 'empty'), join(root, 'res')),
+        join(root, 'res', 'setup-guide.mp4')
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

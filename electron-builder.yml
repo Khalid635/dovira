@@ -6,6 +6,7 @@ files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!extension/**'
+  - '!resources/setup-guide.mp4'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
@@ -16,6 +17,11 @@ files:
 extraResources:
   - from: extension/dist
     to: extension
+# v1.3.1: the setup-guide video ships as a real file (not inside the asar),
+# so swapping it later is one file replace — no rebuild, no code change:
+# <install dir>\resources\setup-guide.mp4
+  - from: resources/setup-guide.mp4
+    to: setup-guide.mp4
 asarUnpack:
   - resources/**
 win:

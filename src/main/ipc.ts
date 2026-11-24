@@ -144,6 +144,15 @@ export function registerIpc(deps: IpcDeps): void {
     if (!st.running || !st.port || !st.token) return null
     return `http://127.0.0.1:${st.port}/preview?id=${encodeURIComponent(id)}&token=${encodeURIComponent(st.token)}`
   })
+  // v1.3.1: setup-guide video URL — the Local API /setup-guide endpoint
+  // (token in the query string, localhost only). Null when the video file
+  // is missing or the API is down.
+  ipcMain.handle('dovira:setupGuide:url', () => {
+    if (!deps.localApi.getSetupGuidePath()) return null
+    const st = deps.localApi.getStatus()
+    if (!st.running || !st.port || !st.token) return null
+    return `http://127.0.0.1:${st.port}/setup-guide?token=${encodeURIComponent(st.token)}`
+  })
   // Next-level: channel subscriptions (list / add / remove / check /
   // consume a pending video after its download was added).
   ipcMain.handle('dovira:subscriptions:list', () => deps.subscriptions.list())

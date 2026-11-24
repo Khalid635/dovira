@@ -6,6 +6,7 @@ import { IconCheck } from './icons'
 import { presetIdForTemplate, presetTemplate, type NamePresetId } from '../util/namePresets'
 import ExtensionSetup from './ExtensionSetup'
 import DiagnosticsSection from './DiagnosticsSection'
+import SetupGuideVideo from './SetupGuideVideo'
 
 const SUB_LANGS = ['en', 'bn', 'es', 'fr', 'de', 'hi', 'ja']
 
@@ -633,6 +634,9 @@ export default function SettingsPage(): React.JSX.Element {
               {t('settings.setupRerun')}
             </button>
             <p className="mt-1 text-[12px] text-[var(--muted)]">{t('settings.setupRerunHint')}</p>
+          </div>
+          <div className="settings-field">
+            <SetupGuideVideo />
           </div>
           <div className="settings-field">
             <ExtensionSetup />

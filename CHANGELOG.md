@@ -9,6 +9,7 @@ All notable changes to DOVIRA. Dates are the release dates on GitHub.
 - IDM-style direct download: the extension's floating Download button now starts the download at once — best quality up to the Settings cap, auto subtitles per Settings — with no Add dialog; the app window opens over the download in progress. A playlist URL falls back to the Add dialog so entries can be picked. The popup, right-click menu and download intercept keep the dialog flow.
 - AI Assistant FAQ: the assistant now answers setup/how-to questions from a built-in knowledge base — extension setup in Chrome (English + Bangla, full steps), audio/MP3 download, why fetching takes ~10s, DRM sites, and where downloads go (now shows your real download folder). No web page, no network call, no model.
 - Engine auto-update that actually works: yt-dlp now checks for a new release shortly after startup and updates itself in place (checksum-verified, backup + rollback — the same path as the manual Settings update). When a YouTube fetch fails with a stale-engine error, the app updates yt-dlp once and retries the fetch once before showing the error, so a future YouTube player change heals itself instead of breaking downloads until someone presses a button. The last attempt is logged and shown in Settings > Diagnostics.
+- Setup guide video in the app: Settings > Setup & diagnostics now plays the 76-second guide (Settings tour + 4-step extension setup) from a single bundled file — replacing the file updates the video with no code change.
 
 ### Fixed
 

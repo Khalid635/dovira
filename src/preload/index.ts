@@ -62,6 +62,9 @@ export interface DoviraAPI {
   // Next-level: preview URL for a completed video/audio row (null when
   // the row is not previewable or the Local API is down).
   previewUrl(id: string): Promise<string | null>
+  // v1.3.1: setup-guide video URL (null when the file is missing or the
+  // Local API is down).
+  setupGuideUrl(): Promise<string | null>
   // Next-level: channel subscriptions (local polling).
   listSubscriptions(): Promise<Subscription[]>
   addSubscription(url: string): Promise<{
@@ -195,6 +198,7 @@ const api: DoviraAPI = {
   togglePin: (id: string) => ipcRenderer.invoke('dovira:downloads:togglePin', id),
   stopRecording: (id: string) => ipcRenderer.invoke('dovira:downloads:stopRecording', id),
   previewUrl: (id: string) => ipcRenderer.invoke('dovira:preview:url', id),
+  setupGuideUrl: () => ipcRenderer.invoke('dovira:setupGuide:url'),
   listSubscriptions: () => ipcRenderer.invoke('dovira:subscriptions:list'),
   addSubscription: (url: string) => ipcRenderer.invoke('dovira:subscriptions:add', url),
   removeSubscription: (id: string) => ipcRenderer.invoke('dovira:subscriptions:remove', id),

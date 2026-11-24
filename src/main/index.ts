@@ -20,7 +20,8 @@ import {
   ensureExecutable,
   ENGINE_FILES,
   platformDirName,
-  currentPlatform
+  currentPlatform,
+  getSetupGuideVideoPath
 } from './util/paths.ts'
 import {
   getExpectedBinaryHashes,
@@ -466,7 +467,7 @@ app.whenReady().then(() => {
         win.focus()
       }
     }
-  })
+  }, getSetupGuideVideoPath(app.getAppPath(), process.resourcesPath))
   void localApi.start()
 
   applyRuntimeSettings(settings.get())

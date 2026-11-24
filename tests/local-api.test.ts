@@ -83,6 +83,7 @@ describe('localApi pure helpers', () => {
 
 describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
   let dir: string
+  let setupGuidePath: string
   let userData: string
   let db: DoviraDb
   let settings: SettingsManager
@@ -139,10 +140,13 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
         return directResult
       }
     }
+    // v1.3.1: bundled setup-guide video for the /setup-guide route tests.
+    setupGuidePath = join(dir, 'setup-guide.mp4')
+    writeFileSync(setupGuidePath, Buffer.alloc(1000, 7))
     api = new LocalApiServer(settings, fakeQueue as never, userData, {
       onExtensionDownload: (r) => hookCalls.push(r),
       onDirectDownloadStarted: (id) => directHookCalls.push(id)
-    })
+    }, setupGuidePath)
     await api.start()
     assert.ok(api.isRunning(), 'server should be listening')
     assert.ok((api.getPort() as number) >= 17530 && (api.getPort() as number) <= 17540)
@@ -342,6 +346,41 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     assert.equal(r.headers.get('content-range'), 'bytes */100')
     r = await req(`/preview?token=${TOKEN}&id=v1`, { headers: { Range: 'bytes=abc' } })
     assert.equal(r.status, 416)
+  })
+
+  it('/setup-guide: 401 bad token, 404 when the file is missing, 200 + 206 + 416', async () => {
+    let r = await req('/setup-guide?token=wrong')
+    assert.equal(r.status, 401)
+    r = await req('/setup-guide?token=' + TOKEN)
+    assert.equal(r.status, 200)
+    assert.equal(r.headers.get('content-type'), 'video/mp4')
+    assert.equal(r.headers.get('content-length'), '1000')
+    assert.equal(r.text.length, 1000)
+    r = await req('/setup-guide?token=' + TOKEN, { headers: { Range: 'bytes=100-199' } })
+    assert.equal(r.status, 206)
+    assert.equal(r.headers.get('content-range'), 'bytes 100-199/1000')
+    assert.equal(r.text.length, 100)
+    r = await req('/setup-guide?token=' + TOKEN, { headers: { Range: 'bytes=9999-' } })
+    assert.equal(r.status, 416)
+    assert.equal(r.headers.get('content-range'), 'bytes */1000')
+    // Missing file -> 404: a second server whose video path does not exist.
+    const api2 = new LocalApiServer(
+      settings,
+      { list: () => [], get: () => undefined, addFromExtension: async () => ({ ok: false }) } as never,
+      userData,
+      undefined,
+      join(dir, 'no-such.mp4')
+    )
+    await api2.start()
+    try {
+      const res2 = await fetch('http://127.0.0.1:' + (api2.getPort() as number) + '/setup-guide?token=' + TOKEN, {
+        headers: { Connection: 'close' }
+      })
+      assert.equal(res2.status, 404)
+      await res2.text()
+    } finally {
+      api2.stop()
+    }
   })
 
   it('regenerateToken: the old token stops working at once, the new one works', async () => {

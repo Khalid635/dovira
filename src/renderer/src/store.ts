@@ -60,6 +60,8 @@ interface Store {
   stopRecording: (id: string) => Promise<void>
   // Next-level: preview URL for a completed video/audio row.
   previewUrl: (id: string) => Promise<string | null>
+  // v1.3.1: setup-guide video URL.
+  setupGuideUrl: () => Promise<string | null>
   setFilter: (f: Filter) => void
   setView: (v: View) => void
   updateSettings: (patch: Partial<Settings>) => Promise<void>
@@ -417,6 +419,13 @@ export const useStore = create<Store>()((set, get) => ({
   previewUrl: async (id: string) => {
     try {
       return await window.dovira.previewUrl(id)
+    } catch {
+      return null
+    }
+  },
+  setupGuideUrl: async () => {
+    try {
+      return await window.dovira.setupGuideUrl()
     } catch {
       return null
     }
