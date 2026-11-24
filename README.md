@@ -3,6 +3,7 @@
 > **Download Smarter. Go Further.**
 
 [![Build](https://github.com/Khalid635/dovira/actions/workflows/build.yml/badge.svg)](https://github.com/Khalid635/dovira/actions/workflows/build.yml)
+[![codecov](https://codecov.io/gh/Khalid635/dovira/branch/main/graph/badge.svg)](https://codecov.io/gh/Khalid635/dovira)
 [![Latest release](https://img.shields.io/github/v/release/Khalid635/dovira)](https://github.com/Khalid635/dovira/releases)
 [![License: MIT](https://img.shields.io/github/license/Khalid635/dovira)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/Khalid635/dovira/releases)
