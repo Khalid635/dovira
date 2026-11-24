@@ -155,9 +155,12 @@ interface SendResult {
  * (Netscape format, per link only), plus the browser's User-Agent and
  * the page URL as Referer. Cookies are never logged anywhere.
  *
- * `direct` (floating button only) starts the download at once with the
- * auto quality/subtitle pick — no Add dialog. Everything else (popup,
- * right-click, intercept) uses the dialog flow.
+ * `direct` starts the download at once with the auto quality/
+ * subtitle pick — no Add dialog. No extension sender uses it now:
+ * the floating button opens the Add dialog since 2026-11-24 (so the
+ * user picks Video quality or Audio before the download starts);
+ * the flag stays for API senders, and the app's direct path is kept
+ * for the AI Assistant's download command.
  */
 async function sendToApp(url: string, referer?: string, direct = false): Promise<SendResult> {
   const settings = await loadSettings()
@@ -272,8 +275,10 @@ chrome.contextMenus.onClicked.addListener((info) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const msg = message as { type?: string; url?: string; referer?: string; direct?: boolean }
   if (msg.type === 'dovira-download' && typeof msg.url === 'string' && isSupportedUrl(msg.url)) {
-    // Only the floating button sends direct: true — the popup, the
-    // context menu and the intercept keep the dialog flow.
+    // Every sender uses the dialog flow now — the floating button
+    // used to send direct: true (removed 2026-11-24: no quality /
+    // audio choice that way). The `direct` flag is still passed
+    // through for any sender that sets it.
     void sendToApp(msg.url, msg.referer, msg.direct === true).then((r) => sendResponse(r))
     return true // async response
   }

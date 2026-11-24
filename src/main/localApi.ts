@@ -546,10 +546,13 @@ export class LocalApiServer {
   }
 
   /**
-   * Direct download (POST /downloads with `direct: true`, from the
-   * extension's floating button): run queue.addFromExtension, which
-   * resolves the link and starts the download with the auto
-   * quality/subtitle pick — no Add dialog. On success the hook shows
+   * Direct download (POST /downloads with `direct: true`): run
+   * queue.addFromExtension, which resolves the link and starts the
+   * download with the auto quality/subtitle pick — no Add dialog.
+   * The extension's floating button no longer sends this (2026-11-24:
+   * it opens the Add dialog so the user picks quality/audio); the
+   * path is kept for API senders, and addFromExtension itself is used
+   * by the AI Assistant's download command. On success the hook shows
    * the app window over the download in progress; the queue owns the
    * temp cookies file from here. A playlist falls back to the dialog
    * flow (entries need picking). Any other failure deletes the temp
@@ -698,13 +701,16 @@ export class LocalApiServer {
         headers,
         mirrors: mirrors.length > 0 ? mirrors : []
       }
-      // Direct download (floating button): start at once with the auto
-      // quality/subtitle pick — no Add dialog. The POST waits for format
-      // resolution (~10 s typical, 60 s worst case), so the extension
-      // gets the real outcome (started / failed) instead of a blind ack.
-      // A playlist falls back to the dialog flow — picking entries needs
-      // the user. kind/quality only apply here; the dialog lets the user
-      // pick, so they are ignored on the dialog path, as before.
+      // Direct download: start at once with the auto quality/
+      // subtitle pick — no Add dialog. The POST waits for format
+      // resolution (~10 s typical, 60 s worst case), so the caller
+      // gets the real outcome (started / failed) instead of a blind
+      // ack. A playlist falls back to the dialog flow — picking
+      // entries needs the user. kind/quality only apply here; the
+      // dialog lets the user pick, so they are ignored on the dialog
+      // path, as before. (The extension's floating button no longer
+      // sends this — it opens the Add dialog since 2026-11-24; the
+      // path stays for API senders and the AI Assistant.)
       if (body.direct === true) {
         await this.handleDirectDownload(req, res, {
           kind: body.kind === 'video' || body.kind === 'audio' ? body.kind : undefined,

@@ -94,23 +94,24 @@ Request body (JSON, max 1 MB):
 | `url`       | string   | Required. `http(s)://…` or `magnet:` — anything else is `unsupported-url`.                                                                                  |
 | `kind`      | string   | `video` or `audio`; anything else (or omitted) means auto — video when the link has video, audio otherwise. Direct mode only — the dialog lets the user pick. |
 | `quality`   | string   | e.g. `"1080"`, `"720"`, `"320"`. Max 8 characters; omitted = the app's Settings default. Direct mode only — the dialog lets the user pick.              |
-| `direct`    | boolean  | `true` = start the download at once (floating button), no Add dialog. Omitted/false = open the Add dialog.                                                     |
+| `direct`    | boolean  | `true` = start the download at once, no Add dialog. Omitted/false = open the Add dialog. No extension sender uses `true` now (the floating button opens the dialog since 2026-11-24); kept for API senders. |
 | `cookies`   | string   | Netscape `cookies.txt` text for this link (max 64 KB). Used for login-walled pages; only cookies matching the URL's host/path are sent.                     |
 | `userAgent` | string   | Sent with the download request. Max 512 characters.                                                                                                         |
 | `referer`   | string   | Must start with `http://` or `https://`. Max 2048 characters.                                                                                               |
 | `mirrors`   | string[] | Optional mirror URLs for a plain-file download (max 5, `http(s)` only — anything else is silently dropped). aria2 tries them all; the main URL stays first. |
 
-Direct download — the floating button's one-click flow: send
-`"direct": true` and the app starts the download at once with the
-auto quality/subtitle pick (Settings defaults, `kind`/`quality`
-override them) — no Add dialog, and the app window opens over the
-download in progress. The request waits for format resolution
-(~10 s typical, 60 s worst case) so the caller gets the real
-outcome: `{ "ok": true, "direct": true, "id": "…" }` on success,
-`{ "ok": false, "error": "…" }` when it could not start. A playlist
-URL falls back to the Add dialog (`{ "ok": true, "dialog": true }`)
-so entries can be picked. The popup, right-click menu and download
-intercept keep the dialog flow (no `direct` flag).
+Direct download — the one-click flow: send `"direct": true` and the
+app starts the download at once with the auto quality/subtitle pick
+(Settings defaults, `kind`/`quality` override them) — no Add dialog,
+and the app window opens over the download in progress. The request
+waits for format resolution (~10 s typical, 60 s worst case) so the
+caller gets the real outcome: `{ "ok": true, "direct": true, "id": "…" }`
+on success, `{ "ok": false, "error": "…" }` when it could not start.
+A playlist URL falls back to the Add dialog (`{ "ok": true, "dialog": true }`)
+so entries can be picked. The extension's floating button no longer
+uses this — it opens the Add dialog since 2026-11-24 so the user
+picks Video quality or Audio (MP3) first; the popup, right-click menu
+and download intercept keep the dialog flow (no `direct` flag) too.
 
 Notes:
 

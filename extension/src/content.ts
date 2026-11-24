@@ -12,10 +12,12 @@
  * URL is sent instead — yt-dlp resolves the video from it. A real
  * http(s) media URL (direct <video src> or <source>) is sent as-is.
  *
- * Direct download: clicking starts the download at once (best
- * quality up to the Settings cap, auto subtitles per Settings) — no
- * Add dialog; the app window opens over the download in progress. A
- * playlist URL falls back to the Add dialog so entries can be picked.
+ * Clicking opens the app's Add dialog with this video's formats
+ * loading in the background, so the user picks Video quality or
+ * Audio (MP3) before the download starts — the button no longer
+ * starts the download at once with defaults (2026-11-24: no
+ * quality/audio choice that way). A playlist URL opens the dialog
+ * too, so entries can be picked.
  * Tiny videos/ads are ignored (under ~200x120, or under ~3s when the
  * duration is known; live streams are never skipped).
  *
@@ -148,11 +150,13 @@ function onButtonClick(): void {
   const url = pickVideoDownloadUrl(srcs, location.href)
   setButtonState('Sending…', true)
   void chrome.runtime
-    .sendMessage({ type: 'dovira-download', url, referer: location.href, direct: true })
+    .sendMessage({ type: 'dovira-download', url, referer: location.href, direct: false })
     .then((response) => {
       const r = response as { ok?: boolean; error?: string; direct?: boolean } | undefined
       if (r?.ok) {
-        // Direct: the download is already running when this resolves.
+        // Dialog flow: the app opened the Add dialog — the download
+        // starts when the user confirms there (r.direct is never true
+        // for the floating button now).
         setButtonState(r?.direct ? 'Downloading' : 'Sent to DOVIRA', true)
       } else if (r?.error === 'unauthorized') {
         needsPair = true
