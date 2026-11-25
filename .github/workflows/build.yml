@@ -1,4 +1,4 @@
-# DOVIRA CI + release (A\[$VER\] B\"C\" $TAG).
+# DOVIRA CI + release (Phase 6).
 #
 # - Every push / PR to main: lint + typecheck + build (ci job).
 # - Every tag push `v*`: build the installers for Windows, macOS and
