@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/github/license/Khalid635/dovira)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/Khalid635/dovira/releases)
 [![Downloads](https://img.shields.io/github/downloads/Khalid635/dovira/total)](https://github.com/Khalid635/dovira/releases)
+🌐 **Website: https://getdovira.vercel.app**
 
 DOVIRA is a free, open-source AI download manager for Windows, macOS and Linux. Download videos and audio from the web with quality choice, smart resume, and rule-based smart features. **No ads, no tracking, no pro-lock** — and no account needed.
 
