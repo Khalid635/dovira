@@ -1,4 +1,4 @@
-# DOVIRA CI + release (Phase 6).
+# DOVIRA CI + release (A\[$VER\] B\"C\" $TAG).
 #
 # - Every push / PR to main: lint + typecheck + build (ci job).
 # - Every tag push `v*`: build the installers for Windows, macOS and
@@ -129,15 +129,32 @@ jobs:
           ARIA2_WIN="bundled"
           ARIA2_MAC="$(grep -o 'aria2=[a-z]*' dist/dovira-mac/aria2-status-mac.txt | cut -d= -f2)"
           ARIA2_LINUX="$(grep -o 'aria2=[a-z]*' dist/dovira-linux/aria2-status-linux.txt | cut -d= -f2)"
-          cat > release-notes.md <<EOF
-          ## DOVIRA ${{ github.ref_name }}
-          Phase 6: macOS + Linux installers and app auto-update.
-          - Windows: NSIS installer (aria2 bundled).
-          - macOS: unsigned .dmg (aria2 $ARIA2_MAC — if "failure", plain files download through yt-dlp and torrents need aria2; see README). Gatekeeper: right-click the app and choose Open on first launch.
-          - Linux: AppImage + .deb (aria2 $ARIA2_LINUX — same fallback note as macOS).
-          - Auto-update: the app checks GitHub Releases and verifies every downloaded update's SHA-256 against checksums.txt before installing.
-          - SHA-256 checksums for every installer are in checksums.txt below.
-          EOF
+                    TAG="${{ github.ref_name }}"
+          VER="${TAG#v}"
+          # Previous release tag (latest release other than this one): the
+          # CHANGELOG sections between the tagged version and that release
+          # are what this release ships (e.g. v1.4.3 ships 1.4.0-1.4.3,
+          # previous release v1.3.1). `gh` is available here (GH_TOKEN is
+          # set on the job) and this tag's release is created by the next
+          # step, so the first other tag is the previous release.
+          PREV_TAG="$(gh release list --limit 20 --json tagName --jq '.[].tagName' | grep -vx "$TAG" | head -n 1 || true)"
+          PREV_VER="${PREV_TAG#v}"
+          grep -q "^## \[$VER\]" CHANGELOG.md || { echo "CHANGELOG.md has no section for $VER" >&2; exit 1; }
+          {
+            echo "## DOVIRA $TAG"
+            echo
+            awk -v start="## [$VER]" -v stop="## [$PREV_VER]" '
+              index($0, start) == 1 { on = 1 }
+              on && stop != "## []" && index($0, stop) == 1 { exit }
+              on { print }
+            ' CHANGELOG.md
+            echo
+            echo "- Windows: NSIS installer (aria2 bundled)."
+            echo "- macOS: unsigned .dmg (aria2 $ARIA2_MAC — if \"failure\", plain files download through yt-dlp and torrents need aria2; see README). Gatekeeper: right-click the app and choose Open on first launch."
+            echo "- Linux: AppImage + .deb (aria2 $ARIA2_LINUX — same fallback note as macOS)."
+            echo "- Auto-update: the app checks GitHub Releases and verifies every downloaded update's SHA-256 against checksums.txt before installing."
+            echo "- SHA-256 checksums for every installer are in checksums.txt below."
+          } > release-notes.md
           cat release-notes.md
       - name: Create or update the pre-release
         shell: bash
