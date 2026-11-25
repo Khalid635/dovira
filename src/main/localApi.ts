@@ -18,6 +18,7 @@ import type { ExtensionApiStatus, ExtensionDownloadRequest, LocalApiHooks } from
 import { discardPendingExtensionRequest, setExtensionRequest } from './extensionRequests.ts'
 import { logMain } from './logger.ts'
 import { isValidExtensionOptionsUrl } from './util/extensionOptions.ts'
+import { isValidNetscapeCookiesText } from './util/fetchInfoCache.ts'
 
 /**
  * Phase 5 — Local API for the browser extension (plan §9).
@@ -641,7 +642,7 @@ export class LocalApiServer {
       body.referer.length <= 2048
         ? body.referer
         : null
-    const cookiesText =
+    let cookiesText =
       typeof body.cookies === 'string' &&
       body.cookies.length > 0 &&
       body.cookies.length <= MAX_COOKIES_BYTES
@@ -671,10 +672,21 @@ export class LocalApiServer {
     let cookiesFile: string | null = null
     try {
       if (cookiesText) {
-        const dir = join(this.userData, 'ext-cookies')
-        mkdirSync(dir, { recursive: true })
-        cookiesFile = join(dir, `${randomBytes(8).toString('hex')}.txt`)
-        writeFileSync(cookiesFile, cookiesText, 'utf-8')
+        // Fix 2(c): never write a corrupt cookies file — an invalid one
+        // is dropped (cookiesFile stays null) and the download proceeds
+        // without cookies instead of failing later on the bad file.
+        if (!isValidNetscapeCookiesText(cookiesText)) {
+          logMain(
+            'warn',
+            'Extension sent cookies that are not valid Netscape format — ignoring cookies for this download'
+          )
+          cookiesText = null
+        } else {
+          const dir = join(this.userData, 'ext-cookies')
+          mkdirSync(dir, { recursive: true })
+          cookiesFile = join(dir, `${randomBytes(8).toString('hex')}.txt`)
+          writeFileSync(cookiesFile, cookiesText, 'utf-8')
+        }
       }
       const headers: string[] = []
       if (userAgent) headers.push(`User-Agent: ${userAgent}`)

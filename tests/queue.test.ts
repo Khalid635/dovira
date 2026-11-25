@@ -229,7 +229,16 @@ describe('QueueManager', () => {
       filename: (over['filename'] as string) ?? 'seed.zip',
       savePath: (over['savePath'] as string) ?? join(dir, 'seed.zip'),
       kind: (over['kind'] as 'file' | 'video' | 'audio') ?? 'file',
-      status: (over['status'] as 'queued' | 'downloading' | 'paused' | 'failed' | 'cancelled' | 'completed' | 'fetching_info' | 'processing') ?? 'paused',
+      status:
+        (over['status'] as
+          | 'queued'
+          | 'downloading'
+          | 'paused'
+          | 'failed'
+          | 'cancelled'
+          | 'completed'
+          | 'fetching_info'
+          | 'processing') ?? 'paused',
       totalBytes: (over['totalBytes'] as number) ?? 1000,
       doneBytes: (over['doneBytes'] as number) ?? 0,
       createdAt: (over['createdAt'] as number) ?? Date.now(),
@@ -299,6 +308,19 @@ describe('QueueManager', () => {
     }
   })
 
+  it('resumeQueued: a row left queued by a previous session starts downloading', async () => {
+    const id = seedRow({ status: 'queued' })
+    const q2 = makeQueue(aria2, ytdlp)
+    try {
+      // The constructor alone must NOT start it — only resumeQueued does.
+      assert.equal(q2.get(id)?.status, 'queued')
+      await q2.resumeQueued()
+      assert.equal(await waitFor(() => q2.get(id)?.status === 'downloading'), true)
+    } finally {
+      q2.shutdown()
+    }
+  })
+
   it('fetchInfo: magnet, invalid URL, .torrent URL, plain file via HEAD, cache + force', async () => {
     const mag = await q.fetchInfo('magnet:?xt=urn:btih:abc&dn=My+Film')
     assert.equal(mag.ok, true)
@@ -356,7 +378,12 @@ describe('QueueManager', () => {
   })
 
   it('add: a completed row with the same URL is a duplicate', async () => {
-    seedRow({ id: 'done-1', url: 'https://x.example/dup.zip', status: 'completed', completedAt: 100 })
+    seedRow({
+      id: 'done-1',
+      url: 'https://x.example/dup.zip',
+      status: 'completed',
+      completedAt: 100
+    })
     const q2 = makeQueue(aria2, ytdlp)
     try {
       const res = await q2.add('https://x.example/dup.zip')
@@ -511,9 +538,26 @@ describe('QueueManager', () => {
 
   it('clearHistory + historyMissing + getByUrl', async () => {
     const keep = seedRow({ id: 'keep', url: 'https://x.example/keep.zip', status: 'queued' })
-    const done = seedRow({ id: 'done', url: 'https://x.example/done.zip', status: 'completed', completedAt: 5, savePath: join(dir, 'exists.zip') })
-    const missing = seedRow({ id: 'gone', url: 'https://x.example/gone.zip', status: 'completed', completedAt: 6, savePath: join(dir, 'gone.zip') })
-    const failed = seedRow({ id: 'fail', url: 'https://x.example/fail.zip', status: 'failed', savePath: join(dir, 'fail.zip') })
+    const done = seedRow({
+      id: 'done',
+      url: 'https://x.example/done.zip',
+      status: 'completed',
+      completedAt: 5,
+      savePath: join(dir, 'exists.zip')
+    })
+    const missing = seedRow({
+      id: 'gone',
+      url: 'https://x.example/gone.zip',
+      status: 'completed',
+      completedAt: 6,
+      savePath: join(dir, 'gone.zip')
+    })
+    const failed = seedRow({
+      id: 'fail',
+      url: 'https://x.example/fail.zip',
+      status: 'failed',
+      savePath: join(dir, 'fail.zip')
+    })
     writeFileSync(join(dir, 'exists.zip'), 'x')
     const q2 = makeQueue(aria2, ytdlp)
     try {
@@ -535,14 +579,29 @@ describe('QueueManager', () => {
     writeFileSync(join(dir, 'ondisk.zip'), 'x'.repeat(10))
     const q2 = makeQueue(aria2, ytdlp)
     try {
-      const byUrl = q2.checkDuplicate({ url: 'https://x.example/dup.zip', filename: 'dup.zip', saveDir: dir, totalBytes: null })
+      const byUrl = q2.checkDuplicate({
+        url: 'https://x.example/dup.zip',
+        filename: 'dup.zip',
+        saveDir: dir,
+        totalBytes: null
+      })
       assert.equal(byUrl.duplicate, true)
       assert.equal(byUrl.kind, 'url')
       assert.equal(byUrl.existingId, 'done')
-      const byFile = q2.checkDuplicate({ url: 'https://x.example/other.zip', filename: 'ondisk.zip', saveDir: dir, totalBytes: 10 })
+      const byFile = q2.checkDuplicate({
+        url: 'https://x.example/other.zip',
+        filename: 'ondisk.zip',
+        saveDir: dir,
+        totalBytes: 10
+      })
       assert.equal(byFile.duplicate, true)
       assert.equal(byFile.kind, 'file')
-      const none = q2.checkDuplicate({ url: 'https://x.example/new.zip', filename: 'new.zip', saveDir: dir, totalBytes: null })
+      const none = q2.checkDuplicate({
+        url: 'https://x.example/new.zip',
+        filename: 'new.zip',
+        saveDir: dir,
+        totalBytes: null
+      })
       assert.equal(none.duplicate, false)
       const cat = q2.smartCategorize({ filename: 'Film.mp4', kind: 'video' })
       assert.equal(cat.category, 'Video')
@@ -602,7 +661,13 @@ describe('QueueManager', () => {
       qNoYt.shutdown()
     }
     // Invalid options -> invalid-url.
-    const bad = await q.addWithOptions({ url: 'https://youtu.be/abc', kind: 'video', formatString: '', savePath: '', filename: '' } as never)
+    const bad = await q.addWithOptions({
+      url: 'https://youtu.be/abc',
+      kind: 'video',
+      formatString: '',
+      savePath: '',
+      filename: ''
+    } as never)
     assert.equal(bad.ok, false)
     assert.equal(bad.error, 'invalid-url')
     // Success flow with the fake yt-dlp: the job exits 0 only when the
@@ -723,7 +788,13 @@ describe('QueueManager', () => {
     mkdirSync(join(dir, 'Video'), { recursive: true })
     writeFileSync(actualPath, 'x'.repeat(777))
     // One format verifiably finished, then the rename failed.
-    ytdlp.progressLast({ doneBytes: 100, totalBytes: 100, speedBps: 10, etaSeconds: 0, status: 'finished' })
+    ytdlp.progressLast({
+      doneBytes: 100,
+      totalBytes: 100,
+      speedBps: 10,
+      etaSeconds: 0,
+      status: 'finished'
+    })
     ytdlp.resolveLast({ code: 1, stderr: 'ERROR: Unable to rename file' })
     assert.equal(await waitFor(() => q.get(id)?.status === 'completed', 3000), true)
     assert.equal(ytdlp.recoverCalls.length, 1)

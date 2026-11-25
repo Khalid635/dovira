@@ -1402,6 +1402,16 @@ export class QueueManager extends EventEmitter {
     return out
   }
 
+  /**
+   * Fix 2(a): resume rows left 'queued' by a previous session. Called
+   * once at startup (index.ts) — NOT from the constructor, so tests
+   * that construct a second QueueManager over seeded rows stay
+   * deterministic (a constructor pump would race them).
+   */
+  async resumeQueued(): Promise<void> {
+    await this.pump()
+  }
+
   private async pump(): Promise<void> {
     if (this.pumping || this.shutDown) return
     this.pumping = true

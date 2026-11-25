@@ -92,14 +92,28 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
   let directHookCalls: string[]
   let directCalls: { url: string; opts: unknown }[]
   let directResult: { ok: boolean; id?: string; error?: string }
-  let queueRows: Record<string, { id: string; filename: string; status: string; kind: string; savePath: string; doneBytes: number; totalBytes: number }>
+  let queueRows: Record<
+    string,
+    {
+      id: string
+      filename: string
+      status: string
+      kind: string
+      savePath: string
+      doneBytes: number
+      totalBytes: number
+    }
+  >
   const TOKEN = 'test-token-0123456789abcdef'
 
   function url(path: string): string {
     return `http://127.0.0.1:${api.getPort() as number}${path}`
   }
 
-  async function req(path: string, init: RequestInit = {}): Promise<{ status: number; body: Record<string, unknown>; text: string; headers: Headers }> {
+  async function req(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<{ status: number; body: Record<string, unknown>; text: string; headers: Headers }> {
     // Connection: close — undici pools keep-alive sockets per origin,
     // and a pooled socket from the previous test's (now stopped) server
     // would come back as ECONNRESET on the rebound port.
@@ -143,10 +157,16 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     // v1.3.1: bundled setup-guide video for the /setup-guide route tests.
     setupGuidePath = join(dir, 'setup-guide.mp4')
     writeFileSync(setupGuidePath, Buffer.alloc(1000, 7))
-    api = new LocalApiServer(settings, fakeQueue as never, userData, {
-      onExtensionDownload: (r) => hookCalls.push(r),
-      onDirectDownloadStarted: (id) => directHookCalls.push(id)
-    }, setupGuidePath)
+    api = new LocalApiServer(
+      settings,
+      fakeQueue as never,
+      userData,
+      {
+        onExtensionDownload: (r) => hookCalls.push(r),
+        onDirectDownloadStarted: (id) => directHookCalls.push(id)
+      },
+      setupGuidePath
+    )
     await api.start()
     assert.ok(api.isRunning(), 'server should be listening')
     assert.ok((api.getPort() as number) >= 17530 && (api.getPort() as number) <= 17540)
@@ -168,7 +188,9 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     let r = await req('/status')
     assert.equal(r.status, 401)
     assert.equal(r.body['error'], 'unauthorized')
-    r = await req('/status', { headers: { Authorization: 'Bearer wrong', Origin: 'https://evil.example' } })
+    r = await req('/status', {
+      headers: { Authorization: 'Bearer wrong', Origin: 'https://evil.example' }
+    })
     assert.equal(r.status, 403)
     assert.equal(r.body['error'], 'forbidden-origin')
     r = await req('/status', { headers: authHeaders() })
@@ -195,22 +217,44 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     assert.equal(r.status, 200)
     assert.equal(r.body['floatingButton'], false)
     assert.equal(r.body['interceptDownloads'], true)
-    queueRows['d1'] = { id: 'd1', filename: 'f.zip', status: 'downloading', kind: 'file', savePath: join(dir, 'f.zip'), doneBytes: 10, totalBytes: 100 }
+    queueRows['d1'] = {
+      id: 'd1',
+      filename: 'f.zip',
+      status: 'downloading',
+      kind: 'file',
+      savePath: join(dir, 'f.zip'),
+      doneBytes: 10,
+      totalBytes: 100
+    }
     const d = await req('/downloads', { headers: authHeaders() })
     assert.equal(d.status, 200)
-    assert.deepEqual(d.body['downloads'], [{ id: 'd1', filename: 'f.zip', status: 'downloading', doneBytes: 10, totalBytes: 100 }])
+    assert.deepEqual(d.body['downloads'], [
+      { id: 'd1', filename: 'f.zip', status: 'downloading', doneBytes: 10, totalBytes: 100 }
+    ])
     const unknown = await req('/nope', { headers: authHeaders() })
     assert.equal(unknown.status, 404)
   })
 
   it('POST /downloads: 400s for bad JSON / missing URL / unsupported scheme; valid -> dialog + hook', async () => {
-    let r = await req('/downloads', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: '{bad json' })
+    let r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: '{bad json'
+    })
     assert.equal(r.status, 400)
     assert.equal(r.body['error'], 'invalid-json')
-    r = await req('/downloads', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({}) })
+    r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({})
+    })
     assert.equal(r.status, 400)
     assert.equal(r.body['error'], 'invalid-url')
-    r = await req('/downloads', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ url: 'ftp://x.example/f.zip' }) })
+    r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'ftp://x.example/f.zip' })
+    })
     assert.equal(r.status, 400)
     assert.equal(r.body['error'], 'unsupported-url')
     r = await req('/downloads', {
@@ -218,7 +262,16 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         url: 'https://x.example/f.zip',
-        mirrors: ['https://m1.example/f.zip', 'ftp://bad.example/f.zip', 42, 'https://m2.example/f.zip', 'https://m3.example/f.zip', 'https://m4.example/f.zip', 'https://m5.example/f.zip', 'https://m6.example/f.zip']
+        mirrors: [
+          'https://m1.example/f.zip',
+          'ftp://bad.example/f.zip',
+          42,
+          'https://m2.example/f.zip',
+          'https://m3.example/f.zip',
+          'https://m4.example/f.zip',
+          'https://m5.example/f.zip',
+          'https://m6.example/f.zip'
+        ]
       })
     })
     assert.equal(r.status, 200)
@@ -248,6 +301,21 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     assert.ok(hookCalls[0].cookiesFile !== null)
     assert.ok(existsSync(hookCalls[0].cookiesFile as string))
     assert.ok((hookCalls[0].headers ?? []).includes('Cookie: session=abc123'))
+  })
+
+  it('POST /downloads with corrupt cookies: no file written, download proceeds without cookies', async () => {
+    const r = await req('/downloads', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: 'https://www.example.com/f.zip', cookies: 'muse.' })
+    })
+    assert.equal(r.status, 200)
+    assert.equal(hookCalls.length, 1)
+    // Fix 2(c): invalid cookies are dropped at write time — no temp
+    // file, no Cookie header, but the dialog flow still happens.
+    assert.equal(hookCalls[0].cookiesFile, null)
+    assert.ok(!(hookCalls[0].headers ?? []).some((h) => h.startsWith('Cookie:')))
+    assert.equal(existsSync(join(userData, 'ext-cookies')), false)
   })
 
   it('POST /downloads direct:true starts the download at once — no dialog, direct hook fires', async () => {
@@ -312,10 +380,34 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
   it('/preview: 401 bad token, 404 unknown/not-completed/non-media, 415 unsupported type, 200 + 206 + 416', async () => {
     const file = join(dir, 'Film.mp4')
     writeFileSync(file, Buffer.alloc(100, 7))
-    queueRows['v1'] = { id: 'v1', filename: 'Film.mp4', status: 'completed', kind: 'video', savePath: file, doneBytes: 100, totalBytes: 100 }
-    queueRows['t1'] = { id: 't1', filename: 'Doc.txt', status: 'completed', kind: 'file', savePath: join(dir, 'Doc.txt'), doneBytes: 1, totalBytes: 1 }
+    queueRows['v1'] = {
+      id: 'v1',
+      filename: 'Film.mp4',
+      status: 'completed',
+      kind: 'video',
+      savePath: file,
+      doneBytes: 100,
+      totalBytes: 100
+    }
+    queueRows['t1'] = {
+      id: 't1',
+      filename: 'Doc.txt',
+      status: 'completed',
+      kind: 'file',
+      savePath: join(dir, 'Doc.txt'),
+      doneBytes: 1,
+      totalBytes: 1
+    }
     writeFileSync(join(dir, 'Doc.txt'), 'x')
-    queueRows['q1'] = { id: 'q1', filename: 'Queued.mp4', status: 'queued', kind: 'video', savePath: file, doneBytes: 0, totalBytes: 100 }
+    queueRows['q1'] = {
+      id: 'q1',
+      filename: 'Queued.mp4',
+      status: 'queued',
+      kind: 'video',
+      savePath: file,
+      doneBytes: 0,
+      totalBytes: 100
+    }
 
     let r = await req('/preview?token=wrong&id=v1')
     assert.equal(r.status, 401)
@@ -326,7 +418,15 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     r = await req(`/preview?token=${TOKEN}&id=t1`)
     assert.equal(r.status, 404) // kind 'file' is not a media row
     // A completed VIDEO row whose file is a .txt path is 415.
-    queueRows['v2'] = { id: 'v2', filename: 'Clip.txt', status: 'completed', kind: 'video', savePath: join(dir, 'Doc.txt'), doneBytes: 1, totalBytes: 1 }
+    queueRows['v2'] = {
+      id: 'v2',
+      filename: 'Clip.txt',
+      status: 'completed',
+      kind: 'video',
+      savePath: join(dir, 'Doc.txt'),
+      doneBytes: 1,
+      totalBytes: 1
+    }
     r = await req(`/preview?token=${TOKEN}&id=v2`)
     assert.equal(r.status, 415)
     // Full file.
@@ -366,16 +466,23 @@ describe('LocalApiServer (real HTTP on 127.0.0.1)', () => {
     // Missing file -> 404: a second server whose video path does not exist.
     const api2 = new LocalApiServer(
       settings,
-      { list: () => [], get: () => undefined, addFromExtension: async () => ({ ok: false }) } as never,
+      {
+        list: () => [],
+        get: () => undefined,
+        addFromExtension: async () => ({ ok: false })
+      } as never,
       userData,
       undefined,
       join(dir, 'no-such.mp4')
     )
     await api2.start()
     try {
-      const res2 = await fetch('http://127.0.0.1:' + (api2.getPort() as number) + '/setup-guide?token=' + TOKEN, {
-        headers: { Connection: 'close' }
-      })
+      const res2 = await fetch(
+        'http://127.0.0.1:' + (api2.getPort() as number) + '/setup-guide?token=' + TOKEN,
+        {
+          headers: { Connection: 'close' }
+        }
+      )
       assert.equal(res2.status, 404)
       await res2.text()
     } finally {

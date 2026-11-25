@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import { ENGINE_FILES } from '../src/main/util/paths.ts'
@@ -55,35 +55,45 @@ mock.method(cp, 'spawn', (file: string, args: string[], opts?: unknown) => {
 function probeOutput(kind: 'video' | 'audio' | 'both'): string {
   const videoLine = '    Stream #0:0(und): Video: h264 (High), yuv420p, 1280x720, 30 fps'
   const audioLine = '    Stream #0:1(und): Audio: aac (LC), 48000 Hz, stereo'
-  const streams = kind === 'video' ? videoLine : kind === 'audio' ? audioLine : `${videoLine}\n${audioLine}`
+  const streams =
+    kind === 'video' ? videoLine : kind === 'audio' ? audioLine : `${videoLine}\n${audioLine}`
   return `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'x.mp4':\n  Duration: 00:01:00.00, start: 0.000000, bitrate: 1000 kb/s\n${streams}\n`
 }
 
 let execFileMode: 'ok' | 'merge-fail' | 'no-streams' = 'ok'
 let execFileCalls: { tool: string; args: string[] }[] = []
-mock.method(cp, 'execFile', (tool: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
-  execFileCalls.push({ tool, args: [...args] })
-  if (execFileMode === 'no-streams') {
-    cb(null, '', 'Duration: N/A')
+mock.method(
+  cp,
+  'execFile',
+  (
+    tool: string,
+    args: string[],
+    _opts: unknown,
+    cb: (err: Error | null, stdout: string, stderr: string) => void
+  ) => {
+    execFileCalls.push({ tool, args: [...args] })
+    if (execFileMode === 'no-streams') {
+      cb(null, '', 'Duration: N/A')
+      return undefined
+    }
+    // ffmpeg probe: -hide_banner -i <file>
+    if (args.includes('-hide_banner') && args.includes('-i')) {
+      const target = args[args.length - 1]
+      if (target.endsWith('.m4a')) cb(null, '', probeOutput('audio'))
+      else if (/\.f\d+\.mp4$/.test(target)) cb(null, '', probeOutput('video'))
+      else cb(null, '', probeOutput('both'))
+      return undefined
+    }
+    if (execFileMode === 'merge-fail') {
+      cb(new Error('ffmpeg failed'), '', '')
+      return undefined
+    }
+    // ffmpeg merge/transcode: last arg is the output file.
+    writeFileSync(args[args.length - 1], 'merged-bytes')
+    cb(null, '', '')
     return undefined
   }
-  // ffmpeg probe: -hide_banner -i <file>
-  if (args.includes('-hide_banner') && args.includes('-i')) {
-    const target = args[args.length - 1]
-    if (target.endsWith('.m4a')) cb(null, '', probeOutput('audio'))
-    else if (/\.f\d+\.mp4$/.test(target)) cb(null, '', probeOutput('video'))
-    else cb(null, '', probeOutput('both'))
-    return undefined
-  }
-  if (execFileMode === 'merge-fail') {
-    cb(new Error('ffmpeg failed'), '', '')
-    return undefined
-  }
-  // ffmpeg merge/transcode: last arg is the output file.
-  writeFileSync(args[args.length - 1], 'merged-bytes')
-  cb(null, '', '')
-  return undefined
-})
+)
 
 after(() => mock.restoreAll())
 
@@ -101,7 +111,15 @@ function baseOpts(over: Record<string, unknown> = {}): Record<string, unknown> {
   }
 }
 
-function makeManager(network?: () => { cookieBrowser: string; cookiesFile: string | null; proxyUrl: string; downloadArchive: string | null }): Promise<import('../src/main/engines/ytdlp.ts').YtDlpManager> {
+function makeManager(
+  network?: () => {
+    cookieBrowser: string
+    cookiesFile: string | null
+    proxyUrl: string
+    downloadArchive: string | null
+  },
+  extCookiesDir?: string | null
+): Promise<import('../src/main/engines/ytdlp.ts').YtDlpManager> {
   return import('../src/main/engines/ytdlp.ts').then(
     ({ YtDlpManager }) =>
       new YtDlpManager(
@@ -114,7 +132,9 @@ function makeManager(network?: () => { cookieBrowser: string; cookiesFile: strin
             cookiesFile: null,
             proxyUrl: '',
             downloadArchive: null
-          }))
+          })),
+        undefined,
+        extCookiesDir ?? null
       )
   )
 }
@@ -126,6 +146,8 @@ describe('ytdlp pure helpers', () => {
     assert.equal(mapYtDlpError('ERROR: This video is unavailable'), 'unavailable')
     assert.equal(mapYtDlpError('Private video'), 'unavailable')
     assert.equal(mapYtDlpError('Sign in to confirm your age'), 'login-required')
+    // Fix 2(d): a message carrying both 404 and a login phrase is not-found.
+    assert.equal(mapYtDlpError('ERROR: 404 Not Found — Sign in to confirm your age'), 'not-found')
     assert.equal(mapYtDlpError('This video has DRM'), 'drm')
     assert.equal(mapYtDlpError('spawn yt-dlp.exe ENOENT'), 'engine-missing')
     assert.equal(mapYtDlpError('ERROR: 403 Forbidden'), 'forbidden')
@@ -141,14 +163,26 @@ describe('ytdlp pure helpers', () => {
     assert.deepEqual(rewriteLimitRate(['-x', '--limit-rate', '100K'], 0), ['-x'])
     assert.deepEqual(rewriteLimitRate(['-x', '--limit-rate=100K'], 0), ['-x', '--limit-rate=100K'])
     assert.deepEqual(rewriteLimitRate(['-x'], 512), ['-x', '--limit-rate', '512K'])
-    assert.deepEqual(rewriteLimitRate(['-x', '-o', 'out.mp4'], 256), ['-x', '--limit-rate', '256K', '-o', 'out.mp4'])
+    assert.deepEqual(rewriteLimitRate(['-x', '-o', 'out.mp4'], 256), [
+      '-x',
+      '--limit-rate',
+      '256K',
+      '-o',
+      'out.mp4'
+    ])
   })
 
   it('parseProgressLine: short-key JSON only; NA -> nulls; finished status; plain text -> null', async () => {
     const { parseProgressLine } = await import('../src/main/engines/ytdlp.ts')
     // The progress template emits {"d":...,"t":...,"s":...,"e":...,"st":...}.
     const json = parseProgressLine('{"d":50,"t":100,"s":10,"e":5,"st":"downloading"}')
-    assert.deepEqual(json, { doneBytes: 50, totalBytes: 100, speedBps: 10, etaSeconds: 5, status: 'downloading' })
+    assert.deepEqual(json, {
+      doneBytes: 50,
+      totalBytes: 100,
+      speedBps: 10,
+      etaSeconds: 5,
+      status: 'downloading'
+    })
     assert.deepEqual(parseProgressLine('{"d":NA,"t":NA,"s":NA,"e":NA,"st":"downloading"}'), {
       doneBytes: 0,
       totalBytes: 0,
@@ -156,7 +190,10 @@ describe('ytdlp pure helpers', () => {
       etaSeconds: null,
       status: 'downloading'
     })
-    assert.equal(parseProgressLine('{"d":100,"t":100,"s":0,"e":0,"st":"finished"}')?.status, 'finished')
+    assert.equal(
+      parseProgressLine('{"d":100,"t":100,"s":0,"e":0,"st":"finished"}')?.status,
+      'finished'
+    )
     assert.equal(parseProgressLine('[download] 42.5% of 10.00MiB at 1.23MiB/s ETA 00:04'), null)
     assert.equal(parseProgressLine('some random line'), null)
     assert.equal(parseProgressLine('{"d":50,'), null)
@@ -173,10 +210,11 @@ describe('ytdlp pure helpers', () => {
       writeFileSync(join(dir, 'Other.mp4.part'), 'x')
       const found = ytdlpPartFiles(join(dir, 'Film.mp4'))
       // readdir order is not guaranteed — compare as a sorted set.
-      assert.deepEqual(
-        found.map((f) => basename(f)).sort(),
-        ['Film.f140.m4a.part', 'Film.f399.mp4.part', 'Film.mp4.ytdl']
-      )
+      assert.deepEqual(found.map((f) => basename(f)).sort(), [
+        'Film.f140.m4a.part',
+        'Film.f399.mp4.part',
+        'Film.mp4.ytdl'
+      ])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -238,7 +276,9 @@ describe('ytdlp buildArgs (pure, no spawn)', () => {
     assert.ok(clip.includes('--download-sections'))
     assert.ok(clip.includes('*00:00:10-00:00:30'))
     assert.ok(clip.includes('--force-keyframes-at-cuts'))
-    const subs = m.buildArgs(baseOpts({ subtitles: true, subLang: 'en', subMode: 'both', embedThumbnail: true }))
+    const subs = m.buildArgs(
+      baseOpts({ subtitles: true, subLang: 'en', subMode: 'both', embedThumbnail: true })
+    )
     assert.ok(subs.includes('--write-subs'))
     assert.ok(subs.includes('--sub-langs'))
     assert.ok(subs.includes('en'))
@@ -262,16 +302,29 @@ describe('ytdlp buildArgs (pure, no spawn)', () => {
     assert.ok(args.includes('http://proxy.example:8080'))
     assert.ok(args.includes('--download-archive'))
     assert.ok(args.includes('C:\\DL\\archive.txt'))
-    const fileCookies = await makeManager(() => ({
-      cookieBrowser: 'none',
-      cookiesFile: 'C:\\DL\\cookies.txt',
-      proxyUrl: '',
-      downloadArchive: null
-    }))
-    const args2 = fileCookies.buildArgs(baseOpts())
-    assert.ok(args2.includes('--cookies'))
-    assert.ok(args2.includes('C:\\DL\\cookies.txt'))
-    assert.ok(!args2.includes('--cookies-from-browser'))
+    // Fix 2(c): --cookies is only passed for a real, valid file — a
+    // missing/corrupt path is skipped, so the test writes one.
+    const cookiesDir = mkdtempSync(join(tmpdir(), 'dovira-cookies-override-'))
+    const cookiesPath = join(cookiesDir, 'cookies.txt')
+    const future = Math.floor(Date.now() / 1000) + 3600
+    writeFileSync(
+      cookiesPath,
+      `# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t${future}\tsession\tabc123\n`
+    )
+    try {
+      const fileCookies = await makeManager(() => ({
+        cookieBrowser: 'none',
+        cookiesFile: cookiesPath,
+        proxyUrl: '',
+        downloadArchive: null
+      }))
+      const args2 = fileCookies.buildArgs(baseOpts())
+      assert.ok(args2.includes('--cookies'))
+      assert.ok(args2.includes(cookiesPath))
+      assert.ok(!args2.includes('--cookies-from-browser'))
+    } finally {
+      rmSync(cookiesDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -286,13 +339,26 @@ describe('ytdlp fetchInfo / fetchPlaylist (spawn mocked)', () => {
     description: 'A test film.',
     categories: ['Education'],
     formats: [
-      { format_id: '399', ext: 'mp4', height: 1080, filesize: 1000, vcodec: 'avc1', acodec: 'none' },
+      {
+        format_id: '399',
+        ext: 'mp4',
+        height: 1080,
+        filesize: 1000,
+        vcodec: 'avc1',
+        acodec: 'none'
+      },
       { format_id: '140', ext: 'm4a', height: null, filesize: 200, vcodec: 'none', acodec: 'mp4a' }
     ],
     thumbnails: [{ url: 'https://i.example/t2.jpg', width: 640, height: 360 }],
     subtitles: { en: [{ url: 'https://i.example/en.vtt', ext: 'vtt' }] },
     entries: [
-      { id: 'm1', title: 'Photo 1', webpage_url: 'https://x.example/m1', duration: 5, thumbnails: [{ url: 'https://i.example/m1.jpg' }] },
+      {
+        id: 'm1',
+        title: 'Photo 1',
+        webpage_url: 'https://x.example/m1',
+        duration: 5,
+        thumbnails: [{ url: 'https://i.example/m1.jpg' }]
+      },
       { id: 'm2', title: 'Photo 2', url: 'https://x.example/m2', duration: null }
     ]
   }
@@ -325,8 +391,22 @@ describe('ytdlp fetchInfo / fetchPlaylist (spawn mocked)', () => {
     assert.equal(info.isLive, false)
     assert.equal(info.extractor, null)
     assert.equal(info.formats.length, 2)
-    assert.deepEqual(info.formats[0], { id: '399', height: 1080, ext: 'mp4', filesize: 1000, note: null, combined: false })
-    assert.deepEqual(info.formats[1], { id: '140', height: null, ext: 'm4a', filesize: 200, note: null, combined: false })
+    assert.deepEqual(info.formats[0], {
+      id: '399',
+      height: 1080,
+      ext: 'mp4',
+      filesize: 1000,
+      note: null,
+      combined: false
+    })
+    assert.deepEqual(info.formats[1], {
+      id: '140',
+      height: null,
+      ext: 'm4a',
+      filesize: 200,
+      note: null,
+      combined: false
+    })
     assert.equal(info.thumbnail, 'https://i.example/t2.jpg')
     // categories[0] only; subtitles become a language list.
     assert.equal(info.ytCategory, 'Education')
@@ -347,8 +427,7 @@ describe('ytdlp fetchInfo / fetchPlaylist (spawn mocked)', () => {
     const m = await makeManager()
     // YtDlpError carries the code as a property; the message is the raw
     // stderr, so assert on .code, not on the message text.
-    const hasCode = (code: string) => (err: unknown) =>
-      (err as { code?: string }).code === code
+    const hasCode = (code: string) => (err: unknown) => (err as { code?: string }).code === code
     const errChild = makeChild()
     process.nextTick(() => errChild.emit('error', new Error('spawn ENOENT')))
     nextChild = errChild
@@ -376,7 +455,13 @@ describe('ytdlp fetchInfo / fetchPlaylist (spawn mocked)', () => {
       title: 'My Playlist',
       uploader: 'Tester',
       entries: [
-        { id: 'v1', title: 'One', duration: 10, thumbnail: 'https://i.example/1.jpg', webpage_url: 'https://youtu.be/v1' },
+        {
+          id: 'v1',
+          title: 'One',
+          duration: 10,
+          thumbnail: 'https://i.example/1.jpg',
+          webpage_url: 'https://youtu.be/v1'
+        },
         { id: 'v2', title: 'Two', duration: 20, url: 'https://youtu.be/v2' },
         { title: 'No id here' },
         { id: 'v3', title: 'Three', duration: 30 }
@@ -395,6 +480,108 @@ describe('ytdlp fetchInfo / fetchPlaylist (spawn mocked)', () => {
     assert.equal(out.entries[2].url, 'https://www.youtube.com/watch?v=v3')
     assert.ok(!spawnCalls[0].args.includes('--no-playlist'))
   })
+
+  it('isValidNetscapeCookiesText: comments/blank lines ok, 7 fields + numeric expiry, muse. invalid', async () => {
+    const { isValidNetscapeCookiesText, isValidNetscapeCookiesFile } =
+      await import('../src/main/util/fetchInfoCache.ts')
+    const future = Math.floor(Date.now() / 1000) + 3600
+    const good = `# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t${future}\tsession\tabc123\n`
+    assert.equal(isValidNetscapeCookiesText(good), true)
+    // #HttpOnly_ is a host-only marker, not a comment.
+    assert.equal(
+      isValidNetscapeCookiesText(
+        `# Netscape HTTP Cookie File\n#HttpOnly_.example.com\tTRUE\t/\tFALSE\t${future}\tsession\tabc123\n`
+      ),
+      true
+    )
+    assert.equal(isValidNetscapeCookiesText('muse.'), false)
+    assert.equal(isValidNetscapeCookiesText(''), false)
+    assert.equal(isValidNetscapeCookiesText('# only comments\n# nothing else\n'), false)
+    assert.equal(
+      isValidNetscapeCookiesText(`.example.com\tTRUE\t/\tFALSE\tnot-a-number\tsession\tabc123\n`),
+      false
+    )
+    assert.equal(
+      isValidNetscapeCookiesText(`.example.com\tTRUE\t/\tFALSE\t${future}\tsession\n`),
+      false
+    )
+    assert.equal(isValidNetscapeCookiesText(`${good}short\tline\n`), false)
+    // File form: a missing file is invalid.
+    const dir = mkdtempSync(join(tmpdir(), 'dovira-cookies-valid-'))
+    try {
+      const f = join(dir, 'good.txt')
+      writeFileSync(f, good)
+      assert.equal(isValidNetscapeCookiesFile(f), true)
+      assert.equal(isValidNetscapeCookiesFile(join(dir, 'missing.txt')), false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('networkArgs: valid cookies passed; corrupt file skipped, managed file deleted, settings file kept', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dovira-cookies-'))
+    const managedDir = join(dir, 'ext-cookies')
+    mkdirSync(managedDir, { recursive: true })
+    const future = Math.floor(Date.now() / 1000) + 3600
+    const goodFile = join(dir, 'good.txt')
+    const badManaged = join(managedDir, 'bad.txt')
+    const badSettings = join(dir, 'settings-bad.txt')
+    writeFileSync(
+      goodFile,
+      `# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t${future}\tsession\tabc123\n`
+    )
+    writeFileSync(badManaged, 'muse.')
+    writeFileSync(badSettings, 'muse.')
+    const cookiesValue = (args: string[]): string | null => {
+      const i = args.indexOf('--cookies')
+      return i >= 0 ? args[i + 1] : null
+    }
+    try {
+      // Settings path, valid file -> --cookies present.
+      let m = await makeManager(
+        () => ({
+          cookieBrowser: 'none',
+          cookiesFile: goodFile,
+          proxyUrl: '',
+          downloadArchive: null
+        }),
+        managedDir
+      )
+      nextChild = answerJson(withEntries)
+      await m.fetchInfo('https://youtu.be/abc123')
+      assert.equal(cookiesValue(spawnCalls[0].args), goodFile)
+      // Settings path, corrupt file -> skipped, file KEPT (user's own file).
+      spawnCalls = []
+      m = await makeManager(
+        () => ({
+          cookieBrowser: 'none',
+          cookiesFile: badSettings,
+          proxyUrl: '',
+          downloadArchive: null
+        }),
+        managedDir
+      )
+      nextChild = answerJson(withEntries)
+      await m.fetchInfo('https://youtu.be/abc123')
+      assert.equal(cookiesValue(spawnCalls[0].args), null)
+      assert.equal(existsSync(badSettings), true)
+      // Override path, corrupt managed file -> skipped AND deleted.
+      spawnCalls = []
+      m = await makeManager(undefined, managedDir)
+      nextChild = answerJson(withEntries)
+      await m.fetchInfo('https://youtu.be/abc123', { cookiesFile: badManaged })
+      assert.equal(cookiesValue(spawnCalls[0].args), null)
+      assert.equal(existsSync(badManaged), false)
+      // Override path, valid file -> --cookies present.
+      spawnCalls = []
+      m = await makeManager(undefined, managedDir)
+      nextChild = answerJson(withEntries)
+      await m.fetchInfo('https://youtu.be/abc123', { cookiesFile: goodFile })
+      assert.equal(cookiesValue(spawnCalls[0].args), goodFile)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('ytdlp YtDlpDownload (spawn mocked)', () => {
@@ -407,7 +594,13 @@ describe('ytdlp YtDlpDownload (spawn mocked)', () => {
     const m = await makeManager()
     const child = makeChild()
     nextChild = child
-    const progress: { doneBytes: number; totalBytes: number; speedBps: number; etaSeconds: number | null; status: string }[] = []
+    const progress: {
+      doneBytes: number
+      totalBytes: number
+      speedBps: number
+      etaSeconds: number | null
+      status: string
+    }[] = []
     const logs: string[] = []
     // The manager API is runDownload(args, callbacks) -> {job, done};
     // there is no startDownload method.
@@ -422,7 +615,9 @@ describe('ytdlp YtDlpDownload (spawn mocked)', () => {
     child.emit('close', 0)
     const result = await done
     assert.equal(result.code, 0)
-    assert.deepEqual(progress, [{ doneBytes: 50, totalBytes: 100, speedBps: 10, etaSeconds: 5, status: 'downloading' }])
+    assert.deepEqual(progress, [
+      { doneBytes: 50, totalBytes: 100, speedBps: 10, etaSeconds: 5, status: 'downloading' }
+    ])
     assert.ok(logs.some((l) => l.includes('yt-dlp: a warning')))
     assert.ok(job.getStderr().includes('[download] some plain line'))
   })
@@ -431,7 +626,10 @@ describe('ytdlp YtDlpDownload (spawn mocked)', () => {
     const m = await makeManager()
     const child = makeChild()
     nextChild = child
-    const { job, done } = m.runDownload(m.buildArgs(baseOpts()), { onProgress: () => undefined, onLog: () => undefined })
+    const { job, done } = m.runDownload(m.buildArgs(baseOpts()), {
+      onProgress: () => undefined,
+      onLog: () => undefined
+    })
     job.kill()
     assert.deepEqual(child.killCalls, ['SIGTERM'])
     child.emit('close', null)
@@ -471,7 +669,10 @@ describe('ytdlp recoverYtDlpRename (execFile mocked)', () => {
     // The first two cases return before any execFile call; the third needs
     // the no-streams probe. One mock install for the whole test.
     execFileMode = 'no-streams'
-    assert.equal(await recoverYtDlpRename(join(dir, 'no-ffmpeg-dir'), join(dir, 'x.mp4'), 'video', '320'), false)
+    assert.equal(
+      await recoverYtDlpRename(join(dir, 'no-ffmpeg-dir'), join(dir, 'x.mp4'), 'video', '320'),
+      false
+    )
     assert.equal(await recoverYtDlpRename(dir, join(dir, 'Empty.mp4'), 'video', '320'), false)
     writeFileSync(join(dir, FFMPEG_FILE), 'fake-ffmpeg')
     writeFileSync(join(dir, 'Film.f399.mp4.part'), 'video-bytes')
@@ -507,7 +708,9 @@ describe('ytdlp self-heal (fetchInfo retry after engine update)', () => {
     return child
   }
 
-  async function managerWithHeal(hook: () => Promise<boolean>): Promise<import('../src/main/engines/ytdlp.ts').YtDlpManager> {
+  async function managerWithHeal(
+    hook: () => Promise<boolean>
+  ): Promise<import('../src/main/engines/ytdlp.ts').YtDlpManager> {
     const { YtDlpManager } = await import('../src/main/engines/ytdlp.ts')
     return new YtDlpManager(
       'C:\\bin\\yt-dlp.exe',

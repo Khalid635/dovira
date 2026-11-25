@@ -45,6 +45,47 @@ export function cookiesFileHash(path: string | null | undefined): string | null 
   }
 }
 
+/**
+ * Fix 2(c): validate Netscape cookies.txt text, shared by the yt-dlp
+ * --cookies choke point (ytdlp.ts) and the Local API write point
+ * (localApi.ts) — a single definition, never duplicated.
+ *
+ * Valid = one or more cookie lines; `#` comment lines and blank lines
+ * are allowed. Every cookie line must split into exactly 7
+ * tab-separated fields with a numeric expiry (field 5). A `#HttpOnly_`
+ * prefix is NOT a comment — it marks a host-only cookie, so such a
+ * line still counts as a cookie line. A file with no cookie lines
+ * (empty, or comments only) is invalid: it carries no cookies, so
+ * passing it to yt-dlp would only fail the fetch. A file containing
+ * only `muse.` is invalid (one field, no tabs).
+ */
+export function isValidNetscapeCookiesText(text: string): boolean {
+  let cookies = 0
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    if (line.startsWith('#') && !line.startsWith('#HttpOnly_')) continue
+    const parts = line.split('\t')
+    if (parts.length !== 7) return false
+    if (!/^\d+$/.test(parts[4])) return false
+    cookies++
+  }
+  return cookies > 0
+}
+
+/**
+ * Read a cookies file and validate its text. An unreadable or missing
+ * file is invalid — the caller skips --cookies instead of handing
+ * yt-dlp a path it cannot use.
+ */
+export function isValidNetscapeCookiesFile(path: string): boolean {
+  try {
+    return isValidNetscapeCookiesText(readFileSync(path, 'utf-8'))
+  } catch {
+    return false
+  }
+}
+
 export class FetchInfoCache<V> {
   private entries = new Map<string, { at: number; value: V }>()
 

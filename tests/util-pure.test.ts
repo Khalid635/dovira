@@ -95,7 +95,10 @@ describe('filename: filenameFromUrl', () => {
       filenameFromUrl('https://x.example/a', 'attachment; filename="report 2024.pdf"'),
       'report 2024.pdf'
     )
-    assert.equal(filenameFromUrl('https://x.example/a', 'attachment; filename=plain.txt'), 'plain.txt')
+    assert.equal(
+      filenameFromUrl('https://x.example/a', 'attachment; filename=plain.txt'),
+      'plain.txt'
+    )
     assert.equal(filenameFromUrl('https://x.example/files/my%20file.zip'), 'my file.zip')
     assert.equal(filenameFromUrl('https://x.example/'), 'download')
     assert.equal(filenameFromUrl('not a url'), 'download')
@@ -122,6 +125,8 @@ describe('errors: mapEngineError', () => {
     ['unable to connect to host', 'network'],
     ['timed out after 30s', 'network'],
     ['HTTP Error 404: Not Found', 'not-found'],
+    // Fix 2(d): a message carrying both 404 and a login phrase is not-found.
+    ['ERROR: 404 Not Found — Sign in to confirm your age', 'not-found'],
     ['HTTP Error 403: Forbidden', 'forbidden'],
     ['401 Unauthorized', 'auth'],
     ['something completely different', 'unknown']
@@ -161,7 +166,10 @@ describe('categorize', () => {
   })
 
   it('organizeDir uses the user folder name, falling back to the category', () => {
-    assert.equal(organizeDir('D:\\DL', 'Video', { Video: 'My Videos' }), join('D:\\DL', 'My Videos'))
+    assert.equal(
+      organizeDir('D:\\DL', 'Video', { Video: 'My Videos' }),
+      join('D:\\DL', 'My Videos')
+    )
     assert.equal(organizeDir('D:\\DL', 'Video', {}), join('D:\\DL', 'Video'))
   })
 })
@@ -179,22 +187,13 @@ describe('naming: cleanTitle / applyTemplate / suggestName', () => {
   })
 
   it('applyTemplate drops the whole [height] segment when height is missing', () => {
-    assert.equal(
-      applyTemplate('{title} [{height}p]', { title: 'Song', height: null }),
-      'Song'
-    )
+    assert.equal(applyTemplate('{title} [{height}p]', { title: 'Song', height: null }), 'Song')
     assert.equal(
       applyTemplate('{title} [{height}p]', { title: 'Song', height: 720 }),
       'Song [720p]'
     )
-    assert.equal(
-      applyTemplate('{uploader} - {title}', { title: 'T', uploader: 'U' }),
-      'U - T'
-    )
-    assert.equal(
-      applyTemplate('{title} ({ext})', { title: 'T', ext: 'mp4' }),
-      'T (mp4)'
-    )
+    assert.equal(applyTemplate('{uploader} - {title}', { title: 'T', uploader: 'U' }), 'U - T')
+    assert.equal(applyTemplate('{title} ({ext})', { title: 'T', ext: 'mp4' }), 'T (mp4)')
     assert.equal(
       applyTemplate('{title} [{height}p]', { title: 'T', height: null, date: '2026-11-24' }),
       'T'
@@ -219,10 +218,7 @@ describe('naming: cleanTitle / applyTemplate / suggestName', () => {
       suggestName({ filename: 'a<b>.mp3', title: 'a<b>', template: '{title}' }),
       'a_b_.mp3'
     )
-    assert.equal(
-      suggestName({ filename: 'x.mp4', title: '', template: '{title}' }),
-      'download.mp4'
-    )
+    assert.equal(suggestName({ filename: 'x.mp4', title: '', template: '{title}' }), 'download.mp4')
   })
 })
 

@@ -43,6 +43,12 @@ export function mapEngineError(raw: string): FriendlyError {
   ) {
     return { code: 'unavailable', raw }
   }
+  // Fix 2(d): a 404 must win over login-required — a message carrying
+  // both (e.g. '404 Not Found — Sign in to confirm your age') is a
+  // missing video, not a login wall.
+  if (s.includes('404') || s.includes('not found')) {
+    return { code: 'not-found', raw }
+  }
   if (
     s.includes('sign in') ||
     s.includes('log in') ||
@@ -76,9 +82,6 @@ export function mapEngineError(raw: string): FriendlyError {
     s.includes('remote host')
   ) {
     return { code: 'network', raw }
-  }
-  if (s.includes('404') || s.includes('not found')) {
-    return { code: 'not-found', raw }
   }
   if (s.includes('403') || s.includes('forbidden')) {
     return { code: 'forbidden', raw }

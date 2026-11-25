@@ -441,7 +441,10 @@ app.whenReady().then(() => {
     } else if (outcome.updated) {
       logMain('info', `yt-dlp auto-update: updated to ${outcome.version}`)
     } else if (outcome.error) {
-      logMain('error', `yt-dlp auto-update FAILED: ${outcome.error} (kept ${outcome.version ?? 'unknown'})`)
+      logMain(
+        'error',
+        `yt-dlp auto-update FAILED: ${outcome.error} (kept ${outcome.version ?? 'unknown'})`
+      )
     } else {
       logMain('info', `yt-dlp auto-update: already current (${outcome.version})`)
     }
@@ -456,18 +459,29 @@ app.whenReady().then(() => {
   }
 
   // Phase 3: yt-dlp reads cookies + proxy live from Settings on every call.
-  const ytdlp = new YtDlpManager(ytDlpBinary as string, binDir, denoBinary, () => {
-    const s = settings.get()
-    return {
-      cookieBrowser: s.cookieBrowser,
-      cookiesFile: s.cookiesFile,
-      proxyUrl: s.proxyUrl,
-      // Phase 4: the download archive lives in userData; only when the
-      // skip-downloaded setting is on.
-      downloadArchive: s.playlistSkipDownloaded ? join(userData, 'download-archive.txt') : null
-    }
-  }, healYtDlp)
+  const ytdlp = new YtDlpManager(
+    ytDlpBinary as string,
+    binDir,
+    denoBinary,
+    () => {
+      const s = settings.get()
+      return {
+        cookieBrowser: s.cookieBrowser,
+        cookiesFile: s.cookiesFile,
+        proxyUrl: s.proxyUrl,
+        // Phase 4: the download archive lives in userData; only when the
+        // skip-downloaded setting is on.
+        downloadArchive: s.playlistSkipDownloaded ? join(userData, 'download-archive.txt') : null
+      }
+    },
+    healYtDlp,
+    join(userData, 'ext-cookies')
+  )
   queue = new QueueManager(db, settings, aria2, ytdlp)
+  // Fix 2(a): resume rows left 'queued' by a previous session. The
+  // constructor deliberately never pumps (tests construct a second
+  // manager over seeded rows), so this one explicit call does it.
+  void queue.resumeQueued()
 
   // v1.4.1: IDM-style progress window — open a small window the moment
   // any download starts (Add dialog, extension, Assistant). The
@@ -534,41 +548,47 @@ app.whenReady().then(() => {
   // so the user picks quality/audio); the direct path stays for API
   // senders and the AI Assistant, and onDirectDownloadStarted below
   // brings the window forward when one starts.
-  localApi = new LocalApiServer(settings, queue, userData, {
-    onExtensionDownload: (req: ExtensionDownloadRequest) => {
-      // v1.4.1: address the MAIN window explicitly. getAllWindows()[0]
-      // used to be the main window, but once a download progress window
-      // exists it can be [0] instead — the dialog would then open in a
-      // store that never renders it, and the main window shows nothing
-      // (found live 2026-11-24: dialog opens with no progress window,
-      // never with one). mainWindow is set by createWindow() below
-      // before any POST can arrive, and the closure reads it live.
-      const win = mainWindow
-      if (win) {
-        // 2026-11-24: show() + focus() alone did NOT bring the window
-        // forward over Brave — Windows blocks a background app from
-        // stealing focus, and show() on a visible window does not
-        // reorder it. bringToFront pulses always-on-top so the dialog
-        // is actually seen; it also revives a minimized or
-        // tray-hidden window.
-        logMain('info', 'local-api: bringing main window forward for extension dialog')
-        bringToFront(win)
-        win.webContents.send('dovira:extension:download', req)
+  localApi = new LocalApiServer(
+    settings,
+    queue,
+    userData,
+    {
+      onExtensionDownload: (req: ExtensionDownloadRequest) => {
+        // v1.4.1: address the MAIN window explicitly. getAllWindows()[0]
+        // used to be the main window, but once a download progress window
+        // exists it can be [0] instead — the dialog would then open in a
+        // store that never renders it, and the main window shows nothing
+        // (found live 2026-11-24: dialog opens with no progress window,
+        // never with one). mainWindow is set by createWindow() below
+        // before any POST can arrive, and the closure reads it live.
+        const win = mainWindow
+        if (win) {
+          // 2026-11-24: show() + focus() alone did NOT bring the window
+          // forward over Brave — Windows blocks a background app from
+          // stealing focus, and show() on a visible window does not
+          // reorder it. bringToFront pulses always-on-top so the dialog
+          // is actually seen; it also revives a minimized or
+          // tray-hidden window.
+          logMain('info', 'local-api: bringing main window forward for extension dialog')
+          bringToFront(win)
+          win.webContents.send('dovira:extension:download', req)
+        }
+      },
+      onDirectDownloadStarted: () => {
+        // The queue's status/progress events already refresh the list —
+        // just bring the window forward over the download in progress.
+        // Same explicit-main-window rule as onExtensionDownload above,
+        // and the same bringToFront treatment: plain show() + focus()
+        // cannot steal the foreground from the browser on Windows.
+        const win = mainWindow
+        if (win) {
+          logMain('info', 'local-api: bringing main window forward for direct download')
+          bringToFront(win)
+        }
       }
     },
-    onDirectDownloadStarted: () => {
-      // The queue's status/progress events already refresh the list —
-      // just bring the window forward over the download in progress.
-      // Same explicit-main-window rule as onExtensionDownload above,
-      // and the same bringToFront treatment: plain show() + focus()
-      // cannot steal the foreground from the browser on Windows.
-      const win = mainWindow
-      if (win) {
-        logMain('info', 'local-api: bringing main window forward for direct download')
-        bringToFront(win)
-      }
-    }
-  }, getSetupGuideVideoPath(app.getAppPath(), process.resourcesPath))
+    getSetupGuideVideoPath(app.getAppPath(), process.resourcesPath)
+  )
   void localApi.start()
 
   applyRuntimeSettings(settings.get())

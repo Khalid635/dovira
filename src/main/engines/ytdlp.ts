@@ -1,7 +1,8 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { logMain } from '../logger.ts'
+import { isValidNetscapeCookiesFile } from '../util/fetchInfoCache.ts'
 import { parseMediaItems, type YtDlpMediaItem } from '../util/mediaItems.ts'
 
 export type { YtDlpMediaItem } from '../util/mediaItems.ts'
@@ -142,6 +143,10 @@ export function mapYtDlpError(raw: string): string {
   ) {
     return 'unavailable'
   }
+  // Fix 2(d): a 404 must win over login-required — a message carrying
+  // both (e.g. '404 Not Found — Sign in to confirm your age') is a
+  // missing video, not a login wall.
+  if (s.includes('404') || s.includes('not found')) return 'not-found'
   if (
     s.includes('sign in') ||
     s.includes('log in') ||
@@ -160,7 +165,6 @@ export function mapYtDlpError(raw: string): string {
     return 'unsupported'
   }
   if (s.includes('403') || s.includes('forbidden')) return 'forbidden'
-  if (s.includes('404') || s.includes('not found')) return 'not-found'
   if (s.includes('timed out') || s.includes('etimedout')) return 'network'
   return 'unknown'
 }
@@ -487,6 +491,7 @@ export class YtDlpManager {
   private denoPath: string | null
   private getNetwork?: () => YtDlpNetworkOptions
   private onStaleEngine?: () => Promise<boolean>
+  private extCookiesDir: string | null
 
   constructor(
     binaryPath: string,
@@ -504,13 +509,21 @@ export class YtDlpManager {
      * when yt-dlp was actually updated to a newer release, so a retry is
      * worth attempting. The manager never updates the engine itself.
      */
-    onStaleEngine?: () => Promise<boolean>
+    onStaleEngine?: () => Promise<boolean>,
+    /**
+     * Fix 2(c): the dir holding the Local API's per-link temp cookies
+     * files (userData/ext-cookies). A corrupt file under it is deleted
+     * when skipped; anything else is left alone. Null in tests / when
+     * unknown — then nothing is ever deleted.
+     */
+    extCookiesDir?: string | null
   ) {
     this.binaryPath = binaryPath
     this.ffmpegDir = ffmpegDir
     this.denoPath = denoPath
     this.getNetwork = getNetwork
     this.onStaleEngine = onStaleEngine
+    this.extCookiesDir = extCookiesDir ?? null
   }
 
   /**
@@ -519,6 +532,42 @@ export class YtDlpManager {
    * Phase 5: an override (browser extension, per link) replaces the
    * Settings cookies for this one call.
    */
+  /**
+   * Fix 2(c): a corrupt cookies file must never reach yt-dlp — it used
+   * to mask the real failure as login-required. Validate first; an
+   * invalid file is skipped with a warning. A file the app itself
+   * wrote (under the ext-cookies dir) is deleted; the user's own
+   * Settings file is left alone — skip + warn only.
+   */
+  private cookiesArgs(file: string): string[] {
+    if (!isValidNetscapeCookiesFile(file)) {
+      logMain('warn', `Skipping invalid cookies file (not passed to yt-dlp): ${file}`)
+      if (this.isManagedCookiesFile(file)) {
+        try {
+          unlinkSync(file)
+        } catch {
+          // Best-effort cleanup of our own temp file.
+        }
+      }
+      return []
+    }
+    return ['--cookies', file]
+  }
+
+  /**
+   * True when the file lives under the app's ext-cookies dir. Compared
+   * on resolved path segments — never a hardcoded Windows path. On
+   * Windows the comparison is case-insensitive.
+   */
+  private isManagedCookiesFile(file: string): boolean {
+    if (!this.extCookiesDir) return false
+    const norm = (p: string): string => {
+      const r = resolve(p)
+      return process.platform === 'win32' ? r.toLowerCase() : r
+    }
+    return norm(file).startsWith(norm(this.extCookiesDir) + sep)
+  }
+
   private networkArgs(override?: NetOverride): string[] {
     // Phase 3: cookies + proxy, wired into every yt-dlp call. A cookies.txt
     // file is used only when no browser is selected; the browser flag takes
@@ -526,12 +575,14 @@ export class YtDlpManager {
     const args: string[] = []
     const net = this.getNetwork?.()
     if (override?.cookiesFile) {
-      args.push('--cookies', override.cookiesFile)
+      // A per-link override replaces the Settings cookies for this call —
+      // no fallback to Settings when it is unusable.
+      args.push(...this.cookiesArgs(override.cookiesFile))
     } else if (net) {
       if (net.cookieBrowser && net.cookieBrowser !== 'none') {
         args.push('--cookies-from-browser', net.cookieBrowser)
       } else if (net.cookiesFile) {
-        args.push('--cookies', net.cookiesFile)
+        args.push(...this.cookiesArgs(net.cookiesFile))
       }
       if (net.proxyUrl) args.push('--proxy', net.proxyUrl)
     }

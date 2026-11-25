@@ -880,7 +880,7 @@ export default function AddDownloadDialog(): React.JSX.Element {
       onClick={closeDialog}
     >
       <div
-        className="card w-full max-w-[560px] p-5"
+        className="card max-h-[80vh] w-full max-w-[560px] overflow-y-auto p-5"
         role="dialog"
         aria-label={t('dialog.title')}
         onClick={(e) => e.stopPropagation()}

@@ -279,14 +279,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // used to send direct: true (removed 2026-11-24: no quality /
     // audio choice that way). The `direct` flag is still passed
     // through for any sender that sets it.
-    void sendToApp(msg.url, msg.referer, msg.direct === true).then((r) => sendResponse(r))
+    // Fix 2(b): the sender's button sits on "Sending…" until this replies,
+    // so a rejection anywhere inside sendToApp (e.g. storage failing)
+    // must still answer — a lost reply is the forever-hang. The 401 case
+    // itself already answers { ok:false, error:'unauthorized' } (the
+    // floating button then shows "Pair DOVIRA"); this catch is the
+    // backstop for every other failure.
+    void sendToApp(msg.url, msg.referer, msg.direct === true)
+      .then((r) => sendResponse(r))
+      .catch(() => sendResponse({ ok: false, error: 'failed' }))
     return true // async response
   }
   if (msg.type === 'dovira-ping') {
+    // Fix 2(b): same never-lose-the-reply rule as above — the popup /
+    // options page waits on this response to clear its status.
     void (async () => {
-      const r = await pingApp()
-      if (r.ok) await syncExtensionSettings()
-      sendResponse(r)
+      try {
+        const r = await pingApp()
+        if (r.ok) await syncExtensionSettings()
+        sendResponse(r)
+      } catch {
+        sendResponse({ ok: false, error: 'failed' })
+      }
     })()
     return true // async response
   }
